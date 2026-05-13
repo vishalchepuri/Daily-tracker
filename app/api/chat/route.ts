@@ -2,7 +2,13 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import type { Exercise, WorkoutExercise } from "@prisma/client";
+
+type WorkoutExerciseWithExercise = {
+  id: string;
+  exercise: {
+    name: string;
+  };
+};
 
 type AgentAction =
   | {
@@ -455,7 +461,7 @@ async function executeAgentAction(userId: string, action: AgentAction) {
       include: { exercises: { include: { exercise: true } } },
     });
     if (!template) return { type: action.type, label: `Could not find ${action.templateName}`, id: action.templateName };
-    const matches = template.exercises.filter((item: WorkoutExercise & { exercise: Exercise }) =>
+    const matches = template.exercises.filter((item: WorkoutExerciseWithExercise) =>
       item.exercise.name.toLowerCase().includes(action.exerciseName.toLowerCase())
     );
     for (const match of matches) {
