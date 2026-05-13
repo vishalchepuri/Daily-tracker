@@ -1,10 +1,10 @@
 # FitCoach Pro Dashboard
 
-FitCoach Pro is a local-first fitness, nutrition, health, and AI coaching dashboard built with Next.js, Prisma, SQLite, and NextAuth.
+FitCoach Pro is a fitness, nutrition, health, reminders, and AI coaching dashboard built with Next.js, Prisma, PostgreSQL, and NextAuth.
 
 ## Current Status
 
-The app runs locally with SQLite and includes dashboard pages for fitness, health, workouts, nutrition, progress, Apple Health imports, and an AI coach/agent.
+The app runs locally against a PostgreSQL database and includes dashboard pages for workouts, nutrition, diet plans, reminders, progress, Telegram reminders, and an AI coach/agent.
 
 Default local URL:
 
@@ -12,19 +12,12 @@ Default local URL:
 http://localhost:3000
 ```
 
-Seed login:
-
-```bash
-Email: john@doe.com
-Password: johndoe123
-```
-
 ## Tech Stack
 
 - Next.js 14 App Router
 - React 18
 - Prisma 6
-- SQLite local database
+- PostgreSQL database
 - NextAuth credentials login
 - Tailwind CSS
 - shadcn/Radix UI components
@@ -44,16 +37,10 @@ Generate Prisma Client:
 pnpm exec prisma generate
 ```
 
-Create/update the local database:
+Create/update the database:
 
 ```bash
 pnpm exec prisma db push
-```
-
-If `db push` has a local Prisma engine issue on Windows, generate SQL and execute through Prisma:
-
-```bash
-pnpm exec prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script | pnpm exec prisma db execute --stdin --schema prisma/schema.prisma
 ```
 
 Seed starter data:
@@ -70,14 +57,19 @@ pnpm dev
 
 ## Environment
 
-Required `.env` values:
+Do not commit `.env`. Copy `.env.example` to `.env` locally and fill in real values:
 
 ```bash
-DATABASE_URL="file:./dev.db"
-NEXTAUTH_SECRET="change-me"
+cp .env.example .env
+```
+
+Required values:
+
+```bash
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require"
+NEXTAUTH_SECRET="replace-with-a-long-random-secret"
+NEXTAUTH_URL="http://localhost:3000"
 ABACUSAI_API_KEY="your-key"
-GOOGLE_CLIENT_ID=""
-GOOGLE_CLIENT_SECRET=""
 ```
 
 Gmail spend import requires a Google OAuth app with Gmail API enabled and the redirect URL:
@@ -94,6 +86,32 @@ AWS_REGION=
 AWS_BUCKET_NAME=
 AWS_FOLDER_PREFIX=
 ```
+
+Telegram reminders require:
+
+```bash
+TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
+```
+
+## Deployment
+
+This app cannot be fully hosted on GitHub Pages / `github.io` because it uses:
+
+- Next.js API routes
+- NextAuth server-side authentication
+- Prisma database access
+- private environment variables such as `DATABASE_URL`, `NEXTAUTH_SECRET`, `ABACUSAI_API_KEY`, and `TELEGRAM_BOT_TOKEN`
+
+GitHub Pages only serves static files and does not provide a secure server runtime for those secrets.
+
+Recommended hosting:
+
+- Vercel
+- Render
+- Railway
+- Fly.io
+
+Set environment variables in the hosting provider's dashboard. Do not put secrets in source code or commit them to GitHub.
 
 ## Features
 
