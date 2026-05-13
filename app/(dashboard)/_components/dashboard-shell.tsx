@@ -1,0 +1,393 @@
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { signOut } from "next-auth/react";
+import {
+  LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
+  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+
+const navItems = [
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Reminders", href: "/reminders", icon: ListTodo },
+  { label: "Spends", href: "/spends", icon: WalletCards },
+  { label: "Nutrition", href: "/nutrition", icon: Utensils },
+  { label: "Workouts", href: "/workouts", icon: Dumbbell },
+  { label: "Progress", href: "/progress", icon: TrendingUp },
+  { label: "Profile", href: "/profile", icon: UserCircle },
+];
+
+const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
+  "/dashboard": {
+    label: "Dashboard",
+    suggestions: [
+      "Summarize your daily fitness, nutrition, and progress signals.",
+      "Spot patterns across your latest logs.",
+      "Suggest the next best action for today.",
+    ],
+  },
+  "/reminders": {
+    label: "Reminders",
+    suggestions: [
+      "Create reminders for workouts, meals, water, or supplements.",
+      "Tune reminder timing around your schedule.",
+      "Turn missed habits into a realistic follow-up plan.",
+    ],
+  },
+  "/spends": {
+    label: "Spends",
+    suggestions: [
+      "Review fitness and food spending trends.",
+      "Find budget-friendly swaps for meals or gear.",
+      "Plan purchases around your goals.",
+    ],
+  },
+  "/nutrition": {
+    label: "Nutrition",
+    suggestions: [
+      "Estimate macros from meals or food photos.",
+      "Build meal ideas around your calorie and protein goals.",
+      "Explain what to adjust based on your recent eating pattern.",
+    ],
+  },
+  "/workouts": {
+    label: "Workouts",
+    suggestions: [
+      "Create a workout plan for your goal and available time.",
+      "Suggest exercise substitutions.",
+      "Review recent training and recommend progression.",
+    ],
+  },
+  "/progress": {
+    label: "Progress",
+    suggestions: [
+      "Explain your progress trends in plain language.",
+      "Identify plateaus or momentum shifts.",
+      "Recommend what to change next week.",
+    ],
+  },
+  "/integrations": {
+    label: "Integrations",
+    suggestions: [
+      "Explain what data imports can unlock.",
+      "Help interpret Apple Health or connected app data.",
+      "Suggest which metrics to track for your goals.",
+    ],
+  },
+  "/profile": {
+    label: "Profile",
+    suggestions: [
+      "Help set a realistic fitness goal.",
+      "Adjust targets for your body metrics and routine.",
+      "Translate preferences into a coaching plan.",
+    ],
+  },
+  "/chat": {
+    label: "AI Coach",
+    suggestions: [
+      "Ask questions about fitness, nutrition, recovery, or progress.",
+      "Upload food or health screenshots for analysis.",
+      "Turn your logs into practical next steps.",
+    ],
+  },
+};
+
+function getFeatureHelp(pathname: string | null) {
+  const match = Object.entries(featureHelp).find(([href]) => pathname === href || pathname?.startsWith?.(href + "/"));
+  return match?.[1] ?? featureHelp["/dashboard"];
+}
+
+function isProfileComplete(profile: any) {
+  return Boolean(profile?.age && profile?.weight && profile?.height);
+}
+
+export function DashboardShell({ children, user, initialProfile }: { children: React.ReactNode; user: any; initialProfile?: any }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [profileComplete, setProfileComplete] = useState(isProfileComplete(initialProfile));
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({
+    age: initialProfile?.age ? String(initialProfile.age) : "",
+    weight: initialProfile?.weight ? String(initialProfile.weight) : "",
+    height: initialProfile?.height ? String(initialProfile.height) : "",
+    gender: initialProfile?.gender ?? "male",
+    activityLevel: initialProfile?.activityLevel ?? "moderate",
+    goal: initialProfile?.goal ?? "muscle_gain",
+    healthLimitations: initialProfile?.healthLimitations ?? "",
+    foodAllergies: initialProfile?.foodAllergies ?? "",
+  });
+  const pathname = usePathname();
+  const currentFeature = getFeatureHelp(pathname);
+
+  const saveProfile = async () => {
+    if (!profileForm.age || !profileForm.weight || !profileForm.height) return;
+    setSavingProfile(true);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          age: parseInt(profileForm.age) || null,
+          weight: parseFloat(profileForm.weight) || null,
+          height: parseFloat(profileForm.height) || null,
+          gender: profileForm.gender,
+          activityLevel: profileForm.activityLevel,
+          goal: profileForm.goal,
+          healthLimitations: profileForm.healthLimitations || "None",
+          foodAllergies: profileForm.foodAllergies || "None",
+        }),
+      });
+      if (res.ok) setProfileComplete(true);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex bg-background">
+      <Dialog open={!profileComplete}>
+        <DialogContent className="sm:max-w-[32rem]" hideClose>
+          <DialogHeader>
+            <DialogTitle>Set up your fitness profile</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              These details help calculate accurate calories, macros, and coaching answers.
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <Label>Age</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={profileForm.age}
+                  onChange={(e) => setProfileForm({ ...profileForm, age: e.target.value })}
+                  className="mt-1"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <Label>Weight (kg)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value={profileForm.weight}
+                  onChange={(e) => setProfileForm({ ...profileForm, weight: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+              <div>
+                <Label>Height (cm)</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value={profileForm.height}
+                  onChange={(e) => setProfileForm({ ...profileForm, height: e.target.value })}
+                  className="mt-1"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <Label>Gender</Label>
+                <Select value={profileForm.gender} onValueChange={(value) => setProfileForm({ ...profileForm, gender: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Activity</Label>
+                <Select value={profileForm.activityLevel} onValueChange={(value) => setProfileForm({ ...profileForm, activityLevel: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sedentary">Sedentary</SelectItem>
+                    <SelectItem value="light">Light</SelectItem>
+                    <SelectItem value="moderate">Moderate</SelectItem>
+                    <SelectItem value="active">Very Active</SelectItem>
+                    <SelectItem value="very_active">Extremely Active</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Goal</Label>
+                <Select value={profileForm.goal} onValueChange={(value) => setProfileForm({ ...profileForm, goal: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
+                    <SelectItem value="fat_loss">Fat Loss</SelectItem>
+                    <SelectItem value="maintain">Maintain</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <Label>Joint pain, injuries, surgeries</Label>
+                <Input
+                  value={profileForm.healthLimitations}
+                  onChange={(e) => setProfileForm({ ...profileForm, healthLimitations: e.target.value })}
+                  className="mt-1"
+                  placeholder="None, knee pain, shoulder surgery..."
+                />
+              </div>
+              <div>
+                <Label>Food allergies or avoided foods</Label>
+                <Input
+                  value={profileForm.foodAllergies}
+                  onChange={(e) => setProfileForm({ ...profileForm, foodAllergies: e.target.value })}
+                  className="mt-1"
+                  placeholder="None, peanuts, lactose..."
+                />
+              </div>
+            </div>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={saveProfile}
+              disabled={savingProfile || !profileForm.age || !profileForm.weight || !profileForm.height}
+            >
+              {savingProfile ? "Saving..." : "Save and Continue"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {sidebarOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
+
+      <aside
+        className={cn(
+          "fixed lg:sticky top-0 left-0 z-50 h-screen w-64 bg-card border-r border-border flex flex-col transition-transform duration-300",
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        )}
+      >
+        <div className="flex items-center gap-2 px-4 h-16 border-b border-border">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
+            <Dumbbell className="w-5 h-5 text-primary-foreground" />
+          </div>
+          <span className="font-display font-bold text-lg tracking-tight">FitCoach Pro</span>
+          <button className="lg:hidden ml-auto" onClick={() => setSidebarOpen(false)}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+          {(navItems ?? []).map((item: any) => {
+            const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
+            return (
+              <Link
+                key={item?.href}
+                href={item?.href}
+                onClick={() => setSidebarOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                  isActive
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                )}
+              >
+                <item.icon className="w-5 h-5 shrink-0" />
+                {item?.label}
+                {isActive && <ChevronRight className="w-4 h-4 ml-auto" />}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="p-4 border-t border-border">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-sm font-bold">
+              {(user?.name ?? user?.email ?? "U")?.charAt?.(0)?.toUpperCase?.() ?? "U"}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{user?.name ?? "User"}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email ?? ""}</p>
+            </div>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start text-muted-foreground hover:text-destructive"
+            onClick={() => signOut({ callbackUrl: "/login" })}
+          >
+            <LogOut className="w-4 h-4 mr-2" />
+            Sign Out
+          </Button>
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col min-h-screen min-w-0">
+        <header className="sticky top-0 z-30 h-16 bg-card/80 backdrop-blur-md border-b border-border flex items-center px-4 lg:px-6">
+          <button className="lg:hidden mr-3" onClick={() => setSidebarOpen(true)}>
+            <Menu className="w-6 h-6" />
+          </button>
+          <h1 className="font-display font-semibold text-lg tracking-tight">
+            {(navItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
+          </h1>
+        </header>
+        <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
+          <div className="max-w-[1200px] mx-auto">{children}</div>
+        </main>
+      </div>
+
+      <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-3">
+        {coachOpen && (
+          <div className="w-[min(calc(100vw-2.5rem),22rem)] rounded-lg border border-border bg-card p-4 shadow-xl">
+            <div className="mb-3 flex items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Bot className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">You are in {currentFeature.label}</p>
+                <p className="mt-1 text-xs text-muted-foreground">You can do these things with AI:</p>
+              </div>
+              <button
+                type="button"
+                className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setCoachOpen(false)}
+                aria-label="Close AI help"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <ul className="space-y-2 text-sm text-muted-foreground">
+              {currentFeature.suggestions.map((suggestion) => (
+                <li key={suggestion} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                  <span>{suggestion}</span>
+                </li>
+              ))}
+            </ul>
+            <Button asChild className="mt-4 w-full">
+              <Link href="/chat" onClick={() => setCoachOpen(false)}>
+                Open AI Coach
+              </Link>
+            </Button>
+          </div>
+        )}
+        <Button
+          type="button"
+          size="icon"
+          className="h-12 w-12 rounded-full shadow-lg"
+          onClick={() => setCoachOpen((open) => !open)}
+          aria-label="Open AI coach help"
+        >
+          <MessageSquare className="h-5 w-5" />
+        </Button>
+      </div>
+    </div>
+  );
+}

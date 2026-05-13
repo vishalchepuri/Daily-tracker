@@ -1,0 +1,318 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+    provider = "sqlite"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  profile       UserProfile?
+  foodLogs      FoodLog[]
+  dietPlans     DietPlan[]
+  waterLogs     WaterLog[]
+  workoutLogs   WorkoutLog[]
+  workoutTemplates WorkoutTemplate[]
+  progressEntries ProgressEntry[]
+  chatMessages  ChatMessage[]
+  progressPhotos ProgressPhoto[]
+  healthMetrics HealthMetric[]
+  spends        Spend[]
+  reminderLists ReminderList[]
+  reminders     Reminder[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+  @@unique([identifier, token])
+}
+
+model UserProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  age           Int?
+  weight        Float?   // in kg
+  height        Float?   // in cm
+  gender        String?  // male, female
+  activityLevel String?  // sedentary, light, moderate, active, very_active
+  goal          String?  // muscle_gain, fat_loss, maintain
+  tdee          Float?
+  targetCalories Float?
+  targetProtein  Float?
+  targetCarbs    Float?
+  targetFat      Float?
+  targetFiber    Float?
+  targetWaterMl  Float?
+  targetSteps    Float?
+  targetActiveEnergy Float?
+  targetExerciseMinutes Float?
+  targetSleepMinutes Float?
+  targetWorkoutSessions Float?
+  targetTrainingMinutes Float?
+  targetLiftVolume Float?
+  targetWeeklyActiveEnergy Float?
+  healthLimitations String?
+  foodAllergies String?
+  telegramChatId String?
+  telegramEnabled Boolean @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Exercise {
+  id            String   @id @default(cuid())
+  name          String
+  muscleGroup   String   // chest, back, shoulders, legs, arms, core
+  equipment     String?  // barbell, dumbbell, machine, bodyweight, cable
+  description   String?
+  formTips      String?
+  category      String?  // compound, isolation
+  createdAt     DateTime @default(now())
+  workoutExercises WorkoutExercise[]
+  exerciseLogs  ExerciseLog[]
+}
+
+model WorkoutTemplate {
+  id            String   @id @default(cuid())
+  userId        String?
+  user          User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  dayOfWeek     String?  // Monday, Tuesday, etc
+  muscleGroups  String?  // comma-separated
+  difficulty    String?  // beginner, intermediate, advanced
+  exercises     WorkoutExercise[]
+  createdAt     DateTime @default(now())
+  @@index([userId])
+}
+
+model WorkoutExercise {
+  id              String   @id @default(cuid())
+  workoutTemplateId String
+  exerciseId      String
+  sets            Int      @default(3)
+  reps            String   @default("8-12")
+  restSeconds     Int      @default(90)
+  orderIndex      Int      @default(0)
+  workoutTemplate WorkoutTemplate @relation(fields: [workoutTemplateId], references: [id], onDelete: Cascade)
+  exercise        Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+}
+
+model WorkoutLog {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime @default(now())
+  templateName  String?
+  duration      Int?     // minutes
+  notes         String?
+  exerciseLogs  ExerciseLog[]
+  createdAt     DateTime @default(now())
+  @@index([userId, date])
+}
+
+model ExerciseLog {
+  id            String   @id @default(cuid())
+  workoutLogId  String
+  exerciseId    String
+  setNumber     Int
+  reps          Int
+  weight        Float    // in kg
+  workoutLog    WorkoutLog @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
+  exercise      Exercise   @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  @@index([workoutLogId])
+}
+
+model FoodLog {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime @default(now())
+  mealType      String   // breakfast, lunch, dinner, snack
+  foodName      String
+  servingSize   String?
+  calories      Float    @default(0)
+  protein       Float    @default(0)
+  carbs         Float    @default(0)
+  fat           Float    @default(0)
+  fiber         Float    @default(0)
+  createdAt     DateTime @default(now())
+  @@index([userId, date])
+}
+
+model DietPlan {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  goal      String?
+  notes     String?
+  mealsJson String   // JSON array of meals: mealType, title, foods, calories, protein, carbs, fat
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId])
+}
+
+model WaterLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime @default(now())
+  amountMl  Float
+  createdAt DateTime @default(now())
+  @@index([userId, date])
+}
+
+model ProgressEntry {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date          DateTime @default(now())
+  weight        Float?   // in kg
+  chest         Float?   // in cm
+  arms          Float?   // in cm
+  waist         Float?   // in cm
+  hips          Float?   // in cm
+  thighs        Float?   // in cm
+  notes         String?
+  createdAt     DateTime @default(now())
+  @@index([userId, date])
+}
+
+model ProgressPhoto {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date             DateTime @default(now())
+  cloudStoragePath String
+  isPublic         Boolean  @default(false)
+  label            String?  // front, side, back
+  createdAt        DateTime @default(now())
+  @@index([userId, date])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   // user, assistant
+  content   String
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+}
+
+model HealthMetric {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  value     Float
+  unit      String?
+  source    String?
+  startDate DateTime
+  endDate   DateTime?
+  createdAt DateTime @default(now())
+  externalId String?
+  @@index([userId, type, startDate])
+  @@unique([userId, externalId])
+}
+
+model Spend {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime @default(now())
+  merchant    String
+  amount      Float
+  currency    String   @default("USD")
+  category    String?
+  source      String   @default("manual")
+  emailSubject String?
+  emailFrom    String?
+  gmailMessageId String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([userId, date])
+  @@unique([userId, gmailMessageId])
+}
+
+model ReminderList {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  color     String   @default("#22c55e")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  reminders Reminder[]
+  @@index([userId])
+}
+
+model Reminder {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listId      String?
+  list        ReminderList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+  title       String
+  notes       String?
+  dueDate     DateTime?
+  recurrence  String   @default("none")
+  recurrenceCustom String?
+  priority    String   @default("none")
+  flagged     Boolean  @default(false)
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  telegramSentAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([userId, dueDate])
+  @@index([userId, completed])
+}
+
+model TelegramBotState {
+  id        String   @id @default("default")
+  offset    Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
