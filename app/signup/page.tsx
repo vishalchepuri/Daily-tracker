@@ -62,7 +62,7 @@ export default function SignupPage() {
           <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
             <Dumbbell className="w-6 h-6 text-primary-foreground" />
           </div>
-          <span className="text-2xl font-display font-bold tracking-tight">FitCoach Pro</span>
+          <span className="text-2xl font-display font-bold tracking-tight">Dayza</span>
         </div>
         <Card>
           <CardHeader className="text-center">
@@ -70,11 +70,20 @@ export default function SignupPage() {
             <CardDescription>Start your muscle-building journey today</CardDescription>
           </CardHeader>
           <CardContent>
-            {hasGoogle && (
-              <Button type="button" variant="outline" className="mb-4 w-full" onClick={() => signIn("google", { callbackUrl: "/dashboard" })}>
-                Continue with Google
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-4 w-full"
+              onClick={() => {
+                if (!hasGoogle) {
+                  toast.error("Google sign-in needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel");
+                  return;
+                }
+                signIn("google", { callbackUrl: "/dashboard" });
+              }}
+            >
+              Continue with Google
+            </Button>
             <form onSubmit={handleSignup} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>

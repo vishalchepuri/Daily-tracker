@@ -75,7 +75,7 @@ export default function ResetPasswordPage() {
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
             <Dumbbell className="h-6 w-6 text-primary-foreground" />
           </div>
-          <span className="font-display text-2xl font-bold tracking-tight">FitCoach Pro</span>
+          <span className="font-display text-2xl font-bold tracking-tight">Dayza</span>
         </div>
         <Suspense fallback={<div className="h-48 rounded-lg bg-muted animate-pulse" />}>
           <ResetPasswordForm />

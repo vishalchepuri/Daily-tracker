@@ -44,6 +44,15 @@ type AgentAction =
       date?: string;
     }
   | {
+      type: "create_spend_log";
+      merchant: string;
+      amount: number;
+      currency?: string;
+      category?: string;
+      date?: string;
+      notes?: string;
+    }
+  | {
       type: "create_workout_log";
       templateName?: string;
       duration?: number;
@@ -315,6 +324,22 @@ async function executeAgentAction(userId: string, action: AgentAction) {
       },
     });
     return { type: action.type, label: "Saved progress entry", id: entry.id };
+  }
+
+  if (action.type === "create_spend_log") {
+    const spend = await prisma.spend.create({
+      data: {
+        userId,
+        merchant: action.merchant,
+        amount: toNumber(action.amount),
+        currency: action.currency || "INR",
+        category: action.category || null,
+        date: action.date ? new Date(action.date) : new Date(),
+        notes: action.notes || "Logged by AI Coach.",
+        source: "manual",
+      },
+    });
+    return { type: action.type, label: `Logged spend at ${spend.merchant}`, id: spend.id };
   }
 
   if (action.type === "create_workout_log") {
@@ -594,7 +619,7 @@ export async function POST(req: Request) {
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentChat] =
+    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, recentChat] =
       await Promise.all([
         prisma.userProfile.findUnique({ where: { userId } }),
         prisma.foodLog.findMany({
@@ -626,6 +651,11 @@ export async function POST(req: Request) {
           orderBy: { updatedAt: "desc" },
           take: 10,
         }),
+        prisma.spend.findMany({
+          where: { userId },
+          orderBy: { date: "desc" },
+          take: 20,
+        }),
         prisma.chatMessage.findMany({
           where: { userId },
           orderBy: { createdAt: "desc" },
@@ -647,12 +677,13 @@ export async function POST(req: Request) {
       return streamSingleMessage(content);
     }
 
-    const systemPrompt = `You are FitCoach Pro Agent, an AI fitness agent inside a dashboard.
+    const systemPrompt = `You are Dayza Agent, an AI assistant inside a daily fitness, nutrition, spends, reminders, and progress dashboard.
 
 You can answer questions and, when the user clearly asks you to do it, perform these actions:
 - create_exercise: add a new exercise to the exercise library.
 - create_food_log: log a meal or snack.
 - create_progress_entry: save body weight, measurements, or progress notes.
+- create_spend_log: log a purchase, payment, receipt, or expense.
 - create_workout_log: save a completed workout. Only use exercise IDs that appear in context.
 - create_sleep_log: save sleep from a sleep screenshot or manual sleep message.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
@@ -665,6 +696,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - update_diet_plan: edit a saved diet plan when the user asks to modify meals/foods/macros.
 - delete_diet_plan: delete a saved diet plan when clearly requested.
 - When the user sends a food image, identify the food and estimate nutrition from the visible portion.
+- When the user sends a payment/receipt/spend screenshot, extract merchant, amount, currency, category, and date when visible.
 - When the user sends a sleep screenshot, read total sleep and stages, then log sleep.
 - When the user sends fitness/activity screenshots, extract visible daily/weekly goals or averages and update relevant targets.
 
@@ -737,6 +769,10 @@ ${JSON.stringify({
 - A food image by itself counts as a request to identify and log the food if the food and approximate portion are clear.
 - If the image has multiple possible foods, unclear portion size, hidden ingredients, or low confidence, ask for quantity/serving details instead of logging.
 - If you log food from an image, mention that calories/macros are estimates from the photo.
+- A payment, receipt, bank, UPI, card, or wallet screenshot counts as a request to log a spend only if merchant/payee and amount are clear.
+- For spend screenshots, use create_spend_log when merchant/payee and amount are clear. Use INR for Indian rupees, USD only when dollars are visible or implied.
+- If the spend screenshot is missing merchant, amount, category, or whether it was a transfer vs purchase, ask one short follow-up question instead of logging.
+- Choose practical spend categories such as Food, Groceries, Travel, Shopping, Health, Fitness, Bills, Subscriptions, Entertainment, or Other.
 - For sleep screenshots, extract date, total sleep, Awake, REM, Core, and Deep when visible. Convert hours/minutes to minutes.
 - If a sleep screenshot has total sleep visible, use create_sleep_log. If stages are not visible, log total only.
 - For sleep screenshots, also use update_wellness_targets with targetSleepMinutes when the screenshot shows a sleep goal or a reliable typical sleep duration.
@@ -756,6 +792,7 @@ Available action examples:
 {"type":"create_exercise","name":"Chest Press","muscleGroup":"chest","equipment":"machine","category":"compound","description":"Machine chest pressing movement for chest, shoulders, and triceps.","formTips":"Keep shoulder blades back, press smoothly, and avoid locking elbows hard."}
 {"type":"create_food_log","foodName":"Chicken breast","mealType":"lunch","servingSize":"200g","calories":330,"protein":62,"carbs":0,"fat":7,"fiber":0}
 {"type":"create_progress_entry","weight":80.5,"notes":"Felt strong today"}
+{"type":"create_spend_log","merchant":"Swiggy","amount":420,"currency":"INR","category":"Food","notes":"Logged from payment screenshot."}
 {"type":"create_workout_log","templateName":"Push Day","duration":60,"notes":"Good session","exercises":[{"exerciseId":"barbell-bench-press","setNumber":1,"reps":8,"weight":70}]}
 {"type":"create_sleep_log","date":"2026-05-12","totalMinutes":452,"awakeMinutes":45,"remMinutes":100,"coreMinutes":294,"deepMinutes":58}
 {"type":"update_wellness_targets","targetSleepMinutes":452,"targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
@@ -776,6 +813,7 @@ Available action examples:
       exercises,
       workoutTemplates,
       dietPlans,
+      recentSpends,
       requiresJointAwarePlan: isJointSensitive(profile?.healthLimitations),
       today: today.toISOString(),
     };
@@ -785,7 +823,7 @@ Available action examples:
             type: "text",
             text:
               message ||
-              "Analyze this image. If it is a food photo, identify and log the food when confident. If it is a sleep or fitness screenshot, extract visible totals/goals, log the activity or sleep, and update personalized targets when the screenshot clearly supports them.",
+              "Analyze this image. If it is a food photo, identify and log the food when confident. If it is a payment or receipt screenshot, log the spend when merchant and amount are clear. If it is a sleep or fitness screenshot, extract visible totals/goals, log the activity or sleep, and update personalized targets when the screenshot clearly supports them.",
           },
           {
             type: "image_url",

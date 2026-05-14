@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2 } from "lucide-react";
+import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -43,10 +43,17 @@ export default function WorkoutsPage() {
   const [logEntries, setLogEntries] = useState<any[]>([]);
   const [duration, setDuration] = useState("");
   const [notes, setNotes] = useState("");
+  const [activeWorkout, setActiveWorkout] = useState<any>(null);
+  const [activeStartedAt, setActiveStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
+  const [activeSet, setActiveSet] = useState({ weight: "", reps: "" });
+  const [activeEntries, setActiveEntries] = useState<any[]>([]);
   const [muscleFilter, setMuscleFilter] = useState("all");
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
   const [exerciseDialogOpen, setExerciseDialogOpen] = useState(false);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [selectedHistoryLog, setSelectedHistoryLog] = useState<any>(null);
   const [exerciseForm, setExerciseForm] = useState(blankExerciseForm);
   const [templateForm, setTemplateForm] = useState(blankTemplateForm);
 
@@ -55,7 +62,7 @@ export default function WorkoutsPage() {
       const [tRes, eRes, lRes] = await Promise.all([
         fetch("/api/workout-templates"),
         fetch("/api/exercises"),
-        fetch("/api/workout-logs?limit=20"),
+        fetch("/api/workout-logs?limit=100"),
       ]);
       const tData = await tRes.json();
       const eData = await eRes.json();
@@ -69,19 +76,58 @@ export default function WorkoutsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  useEffect(() => {
+    if (!activeStartedAt) return;
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - activeStartedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [activeStartedAt]);
+
+  const activeExercises = useMemo(() => activeWorkout?.exercises ?? [], [activeWorkout]);
+  const currentExercise = activeExercises[activeExerciseIndex];
+  const currentExerciseSets = activeEntries.filter((entry) => entry.exerciseId === currentExercise?.exercise?.id);
+  const lastExerciseLog = useMemo(() => {
+    const exerciseId = currentExercise?.exercise?.id;
+    if (!exerciseId) return null;
+
+    for (const log of workoutLogs ?? []) {
+      const matchingSets = (log?.exerciseLogs ?? [])
+        .filter((entry: any) => entry?.exerciseId === exerciseId)
+        .sort((a: any, b: any) => (a?.setNumber ?? 0) - (b?.setNumber ?? 0));
+
+      if (matchingSets.length > 0) {
+        return {
+          date: log?.date,
+          templateName: log?.templateName,
+          sets: matchingSets,
+        };
+      }
+    }
+
+    return null;
+  }, [currentExercise?.exercise?.id, workoutLogs]);
+  const elapsedMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
+  const elapsedLabel = `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
+  const lastExerciseLogDate = lastExerciseLog?.date
+    ? new Date(lastExerciseLog.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : null;
+
   const startWorkout = (template: any) => {
+    setActiveWorkout(template);
     setSelectedTemplate(template);
-    const entries = (template?.exercises ?? []).flatMap((we: any) =>
-      Array.from({ length: we?.sets ?? 3 }, (_: any, i: number) => ({
-        exerciseId: we?.exercise?.id ?? "",
-        exerciseName: we?.exercise?.name ?? "",
-        setNumber: i + 1,
-        reps: parseInt((we?.reps ?? "10").split("-")?.[0] ?? "10"),
-        weight: 0,
-      }))
-    );
-    setLogEntries(entries);
-    setLogDialogOpen(true);
+    setActiveStartedAt(Date.now());
+    setElapsedSeconds(0);
+    setActiveExerciseIndex(0);
+    setActiveEntries([]);
+    setDuration("");
+    setNotes("");
+    setActiveSet({
+      reps: String(parseInt((template?.exercises?.[0]?.reps ?? "10").split("-")?.[0] ?? "10")),
+      weight: "",
+    });
+    const page = document.querySelector("main");
+    page?.scrollTo?.({ top: 0, behavior: "smooth" });
   };
 
   const updateEntry = (idx: number, field: string, value: number) => {
@@ -111,6 +157,84 @@ export default function WorkoutsPage() {
         loadData();
       }
     } catch { toast.error("Failed to log workout"); }
+  };
+
+  const updateActiveExercise = (nextIndex: number) => {
+    const boundedIndex = Math.max(0, Math.min(nextIndex, activeExercises.length - 1));
+    setActiveExerciseIndex(boundedIndex);
+    setActiveSet({
+      reps: String(parseInt((activeExercises?.[boundedIndex]?.reps ?? "10").split("-")?.[0] ?? "10")),
+      weight: "",
+    });
+  };
+
+  const addActiveSet = () => {
+    if (!currentExercise?.exercise?.id) return;
+    const reps = parseInt(activeSet.reps) || 0;
+    if (reps <= 0) {
+      toast.error("Enter reps for this set");
+      return;
+    }
+    const nextSetNumber = Math.max(0, ...currentExerciseSets.map((set: any) => set.setNumber ?? 0)) + 1;
+    setActiveEntries((prev) => [
+      ...prev,
+      {
+        exerciseId: currentExercise.exercise.id,
+        exerciseName: currentExercise.exercise.name,
+        setNumber: nextSetNumber,
+        reps,
+        weight: parseFloat(activeSet.weight) || 0,
+      },
+    ]);
+    setActiveSet((prev) => ({ ...prev, weight: "" }));
+  };
+
+  const removeActiveSet = (entryIndex: number) => {
+    setActiveEntries((prev) => prev.filter((_, index) => index !== entryIndex));
+  };
+
+  const cancelActiveWorkout = () => {
+    if (activeEntries.length > 0 && !window.confirm("Discard this active workout?")) return;
+    setActiveWorkout(null);
+    setActiveStartedAt(null);
+    setActiveEntries([]);
+    setActiveExerciseIndex(0);
+    setNotes("");
+    setDuration("");
+  };
+
+  const finishActiveWorkout = async () => {
+    if (!activeWorkout || activeEntries.length === 0) {
+      toast.error("Log at least one set before finishing");
+      return;
+    }
+    try {
+      const res = await fetch("/api/workout-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          templateName: activeWorkout?.name ?? "Workout",
+          duration: duration ? parseInt(duration) : elapsedMinutes,
+          notes: notes || null,
+          exercises: activeEntries,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to finish workout");
+        return;
+      }
+      toast.success("Workout finished!");
+      setActiveWorkout(null);
+      setActiveStartedAt(null);
+      setActiveEntries([]);
+      setActiveExerciseIndex(0);
+      setNotes("");
+      setDuration("");
+      loadData();
+    } catch {
+      toast.error("Failed to finish workout");
+    }
   };
 
   const openExerciseDialog = (exercise?: any) => {
@@ -260,12 +384,50 @@ export default function WorkoutsPage() {
     }
   };
 
+  const deleteWorkoutLog = async (log: any) => {
+    if (!log?.id) return;
+    const confirmed = window.confirm(`Delete ${log.templateName ?? "this workout"} from history?`);
+    if (!confirmed) return;
+
+    try {
+      const res = await fetch(`/api/workout-logs?id=${log.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to delete workout");
+        return;
+      }
+      toast.success("Workout deleted");
+      if (selectedHistoryLog?.id === log.id) setSelectedHistoryLog(null);
+      loadData();
+    } catch {
+      toast.error("Failed to delete workout");
+    }
+  };
+
   const muscleGroups = ["all", "chest", "back", "shoulders", "legs", "arms", "core"];
   const editableMuscleGroups = muscleGroups.filter((item) => item !== "all");
   const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
   const filteredExercises = muscleFilter === "all"
     ? exercises
     : (exercises ?? []).filter((e: any) => e?.muscleGroup === muscleFilter);
+  const groupExerciseLogs = (exerciseLogs: any[] = []) => {
+    return exerciseLogs.reduce((groups: any[], entry: any) => {
+      const exerciseId = entry?.exerciseId ?? entry?.exercise?.id ?? "unknown";
+      const existing = groups.find((group) => group.exerciseId === exerciseId);
+      if (existing) {
+        existing.sets.push(entry);
+        existing.sets.sort((a: any, b: any) => (a?.setNumber ?? 0) - (b?.setNumber ?? 0));
+        return groups;
+      }
+      groups.push({
+        exerciseId,
+        exerciseName: entry?.exercise?.name ?? "Exercise",
+        sets: [entry],
+      });
+      return groups;
+    }, []);
+  };
+  const selectedHistoryGroups = groupExerciseLogs(selectedHistoryLog?.exerciseLogs ?? []);
 
   if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}</div>;
 
@@ -288,11 +450,144 @@ export default function WorkoutsPage() {
         </div>
       </FadeIn>
 
+      {activeWorkout && (
+        <FadeIn>
+          <Card className="border-primary/40 bg-primary/5">
+            <CardHeader className="space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Badge className="mb-2">Workout In Progress</Badge>
+                  <CardTitle className="break-words text-xl">{activeWorkout.name}</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {activeExerciseIndex + 1} of {activeExercises.length} exercises
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Badge variant="outline" className="font-mono">
+                    <Clock className="mr-1 h-3 w-3" />
+                    {elapsedLabel}
+                  </Badge>
+                  <Button variant="ghost" size="icon" onClick={cancelActiveWorkout} title="Cancel workout">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="rounded-lg border border-border bg-card p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-muted-foreground">Current exercise</p>
+                    <h3 className="mt-1 break-words text-lg font-semibold">{currentExercise?.exercise?.name ?? "Exercise"}</h3>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Target: {currentExercise?.sets ?? 3} sets x {currentExercise?.reps ?? "8-12"} reps
+                    </p>
+                  </div>
+                  <Badge variant="secondary">{currentExerciseSets.length} logged</Badge>
+                </div>
+
+                <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Last time</p>
+                    {lastExerciseLogDate && <Badge variant="outline">{lastExerciseLogDate}</Badge>}
+                  </div>
+                  {lastExerciseLog ? (
+                    <div className="mt-3 grid gap-2">
+                      {lastExerciseLog.sets.map((set: any) => (
+                        <div key={set.id} className="flex items-center justify-between rounded-md bg-background/60 px-3 py-2 text-sm">
+                          <span className="font-medium">Set {set.setNumber}</span>
+                          <span className="font-mono text-muted-foreground">{set.weight}kg x {set.reps}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">No previous sets for this exercise yet.</p>
+                  )}
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Weight (kg)</Label>
+                    <Input
+                      type="number"
+                      value={activeSet.weight}
+                      onChange={(e) => setActiveSet({ ...activeSet, weight: e.target.value })}
+                      className="mt-1"
+                      placeholder="0"
+                    />
+                  </div>
+                  <div>
+                    <Label>Reps</Label>
+                    <Input
+                      type="number"
+                      value={activeSet.reps}
+                      onChange={(e) => setActiveSet({ ...activeSet, reps: e.target.value })}
+                      className="mt-1"
+                    />
+                  </div>
+                </div>
+                <Button type="button" onClick={addActiveSet} className="mt-3 w-full">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Log This Set
+                </Button>
+
+                {currentExerciseSets.length > 0 && (
+                  <div className="mt-4 space-y-2">
+                    {currentExerciseSets.map((set: any) => {
+                      const entryIndex = activeEntries.findIndex((entry) => entry === set);
+                      return (
+                        <div key={`${set.exerciseId}-${set.setNumber}-${entryIndex}`} className="flex items-center justify-between rounded-md bg-muted/50 px-3 py-2 text-sm">
+                          <span className="font-medium">Set {set.setNumber}</span>
+                          <span className="font-mono text-muted-foreground">{set.weight}kg x {set.reps}</span>
+                          <button className="text-destructive" onClick={() => removeActiveSet(entryIndex)} aria-label="Remove set">
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant="outline" onClick={() => updateActiveExercise(activeExerciseIndex - 1)} disabled={activeExerciseIndex === 0}>
+                  Previous
+                </Button>
+                <Button type="button" variant="outline" onClick={() => updateActiveExercise(activeExerciseIndex + 1)} disabled={activeExerciseIndex >= activeExercises.length - 1}>
+                  Next Exercise
+                </Button>
+              </div>
+
+              <div>
+                <Label>Workout Notes</Label>
+                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1" placeholder="How did it feel?" />
+              </div>
+
+              <div>
+                <Label>Total Time (min)</Label>
+                <Input
+                  type="number"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  className="mt-1"
+                  placeholder={String(elapsedMinutes)}
+                />
+              </div>
+
+              <Button type="button" onClick={finishActiveWorkout} className="w-full" disabled={activeEntries.length === 0}>
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Finish Workout ({duration || elapsedMinutes} min)
+              </Button>
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       <Tabs defaultValue="programs" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-3 gap-1 overflow-visible sm:inline-flex sm:h-10 sm:w-auto">
-          <TabsTrigger value="programs" className="w-full">Programs</TabsTrigger>
-          <TabsTrigger value="exercises" className="w-full">Library</TabsTrigger>
-          <TabsTrigger value="history" className="w-full">History</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
+          <TabsTrigger value="programs" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Programs</TabsTrigger>
+          <TabsTrigger value="exercises" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Library</TabsTrigger>
+          <TabsTrigger value="history" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">History</TabsTrigger>
         </TabsList>
 
         <TabsContent value="programs" className="space-y-4">
@@ -405,24 +700,47 @@ export default function WorkoutsPage() {
               <p className="text-muted-foreground">No workouts logged yet</p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               {(workoutLogs ?? []).map((log: any) => (
-                <Card key={log?.id}>
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <h4 className="font-medium">{log?.templateName ?? "Workout"}</h4>
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(log?.date ?? Date.now()).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                <Card key={log?.id} className="overflow-hidden">
+                  <CardContent className="space-y-4 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="break-words font-semibold">{log?.templateName ?? "Workout"}</h4>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {new Date(log?.date ?? Date.now()).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {log?.duration && (
-                          <Badge variant="secondary"><Clock className="w-3 h-3 mr-1" />{log.duration} min</Badge>
-                        )}
+                      {log?.duration && (
+                        <Badge variant="secondary" className="shrink-0"><Clock className="w-3 h-3 mr-1" />{log.duration} min</Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/40 p-3 text-center text-sm">
+                      <div>
+                        <p className="font-semibold">{groupExerciseLogs(log?.exerciseLogs ?? []).length}</p>
+                        <p className="text-xs text-muted-foreground">Exercises</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">{(log?.exerciseLogs ?? []).length}</p>
+                        <p className="text-xs text-muted-foreground">Sets</p>
+                      </div>
+                      <div>
+                        <p className="font-semibold">
+                          {(log?.exerciseLogs ?? []).reduce((sum: number, entry: any) => sum + ((entry?.weight ?? 0) * (entry?.reps ?? 0)), 0)}
+                        </p>
+                        <p className="text-xs text-muted-foreground">Volume</p>
                       </div>
                     </div>
-                    <div className="space-y-1">
+                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                      <Button type="button" variant="outline" className="w-full" onClick={() => setSelectedHistoryLog(log)}>
+                        <Eye className="mr-2 h-4 w-4" />
+                        View Workout
+                      </Button>
+                      <Button type="button" variant="outline" size="icon" onClick={() => deleteWorkoutLog(log)} title="Delete workout history">
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <div className="hidden">
                       {(log?.exerciseLogs ?? []).map((el: any) => (
                         <div key={el?.id} className="flex items-center justify-between text-sm py-0.5">
                           <span className="text-muted-foreground">{el?.exercise?.name ?? "Exercise"} (Set {el?.setNumber})</span>
@@ -437,6 +755,60 @@ export default function WorkoutsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      <Dialog open={!!selectedHistoryLog} onOpenChange={(open) => !open && setSelectedHistoryLog(null)}>
+        <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedHistoryLog?.templateName ?? "Workout History"}</DialogTitle>
+          </DialogHeader>
+          {selectedHistoryLog && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">
+                  {new Date(selectedHistoryLog?.date ?? Date.now()).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+                </Badge>
+                {selectedHistoryLog?.duration && (
+                  <Badge variant="secondary"><Clock className="mr-1 h-3 w-3" />{selectedHistoryLog.duration} min</Badge>
+                )}
+                <Badge variant="secondary">{selectedHistoryGroups.length} exercises</Badge>
+                <Badge variant="secondary">{(selectedHistoryLog?.exerciseLogs ?? []).length} sets</Badge>
+              </div>
+
+              <div className="space-y-3">
+                {selectedHistoryGroups.map((group: any) => (
+                  <div key={group.exerciseId} className="rounded-lg border border-border p-3">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h4 className="min-w-0 break-words font-semibold">{group.exerciseName}</h4>
+                      <Badge variant="outline" className="shrink-0">{group.sets.length} sets</Badge>
+                    </div>
+                    <div className="grid gap-2">
+                      {group.sets.map((set: any) => (
+                        <div key={set.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 rounded-md bg-muted/40 px-3 py-2 text-sm">
+                          <span className="font-medium">Set {set.setNumber}</span>
+                          <span className="font-mono text-muted-foreground">{set.weight ?? 0}kg x {set.reps ?? 0}</span>
+                          <span className="font-mono text-xs text-muted-foreground">{((set.weight ?? 0) * (set.reps ?? 0)).toFixed(0)}kg</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {selectedHistoryLog?.notes && (
+                <div className="rounded-lg bg-muted/40 p-3">
+                  <p className="text-sm font-semibold">Notes</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{selectedHistoryLog.notes}</p>
+                </div>
+              )}
+
+              <Button type="button" variant="outline" className="w-full hover:text-destructive" onClick={() => deleteWorkoutLog(selectedHistoryLog)}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete This Workout
+              </Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={exerciseDialogOpen} onOpenChange={setExerciseDialogOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">

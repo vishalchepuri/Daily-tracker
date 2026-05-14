@@ -282,7 +282,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
             <Dumbbell className="w-5 h-5 text-primary-foreground" />
           </div>
-          <span className="font-display font-bold text-lg tracking-tight">FitCoach Pro</span>
+          <span className="font-display font-bold text-lg tracking-tight">Dayza</span>
           <button className="lg:hidden ml-auto" onClick={() => setSidebarOpen(false)}>
             <X className="w-5 h-5" />
           </button>

@@ -17,7 +17,7 @@ export async function GET() {
     const spends = await prisma.spend.findMany({
       where: { userId },
       orderBy: { date: "desc" },
-      take: 100,
+      take: 500,
     });
     return NextResponse.json({ spends });
   } catch (error: any) {
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
         userId,
         merchant: data.merchant,
         amount: parseAmount(data.amount),
-        currency: data.currency || "USD",
+        currency: data.currency || "INR",
         category: data.category || null,
         date: data.date ? new Date(data.date) : new Date(),
         notes: data.notes || null,
@@ -69,7 +69,7 @@ export async function PATCH(req: Request) {
       data: {
         merchant: data.merchant,
         amount: parseAmount(data.amount),
-        currency: data.currency || "USD",
+        currency: data.currency || "INR",
         category: data.category || null,
         date: data.date ? new Date(data.date) : undefined,
         notes: data.notes || null,

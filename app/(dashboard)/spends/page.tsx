@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
-import { CreditCard, Mail, Pencil, Plus, RefreshCw, Trash2, WalletCards } from "lucide-react";
+import { CreditCard, Mail, Pencil, Plus, RefreshCw, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,30 +10,68 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const blankForm = {
   id: "",
   merchant: "",
   amount: "",
-  currency: "USD",
+  currency: "INR",
   category: "",
   date: new Date().toISOString().slice(0, 10),
   notes: "",
 };
+
+function formatInr(value: number) {
+  return `INR ${Number(value || 0).toFixed(2)}`;
+}
+
+function dateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function weekKey(date: Date) {
+  const start = new Date(date);
+  start.setDate(date.getDate() - date.getDay());
+  start.setHours(0, 0, 0, 0);
+  return dateKey(start);
+}
+
+function monthKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatPeriodLabel(key: string, mode: "daily" | "weekly" | "monthly") {
+  if (mode === "monthly") {
+    const [year, month] = key.split("-").map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  }
+  const date = new Date(`${key}T00:00:00`);
+  if (mode === "weekly") return `Week of ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export default function SpendsPage() {
   const [spends, setSpends] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
+  const [targetSaving, setTargetSaving] = useState(false);
   const [form, setForm] = useState(blankForm);
 
   const loadData = async () => {
     try {
-      const res = await fetch("/api/spends");
-      const data = await res.json();
-      setSpends(data?.spends ?? []);
+      const [spendsRes, settingsRes] = await Promise.all([
+        fetch("/api/spends"),
+        fetch("/api/spends/settings"),
+      ]);
+      const spendsData = await spendsRes.json();
+      const settingsData = await settingsRes.json();
+      setSpends(spendsData?.spends ?? []);
+      setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
     } catch (error) {
       console.error(error);
     } finally {
@@ -49,8 +87,58 @@ export default function SpendsPage() {
     const monthSpends = spends.filter((spend) => new Date(spend.date) >= monthStart);
     const total = monthSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0);
     const gmail = monthSpends.filter((spend) => spend.source === "gmail").length;
-    return { total, count: monthSpends.length, gmail };
+    const manual = monthSpends.filter((spend) => spend.source === "manual").length;
+    const target = Number(targetMonthlySpend) || 0;
+    const remaining = target > 0 ? Math.max(0, target - total) : 0;
+    const progress = target > 0 ? Math.min(100, Math.round((total / target) * 100)) : 0;
+    return { total, count: monthSpends.length, gmail, manual, target, remaining, progress };
+  }, [spends, targetMonthlySpend]);
+
+  const categoryTotals = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const grouped = spends
+      .filter((spend) => new Date(spend.date) >= monthStart)
+      .reduce((acc: Record<string, number>, spend) => {
+        const category = spend.category || "Uncategorized";
+        acc[category] = (acc[category] ?? 0) + (spend.amount ?? 0);
+        return acc;
+      }, {});
+    return Object.entries(grouped)
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 6);
   }, [spends]);
+
+  const buildHistory = (mode: "daily" | "weekly" | "monthly") => {
+    const grouped = spends.reduce((acc: Record<string, any>, spend) => {
+      const date = new Date(spend.date);
+      const key = mode === "daily" ? dateKey(date) : mode === "weekly" ? weekKey(date) : monthKey(date);
+      if (!acc[key]) {
+        acc[key] = {
+          key,
+          label: formatPeriodLabel(key, mode),
+          amount: 0,
+          count: 0,
+          imported: 0,
+          manual: 0,
+        };
+      }
+      acc[key].amount += spend.amount ?? 0;
+      acc[key].count += 1;
+      if (spend.source === "gmail") acc[key].imported += 1;
+      else acc[key].manual += 1;
+      return acc;
+    }, {});
+
+    return Object.values(grouped)
+      .sort((a: any, b: any) => a.key.localeCompare(b.key))
+      .slice(mode === "daily" ? -14 : mode === "weekly" ? -12 : -12);
+  };
+
+  const dailyHistory = useMemo(() => buildHistory("daily"), [spends]);
+  const weeklyHistory = useMemo(() => buildHistory("weekly"), [spends]);
+  const monthlyHistory = useMemo(() => buildHistory("monthly"), [spends]);
 
   const openAdd = () => {
     setForm(blankForm);
@@ -62,7 +150,7 @@ export default function SpendsPage() {
       id: spend.id,
       merchant: spend.merchant ?? "",
       amount: String(spend.amount ?? ""),
-      currency: spend.currency ?? "USD",
+      currency: spend.currency ?? "INR",
       category: spend.category ?? "",
       date: new Date(spend.date ?? Date.now()).toISOString().slice(0, 10),
       notes: spend.notes ?? "",
@@ -91,6 +179,28 @@ export default function SpendsPage() {
       loadData();
     } catch {
       toast.error("Failed to save spend");
+    }
+  };
+
+  const saveTarget = async () => {
+    setTargetSaving(true);
+    try {
+      const res = await fetch("/api/spends/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetMonthlySpend }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save target");
+        return;
+      }
+      setTargetMonthlySpend(String(data.targetMonthlySpend ?? ""));
+      toast.success("Monthly target saved");
+    } catch {
+      toast.error("Failed to save target");
+    } finally {
+      setTargetSaving(false);
     }
   };
 
@@ -129,23 +239,23 @@ export default function SpendsPage() {
   if (loading) return <div className="space-y-4">{[1,2,3].map((i) => <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-display font-bold tracking-tight">Spends</h2>
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Spends</h2>
             <p className="text-muted-foreground text-sm mt-1">Track purchases manually or import receipt-like emails from Gmail</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => signIn("google", { callbackUrl: "/spends" })}>
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <Button variant="outline" onClick={() => signIn("google", { callbackUrl: "/spends" })} className="px-3">
               <Mail className="w-4 h-4 mr-2" />Connect Gmail
             </Button>
-            <Button variant="outline" onClick={importGmail} disabled={importing}>
+            <Button variant="outline" onClick={importGmail} disabled={importing} className="px-3">
               <RefreshCw className={`w-4 h-4 mr-2 ${importing ? "animate-spin" : ""}`} />Import Gmail
             </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button onClick={openAdd}><Plus className="w-4 h-4 mr-2" />Add Spend</Button>
+                <Button onClick={openAdd} className="col-span-2 px-3 sm:col-span-1"><Plus className="w-4 h-4 mr-2" />Add Spend</Button>
               </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader><DialogTitle>{form.id ? "Edit Spend" : "Add Spend"}</DialogTitle></DialogHeader>
@@ -166,11 +276,96 @@ export default function SpendsPage() {
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <SummaryCard title="This Month" value={`${totals.total.toFixed(2)}`} detail={`${totals.count} spends`} icon={WalletCards} />
-        <SummaryCard title="Gmail Imported" value={`${totals.gmail}`} detail="receipt emails this month" icon={Mail} />
-        <SummaryCard title="Manual Entries" value={`${spends.filter((spend) => spend.source === "manual").length}`} detail="editable local entries" icon={CreditCard} />
+      <Card className="border-primary/30 bg-primary/5">
+        <CardContent className="space-y-4 p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div>
+              <div className="mb-2 flex items-center gap-2">
+                <Target className="h-5 w-5 text-primary" />
+                <h3 className="font-semibold">Monthly Target</h3>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {totals.target > 0
+                  ? `${formatInr(totals.remaining)} remaining from ${formatInr(totals.target)}`
+                  : "Set a monthly spend target to track budget progress."}
+              </p>
+            </div>
+            <div className="grid grid-cols-[1fr_auto] gap-2">
+              <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" />
+              <Button onClick={saveTarget} disabled={targetSaving}>{targetSaving ? "Saving" : "Save"}</Button>
+            </div>
+          </div>
+          <div>
+            <div className="mb-2 flex items-center justify-between text-sm">
+              <span className="font-medium">{formatInr(totals.total)} spent this month</span>
+              <span className="text-muted-foreground">{totals.progress}%</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-muted">
+              <div className={`h-full rounded-full ${totals.progress >= 100 ? "bg-destructive" : "bg-primary"}`} style={{ width: `${totals.progress}%` }} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <SummaryCard title="This Month" value={formatInr(totals.total)} detail={`${totals.count} spends`} icon={WalletCards} />
+        <SummaryCard title="Remaining" value={totals.target ? formatInr(totals.remaining) : "Set"} detail="monthly budget" icon={Target} />
+        <SummaryCard title="Imported" value={`${totals.gmail}`} detail="Gmail receipts" icon={Mail} />
+        <SummaryCard title="Manual" value={`${totals.manual}`} detail="this month" icon={CreditCard} />
       </div>
+
+      <Card>
+        <CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" />Category Breakdown</CardTitle></CardHeader>
+        <CardContent>
+          {categoryTotals.length === 0 ? (
+            <div className="text-center py-8 text-sm text-muted-foreground">No category data this month.</div>
+          ) : (
+            <div className="space-y-3">
+              {categoryTotals.map((item) => {
+                const width = totals.total > 0 ? Math.max(6, Math.round((item.amount / totals.total) * 100)) : 0;
+                return (
+                  <div key={item.category} className="space-y-1">
+                    <div className="flex items-center justify-between gap-3 text-sm">
+                      <span className="min-w-0 truncate font-medium">{item.category}</span>
+                      <span className="font-mono text-muted-foreground">{formatInr(item.amount)}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-primary" />
+            Spend History
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Tabs defaultValue="monthly" className="space-y-4">
+            <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
+              <TabsTrigger value="daily" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Daily</TabsTrigger>
+              <TabsTrigger value="weekly" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Weekly</TabsTrigger>
+              <TabsTrigger value="monthly" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Monthly</TabsTrigger>
+            </TabsList>
+            <TabsContent value="daily">
+              <HistoryPanel data={dailyHistory} emptyLabel="No daily spend history yet." />
+            </TabsContent>
+            <TabsContent value="weekly">
+              <HistoryPanel data={weeklyHistory} emptyLabel="No weekly spend history yet." />
+            </TabsContent>
+            <TabsContent value="monthly">
+              <HistoryPanel data={monthlyHistory} emptyLabel="No monthly spend history yet." />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="w-5 h-5 text-primary" />Recent Spends</CardTitle></CardHeader>
@@ -180,15 +375,18 @@ export default function SpendsPage() {
           ) : (
             <div className="space-y-2">
               {spends.map((spend) => (
-                <div key={spend.id} className="flex items-center justify-between gap-3 rounded-lg bg-muted/40 px-3 py-3">
-                  <div className="min-w-0">
+                <div key={spend.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>
                     <p className="text-xs text-muted-foreground truncate">
                       {new Date(spend.date).toLocaleDateString()} {spend.emailSubject ? `• ${spend.emailSubject}` : ""}
                     </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>
+                      {spend.category && <Badge variant="outline">{spend.category}</Badge>}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>
+                  <div className="flex items-center justify-between gap-2 sm:justify-end">
                     <span className="font-mono text-sm">{spend.currency} {Number(spend.amount ?? 0).toFixed(2)}</span>
                     <Button variant="ghost" size="icon" onClick={() => openEdit(spend)} title="Edit spend">
                       <Pencil className="w-4 h-4" />
@@ -221,5 +419,52 @@ function SummaryCard({ title, value, detail, icon: Icon }: any) {
         <p className="text-xs text-muted-foreground mt-1">{detail}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function HistoryPanel({ data, emptyLabel }: { data: any[]; emptyLabel: string }) {
+  if (data.length === 0) {
+    return <div className="py-10 text-center text-sm text-muted-foreground">{emptyLabel}</div>;
+  }
+
+  const latest = [...data].slice(-5).reverse();
+
+  return (
+    <div className="space-y-4">
+      <div className="h-64 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="label" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickLine={false} axisLine={false} />
+            <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+            <Tooltip
+              cursor={{ fill: "hsl(var(--muted) / 0.35)" }}
+              contentStyle={{
+                background: "hsl(var(--card))",
+                border: "1px solid hsl(var(--border))",
+                borderRadius: 8,
+                color: "hsl(var(--foreground))",
+              }}
+              formatter={(value: any) => [formatInr(Number(value)), "Spent"]}
+            />
+            <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="grid gap-2">
+        {latest.map((item) => (
+          <div key={item.key} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/40 px-3 py-3">
+            <div className="min-w-0">
+              <p className="truncate font-medium">{item.label}</p>
+              <p className="text-xs text-muted-foreground">
+                {item.count} spends - {item.manual} manual - {item.imported} imported
+              </p>
+            </div>
+            <span className="font-mono text-sm">{formatInr(item.amount)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,6 @@
-# FitCoach Pro Dashboard
+# Dayza Dashboard
 
-FitCoach Pro is a fitness, nutrition, health, reminders, and AI coaching dashboard built with Next.js, Prisma, PostgreSQL, and NextAuth.
+Dayza is a fitness, nutrition, spends, reminders, progress, and AI coaching dashboard built with Next.js, Prisma, PostgreSQL, and NextAuth.
 
 ## Current Status
 

@@ -103,6 +103,7 @@ model UserProfile {
   targetTrainingMinutes Float?
   targetLiftVolume Float?
   targetWeeklyActiveEnergy Float?
+  targetMonthlySpend Float?
   healthLimitations String?
   foodAllergies String?
   telegramChatId String?
@@ -276,7 +277,7 @@ model Spend {
   date        DateTime @default(now())
   merchant    String
   amount      Float
-  currency    String   @default("USD")
+  currency    String   @default("INR")
   category    String?
   source      String   @default("manual")
   emailSubject String?
