@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
-import { CreditCard, Mail, Pencil, Plus, RefreshCw, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
+import { CalendarDays, CreditCard, Mail, Pencil, Plus, RefreshCw, Search, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -23,6 +24,8 @@ const blankForm = {
   date: new Date().toISOString().slice(0, 10),
   notes: "",
 };
+
+const spendCategories = ["Food", "Groceries", "Travel", "Shopping", "Health", "Fitness", "Bills", "Subscriptions", "Entertainment", "Other"];
 
 function formatInr(value: number) {
   return `INR ${Number(value || 0).toFixed(2)}`;
@@ -60,6 +63,9 @@ export default function SpendsPage() {
   const [importing, setImporting] = useState(false);
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
   const [targetSaving, setTargetSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [periodFilter, setPeriodFilter] = useState("month");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [form, setForm] = useState(blankForm);
 
   const loadData = async () => {
@@ -114,6 +120,47 @@ export default function SpendsPage() {
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 6);
   }, [spends]);
+
+  const filterStartDate = useMemo(() => {
+    const now = new Date();
+    if (periodFilter === "week") {
+      const start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      start.setHours(0, 0, 0, 0);
+      return start;
+    }
+    if (periodFilter === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
+    if (periodFilter === "year") return new Date(now.getFullYear(), 0, 1);
+    return null;
+  }, [periodFilter]);
+
+  const filteredSpends = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return spends.filter((spend) => {
+      const spendDate = new Date(spend.date);
+      const matchesPeriod = !filterStartDate || spendDate >= filterStartDate;
+      const matchesCategory = categoryFilter === "all" || (spend.category || "Uncategorized") === categoryFilter;
+      const matchesSearch =
+        !query ||
+        [spend.merchant, spend.category, spend.notes, spend.emailSubject]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(query));
+      return matchesPeriod && matchesCategory && matchesSearch;
+    });
+  }, [categoryFilter, filterStartDate, search, spends]);
+
+  const filteredTotal = useMemo(
+    () => filteredSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0),
+    [filteredSpends]
+  );
+
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>();
+    spends.forEach((spend) => categories.add(spend.category || "Uncategorized"));
+    return ["all", ...Array.from(categories).sort()];
+  }, [spends]);
+
+  const topCategory = categoryTotals[0];
 
   const buildHistory = (mode: "daily" | "weekly" | "monthly") => {
     const grouped = spends.reduce((acc: Record<string, any>, spend) => {
@@ -272,6 +319,13 @@ export default function SpendsPage() {
                     <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1" placeholder="Food, travel, shopping" /></div>
                     <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1" /></div>
                   </div>
+                  <div className="flex flex-wrap gap-2">
+                    {spendCategories.map((category) => (
+                      <Button key={category} type="button" variant={form.category === category ? "default" : "outline"} size="sm" onClick={() => setForm({ ...form, category })}>
+                        {category}
+                      </Button>
+                    ))}
+                  </div>
                   <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1" /></div>
                   <Button onClick={saveSpend} className="w-full">{form.id ? "Update Spend" : "Save Spend"}</Button>
                 </div>
@@ -319,7 +373,7 @@ export default function SpendsPage() {
         <SummaryCard title="Manual" value={`${totals.manual}`} detail="this month" icon={CreditCard} />
       </div>
 
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-4">
         <InsightCard
           title="Daily Average"
           value={formatInr(totals.dailyAverage)}
@@ -335,6 +389,11 @@ export default function SpendsPage() {
           title="Largest Spend"
           value={totals.largest ? formatInr(totals.largest.amount ?? 0) : "None"}
           detail={totals.largest ? totals.largest.merchant : "no spends this month"}
+        />
+        <InsightCard
+          title="Top Category"
+          value={topCategory ? topCategory.category : "None"}
+          detail={topCategory ? formatInr(topCategory.amount) : "no category data"}
         />
       </div>
 
@@ -394,11 +453,47 @@ export default function SpendsPage() {
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="w-5 h-5 text-primary" />Recent Spends</CardTitle></CardHeader>
         <CardContent>
+          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" placeholder="Search merchant, category, notes..." />
+            </div>
+            <Select value={periodFilter} onValueChange={setPeriodFilter}>
+              <SelectTrigger>
+                <CalendarDays className="mr-2 h-4 w-4" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="week">This week</SelectItem>
+                <SelectItem value="month">This month</SelectItem>
+                <SelectItem value="year">This year</SelectItem>
+                <SelectItem value="all">All time</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Category" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableCategories.map((category) => (
+                  <SelectItem key={category} value={category}>{category === "all" ? "All categories" : category}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+            <span className="text-muted-foreground">{filteredSpends.length} matching spends</span>
+            <span className="font-mono font-semibold">{formatInr(filteredTotal)}</span>
+          </div>
+
           {spends.length === 0 ? (
             <div className="text-center py-10 text-sm text-muted-foreground">No spends yet. Add one manually or connect Gmail.</div>
+          ) : filteredSpends.length === 0 ? (
+            <div className="text-center py-10 text-sm text-muted-foreground">No spends match these filters.</div>
           ) : (
             <div className="space-y-2">
-              {spends.map((spend) => (
+              {filteredSpends.map((spend) => (
                 <div key={spend.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>

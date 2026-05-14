@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useState } from "react";
-import { getProviders, signIn } from "next-auth/react";
+import { useState } from "react";
+import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Dumbbell, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,12 +15,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [hasGoogle, setHasGoogle] = useState(false);
   const router = useRouter();
-
-  useEffect(() => {
-    getProviders().then((providers) => setHasGoogle(Boolean(providers?.google))).catch(() => setHasGoogle(false));
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,20 +53,6 @@ export default function LoginPage() {
             <CardDescription>Sign in to continue your fitness journey</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              type="button"
-              variant="outline"
-              className="mb-4 w-full"
-              onClick={() => {
-                if (!hasGoogle) {
-                  toast.error("Google sign-in needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Vercel");
-                  return;
-                }
-                signIn("google", { callbackUrl: "/dashboard" });
-              }}
-            >
-              Continue with Google
-            </Button>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
