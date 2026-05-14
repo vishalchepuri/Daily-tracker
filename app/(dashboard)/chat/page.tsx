@@ -154,7 +154,7 @@ export default function ChatPage() {
   }, [router]);
 
   return (
-    <div className="flex h-[calc(100dvh-6.5rem)] min-h-0 flex-col sm:h-[calc(100dvh-8rem)]">
+    <div className="flex h-[calc(100svh_-_11.25rem_-_env(safe-area-inset-bottom))] min-h-[28rem] flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
@@ -219,7 +219,7 @@ export default function ChatPage() {
           ))}
         </div>
 
-        <div className="border-t border-border p-3 sm:p-4">
+        <div className="border-t border-border bg-card p-3 sm:p-4">
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />

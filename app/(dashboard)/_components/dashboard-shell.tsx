@@ -24,6 +24,10 @@ const navItems = [
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
 
+const mobileNavItems = navItems.filter((item) =>
+  ["/dashboard", "/reminders", "/nutrition", "/workouts", "/progress"].includes(item.href)
+);
+
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
   "/dashboard": {
     label: "Dashboard",
@@ -151,9 +155,9 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-background">
+    <div className="app-viewport flex overflow-hidden bg-background">
       <Dialog open={!profileComplete}>
-        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[32rem]" hideClose>
+        <DialogContent className="sm:max-w-[32rem]" hideClose>
           <DialogHeader>
             <DialogTitle>Set up your fitness profile</DialogTitle>
           </DialogHeader>
@@ -270,7 +274,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
 
       <aside
         className={cn(
-          "fixed lg:sticky top-0 left-0 z-50 h-dvh w-64 bg-card border-r border-border flex flex-col transition-transform duration-300",
+          "fixed lg:sticky top-0 left-0 z-50 app-viewport w-64 bg-card border-r border-border flex flex-col transition-transform duration-300",
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
@@ -284,7 +288,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           </button>
         </div>
 
-        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto ios-scroll">
           {(navItems ?? []).map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
             return (
@@ -338,14 +342,35 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
             {(navItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 pb-24 lg:p-6">
+        <main className="min-h-0 flex-1 overflow-y-auto ios-scroll p-3 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] lg:p-6 lg:pb-6">
           <div className="max-w-[1200px] mx-auto">{children}</div>
         </main>
       </div>
 
-      <div className="fixed bottom-4 right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-2 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden">
+        <div className="grid grid-cols-5 gap-1">
+          {mobileNavItems.map((item: any) => {
+            const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[0.66rem] font-medium",
+                  isActive ? "bg-primary/10 text-primary" : "text-muted-foreground"
+                )}
+              >
+                <item.icon className="h-5 w-5 shrink-0" />
+                <span className="max-w-full truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      </nav>
+
+      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
         {coachOpen && (
-          <div className="max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl">
+          <div className="hidden max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl ios-scroll lg:block">
             <div className="mb-3 flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Bot className="h-5 w-5" />
@@ -379,13 +404,13 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           </div>
         )}
         <Button
-          type="button"
+          asChild
           size="icon"
           className="h-12 w-12 rounded-full shadow-lg"
-          onClick={() => setCoachOpen((open) => !open)}
-          aria-label="Open AI coach help"
         >
-          <MessageSquare className="h-5 w-5" />
+          <Link href="/chat" aria-label="Open AI coach">
+            <MessageSquare className="h-5 w-5" />
+          </Link>
         </Button>
       </div>
     </div>

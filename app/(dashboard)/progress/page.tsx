@@ -108,16 +108,16 @@ export default function ProgressPage() {
   if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-display font-bold tracking-tight">Progress Tracking</h2>
-            <p className="text-muted-foreground text-sm mt-1">Monitor your gains over time</p>
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Progress Tracking</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Monitor your gains over time</p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button><Plus className="w-4 h-4 mr-2" />Log Progress</Button>
+              <Button className="w-full sm:w-auto"><Plus className="w-4 h-4 mr-2" />Log Progress</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader><DialogTitle>Log Progress</DialogTitle></DialogHeader>
@@ -139,11 +139,11 @@ export default function ProgressPage() {
       </FadeIn>
 
       <Tabs defaultValue="weight" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="weight"><Scale className="w-4 h-4 mr-1" />Weight</TabsTrigger>
-          <TabsTrigger value="measurements"><Ruler className="w-4 h-4 mr-1" />Measurements</TabsTrigger>
-          <TabsTrigger value="strength"><Dumbbell className="w-4 h-4 mr-1" />Strength</TabsTrigger>
-          <TabsTrigger value="photos"><Camera className="w-4 h-4 mr-1" />Photos</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 overflow-visible sm:inline-flex sm:h-10 sm:w-auto">
+          <TabsTrigger value="weight" className="w-full"><Scale className="w-4 h-4 mr-1" />Weight</TabsTrigger>
+          <TabsTrigger value="measurements" className="w-full"><Ruler className="w-4 h-4 mr-1" />Measurements</TabsTrigger>
+          <TabsTrigger value="strength" className="w-full"><Dumbbell className="w-4 h-4 mr-1" />Strength</TabsTrigger>
+          <TabsTrigger value="photos" className="w-full"><Camera className="w-4 h-4 mr-1" />Photos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="weight">

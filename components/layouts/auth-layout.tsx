@@ -13,7 +13,7 @@ export function AuthLayout({
   className?: string
 }) {
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 hero-gradient">
+    <div className="app-viewport flex items-center justify-center overflow-y-auto p-4 hero-gradient ios-scroll">
       <Card className={cn('w-full max-w-md shadow-lg', className)}>
         <CardHeader className="text-center">
           <CardTitle className="font-display text-2xl tracking-tight">{title}</CardTitle>

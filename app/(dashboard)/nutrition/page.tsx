@@ -421,17 +421,17 @@ export default function NutritionPage() {
   if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-display font-bold tracking-tight">Nutrition Tracker</h2>
-            <p className="text-muted-foreground text-sm mt-1">Log meals and track daily macros for muscle gain</p>
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Nutrition Tracker</h2>
+            <p className="mt-1 max-w-[18rem] text-sm text-muted-foreground sm:max-w-none">Log meals and track daily macros for muscle gain</p>
           </div>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:flex">
           <Dialog open={targetsDialogOpen} onOpenChange={setTargetsDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline"><Pencil className="w-4 h-4 mr-2" />Edit Targets</Button>
+              <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><Pencil className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">Edit </span>Targets</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md">
               <DialogHeader>
@@ -450,7 +450,7 @@ export default function NutritionPage() {
           </Dialog>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetFoodForm(); }}>
             <DialogTrigger asChild>
-              <Button onClick={openAddDialog}><Plus className="w-4 h-4 mr-2" />Log Meal</Button>
+              <Button onClick={openAddDialog} className="w-full px-3 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" />Log Meal</Button>
             </DialogTrigger>
             <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
               <DialogHeader>
@@ -545,7 +545,7 @@ export default function NutritionPage() {
 
         <TabsContent value="tracker" className="space-y-6">
       <FadeIn delay={0.1}>
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-6 lg:gap-4">
           {[
             { label: "Calories", value: Math.round(totals.calories), target: targetCal, unit: "kcal", icon: Flame, color: "text-orange-500", bg: "bg-orange-500/10" },
             { label: "Protein", value: Math.round(totals.protein), target: targetProtein, unit: "g", icon: Target, color: "text-blue-500", bg: "bg-blue-500/10" },
@@ -557,15 +557,15 @@ export default function NutritionPage() {
             const pct = m?.target > 0 ? Math.min(100, Math.round((m?.value / m?.target) * 100)) : 0;
             return (
               <Card key={m?.label}>
-                <CardContent className="p-4 space-y-2">
+                <CardContent className="space-y-2 p-3 sm:p-4">
                   <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 rounded-md ${m?.bg} flex items-center justify-center`}>
+                    <div className={`w-8 h-8 shrink-0 rounded-md ${m?.bg} flex items-center justify-center`}>
                       <m.icon className={`w-4 h-4 ${m?.color}`} />
                     </div>
-                    <span className="text-sm font-medium">{m?.label}</span>
+                    <span className="min-w-0 truncate text-sm font-medium">{m?.label}</span>
                   </div>
                   <Progress value={pct} className="h-2" />
-                  <p className="text-sm font-mono">
+                  <p className="break-words text-sm font-mono">
                     <span className="font-bold">{m?.value}</span> / {m?.target} {m?.unit}
                   </p>
                 </CardContent>
@@ -645,23 +645,27 @@ export default function NutritionPage() {
                         </span>
                       </h4>
                       {meals.map((log: any) => (
-                        <div key={log?.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-muted/50 group">
-                          <div className="flex-1">
-                            <span className="font-medium text-sm">{log?.foodName}</span>
-                            {log?.servingSize && <span className="text-xs text-muted-foreground ml-2">({log.servingSize})</span>}
+                        <div key={log?.id} className="group rounded-lg bg-muted/30 p-3 hover:bg-muted/50">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="break-words text-sm font-medium">{log?.foodName}</p>
+                              {log?.servingSize && <p className="mt-1 break-words text-xs text-muted-foreground">{log.servingSize}</p>}
+                            </div>
+                            <div className="flex shrink-0 gap-1">
+                              <button onClick={() => openEditDialog(log)} className="rounded-md p-1 text-primary hover:bg-background" aria-label="Edit food">
+                                <Pencil className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => handleDelete(log?.id)} className="rounded-md p-1 text-destructive hover:bg-background" aria-label="Delete food">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground">
-                            <span>{Math.round(log?.calories ?? 0)} kcal</span>
-                            <span>P: {Math.round(log?.protein ?? 0)}g</span>
-                            <span>C: {Math.round(log?.carbs ?? 0)}g</span>
-                            <span>F: {Math.round(log?.fat ?? 0)}g</span>
-                            <span>Fi: {Math.round(log?.fiber ?? 0)}g</span>
-                            <button onClick={() => openEditDialog(log)} className="opacity-0 group-hover:opacity-100 text-primary">
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => handleDelete(log?.id)} className="opacity-0 group-hover:opacity-100 text-destructive">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-mono text-muted-foreground min-[390px]:grid-cols-5">
+                            <span className="rounded-md bg-background/70 px-2 py-1">{Math.round(log?.calories ?? 0)} kcal</span>
+                            <span className="rounded-md bg-background/70 px-2 py-1">P {Math.round(log?.protein ?? 0)}g</span>
+                            <span className="rounded-md bg-background/70 px-2 py-1">C {Math.round(log?.carbs ?? 0)}g</span>
+                            <span className="rounded-md bg-background/70 px-2 py-1">F {Math.round(log?.fat ?? 0)}g</span>
+                            <span className="rounded-md bg-background/70 px-2 py-1">Fi {Math.round(log?.fiber ?? 0)}g</span>
                           </div>
                         </div>
                       ))}

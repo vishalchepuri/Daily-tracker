@@ -239,17 +239,17 @@ export default function RemindersPage() {
   if (loading) return <div className="space-y-4">{[1,2,3].map((i) => <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-2xl font-display font-bold tracking-tight">Reminders</h2>
-            <p className="text-muted-foreground text-sm mt-1">Apple Reminders-style local lists, smart views, due dates, flags, and priorities</p>
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Reminders</h2>
+            <p className="mt-1 max-w-[20rem] text-sm text-muted-foreground sm:max-w-none">Local lists, smart views, due dates, flags, and priorities</p>
           </div>
-          <div className="flex gap-2">
+          <div className="grid grid-cols-2 gap-2 min-[390px]:grid-cols-3 sm:flex">
             <Dialog open={listOpen} onOpenChange={setListOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline"><ListPlus className="w-4 h-4 mr-2" />New List</Button>
+                <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><ListPlus className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">New </span>List</Button>
               </DialogTrigger>
               <DialogContent className="max-w-sm">
                 <DialogHeader><DialogTitle>New List</DialogTitle></DialogHeader>
@@ -266,7 +266,7 @@ export default function RemindersPage() {
             </Dialog>
             <Dialog open={telegramOpen} onOpenChange={setTelegramOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline"><Send className="w-4 h-4 mr-2" />Telegram</Button>
+                <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><Send className="w-4 h-4 sm:mr-2" />Telegram</Button>
               </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader><DialogTitle>Telegram Reminders</DialogTitle></DialogHeader>
@@ -304,12 +304,12 @@ export default function RemindersPage() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button onClick={openAddReminder}><Plus className="w-4 h-4 mr-2" />New Reminder</Button>
+            <Button onClick={openAddReminder} className="col-span-2 w-full px-3 min-[390px]:col-span-1 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" /><span className="hidden min-[390px]:inline sm:hidden">New</span><span className="min-[390px]:hidden sm:inline">New Reminder</span></Button>
           </div>
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 md:grid-cols-5">
         <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
         <SmartButton active={filter === "scheduled"} icon={CalendarDays} label="Scheduled" count={smartCounts.scheduled} onClick={() => setFilter("scheduled")} />
         <SmartButton active={filter === "all"} icon={Inbox} label="All" count={smartCounts.all} onClick={() => setFilter("all")} />
@@ -461,7 +461,7 @@ export default function RemindersPage() {
 
 function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
   return (
-    <button onClick={onClick} className={`rounded-lg border border-border p-4 text-left transition-colors ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
+    <button onClick={onClick} className={`rounded-lg border border-border p-3 text-left transition-colors sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
       <div className="flex items-center justify-between">
         <Icon className="w-5 h-5" />
         <span className="text-xl font-semibold">{count}</span>

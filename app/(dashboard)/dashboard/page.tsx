@@ -55,11 +55,11 @@ export default function DashboardPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-display font-bold tracking-tight">Today&apos;s Overview</h2>
+            <h2 className="font-display text-2xl font-bold tracking-tight leading-tight">Today&apos;s Overview</h2>
             <p className="text-muted-foreground text-sm mt-1">Track your daily nutrition and workouts</p>
           </div>
           {!profile && (
@@ -71,12 +71,12 @@ export default function DashboardPage() {
       </FadeIn>
 
       {/* Stats Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <SlideIn from="bottom" delay={0}>
           <Card className="relative overflow-hidden">
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <Flame className="w-5 h-5 text-primary" />
                 </div>
                 <div>
@@ -90,9 +90,9 @@ export default function DashboardPage() {
         </SlideIn>
         <SlideIn from="bottom" delay={0.1}>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <Dumbbell className="w-5 h-5 text-blue-500" />
                 </div>
                 <div>
@@ -106,9 +106,9 @@ export default function DashboardPage() {
         </SlideIn>
         <SlideIn from="bottom" delay={0.2}>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-orange-500/10 flex items-center justify-center">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-9 h-9 rounded-lg bg-orange-500/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <Utensils className="w-5 h-5 text-orange-500" />
                 </div>
                 <div>
@@ -122,14 +122,14 @@ export default function DashboardPage() {
         </SlideIn>
         <SlideIn from="bottom" delay={0.3}>
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+            <CardContent className="p-3 sm:p-4">
+              <div className="flex items-center gap-2 sm:gap-3">
+                <div className="w-9 h-9 rounded-lg bg-green-500/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <TrendingUp className="w-5 h-5 text-green-500" />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">Goal</p>
-                  <p className="text-lg font-bold">Muscle Gain</p>
+                  <p className="text-base font-bold leading-tight sm:text-lg">Muscle Gain</p>
                   <p className="text-xs text-muted-foreground">+{targetCal > 0 ? 300 : 0} kcal surplus</p>
                 </div>
               </div>
@@ -141,14 +141,14 @@ export default function DashboardPage() {
       {/* Macros Section */}
       <FadeIn delay={0.2}>
         <Card>
-          <CardHeader>
+          <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <Utensils className="w-5 h-5 text-primary" />
               Today&apos;s Nutrition
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <CardContent className="p-4 pt-2 sm:p-6 sm:pt-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
               {macroCards.map((macro: any) => {
                 const pct = macro?.target > 0 ? Math.min(100, Math.round((macro?.value / macro?.target) * 100)) : 0;
                 return (
