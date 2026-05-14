@@ -5,14 +5,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, Calculator, Target, Save } from "lucide-react";
+import { UserCircle, Calculator, Save, Trash2 } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
+import { signOut } from "next-auth/react";
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
   const [form, setForm] = useState({
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
     healthLimitations: "", foodAllergies: "",
@@ -61,6 +64,26 @@ export default function ProfilePage() {
       }
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (deleteConfirm !== "DELETE") {
+      toast.error("Type DELETE to confirm");
+      return;
+    }
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/account", { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to delete account");
+        return;
+      }
+      toast.success("Account deleted");
+      await signOut({ callbackUrl: "/signup" });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   if (loading) return <div className="h-64 bg-muted animate-pulse rounded-lg" />;
@@ -165,6 +188,30 @@ export default function ProfilePage() {
           </Card>
         </FadeIn>
       )}
+
+      <FadeIn delay={0.3}>
+        <Card className="border-destructive/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-destructive">
+              <Trash2 className="h-5 w-5" />
+              Delete Account
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              This permanently deletes your account, profile, workouts, meals, diet plans, reminders, progress, chat history, and logs.
+            </p>
+            <div>
+              <Label>Type DELETE to confirm</Label>
+              <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} className="mt-1" placeholder="DELETE" />
+            </div>
+            <Button variant="destructive" onClick={handleDeleteAccount} loading={deleting} disabled={deleteConfirm !== "DELETE"}>
+              <Trash2 className="mr-2 h-4 w-4" />
+              Delete My Account
+            </Button>
+          </CardContent>
+        </Card>
+      </FadeIn>
     </div>
   );
 }

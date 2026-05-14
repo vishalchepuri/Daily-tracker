@@ -1,6 +1,6 @@
 "use client";
-import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { useEffect, useState } from "react";
+import { getProviders, signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { Dumbbell, Mail, Lock, User, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,12 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hasGoogle, setHasGoogle] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    getProviders().then((providers) => setHasGoogle(Boolean(providers?.google))).catch(() => setHasGoogle(false));
+  }, []);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +70,11 @@ export default function SignupPage() {
             <CardDescription>Start your muscle-building journey today</CardDescription>
           </CardHeader>
           <CardContent>
+            {hasGoogle && (
+              <Button type="button" variant="outline" className="mb-4 w-full" onClick={() => signIn("google", { callbackUrl: "/dashboard" })}>
+                Continue with Google
+              </Button>
+            )}
             <form onSubmit={handleSignup} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>
