@@ -158,8 +158,8 @@ export default function ChatPage() {
       <FadeIn>
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">AI Fitness Coach</h2>
-            <p className="text-muted-foreground text-sm mt-1">Get personalized fitness and nutrition advice</p>
+            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Coach</h2>
+            <p className="text-muted-foreground text-sm mt-1">Ask about fitness, food, spends, reminders, and progress</p>
           </div>
           <Button
             type="button"
@@ -268,7 +268,7 @@ export default function ChatPage() {
             <Input
               value={input}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
-              placeholder={listening ? "Listening..." : "Ask, log food, attach food/sleep image..."}
+              placeholder={listening ? "Listening..." : "Ask, log food/spends, attach image..."}
               disabled={streaming}
               className="h-11 min-w-0"
             />

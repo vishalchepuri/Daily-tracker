@@ -91,7 +91,12 @@ export default function SpendsPage() {
     const target = Number(targetMonthlySpend) || 0;
     const remaining = target > 0 ? Math.max(0, target - total) : 0;
     const progress = target > 0 ? Math.min(100, Math.round((total / target) * 100)) : 0;
-    return { total, count: monthSpends.length, gmail, manual, target, remaining, progress };
+    const daysPassed = Math.max(1, now.getDate());
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const dailyAverage = total / daysPassed;
+    const projected = dailyAverage * daysInMonth;
+    const largest = [...monthSpends].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))[0];
+    return { total, count: monthSpends.length, gmail, manual, target, remaining, progress, dailyAverage, projected, largest };
   }, [spends, targetMonthlySpend]);
 
   const categoryTotals = useMemo(() => {
@@ -314,6 +319,25 @@ export default function SpendsPage() {
         <SummaryCard title="Manual" value={`${totals.manual}`} detail="this month" icon={CreditCard} />
       </div>
 
+      <div className="grid gap-3 md:grid-cols-3">
+        <InsightCard
+          title="Daily Average"
+          value={formatInr(totals.dailyAverage)}
+          detail="average spend per day this month"
+        />
+        <InsightCard
+          title="Month Projection"
+          value={formatInr(totals.projected)}
+          detail={totals.target && totals.projected > totals.target ? "likely to cross target" : "based on current pace"}
+          warning={Boolean(totals.target && totals.projected > totals.target)}
+        />
+        <InsightCard
+          title="Largest Spend"
+          value={totals.largest ? formatInr(totals.largest.amount ?? 0) : "None"}
+          detail={totals.largest ? totals.largest.merchant : "no spends this month"}
+        />
+      </div>
+
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" />Category Breakdown</CardTitle></CardHeader>
         <CardContent>
@@ -417,6 +441,18 @@ function SummaryCard({ title, value, detail, icon: Icon }: any) {
         </div>
         <p className="text-2xl font-semibold">{value}</p>
         <p className="text-xs text-muted-foreground mt-1">{detail}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InsightCard({ title, value, detail, warning }: any) {
+  return (
+    <Card className={warning ? "border-destructive/40 bg-destructive/5" : ""}>
+      <CardContent className="p-4">
+        <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <p className="mt-2 text-xl font-semibold">{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
       </CardContent>
     </Card>
   );
