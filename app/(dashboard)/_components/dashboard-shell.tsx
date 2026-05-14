@@ -151,9 +151,9 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
   };
 
   return (
-    <div className="min-h-screen flex bg-background">
+    <div className="flex h-dvh overflow-hidden bg-background">
       <Dialog open={!profileComplete}>
-        <DialogContent className="sm:max-w-[32rem]" hideClose>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[32rem]" hideClose>
           <DialogHeader>
             <DialogTitle>Set up your fitness profile</DialogTitle>
           </DialogHeader>
@@ -270,7 +270,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
 
       <aside
         className={cn(
-          "fixed lg:sticky top-0 left-0 z-50 h-screen w-64 bg-card border-r border-border flex flex-col transition-transform duration-300",
+          "fixed lg:sticky top-0 left-0 z-50 h-dvh w-64 bg-card border-r border-border flex flex-col transition-transform duration-300",
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         )}
       >
@@ -329,7 +329,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
         </div>
       </aside>
 
-      <div className="flex-1 flex flex-col min-h-screen min-w-0">
+      <div className="flex min-h-0 flex-1 flex-col min-w-0">
         <header className="sticky top-0 z-30 h-16 bg-card/80 backdrop-blur-md border-b border-border flex items-center px-4 lg:px-6">
           <button className="lg:hidden mr-3" onClick={() => setSidebarOpen(true)}>
             <Menu className="w-6 h-6" />
@@ -338,14 +338,14 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
             {(navItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
         </header>
-        <main className="flex-1 p-4 lg:p-6 overflow-y-auto">
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 pb-24 lg:p-6">
           <div className="max-w-[1200px] mx-auto">{children}</div>
         </main>
       </div>
 
-      <div className="fixed bottom-5 right-5 z-40 flex flex-col items-end gap-3">
+      <div className="fixed bottom-4 right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3">
         {coachOpen && (
-          <div className="w-[min(calc(100vw-2.5rem),22rem)] rounded-lg border border-border bg-card p-4 shadow-xl">
+          <div className="max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl">
             <div className="mb-3 flex items-start gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
                 <Bot className="h-5 w-5" />

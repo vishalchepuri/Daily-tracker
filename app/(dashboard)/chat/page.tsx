@@ -4,7 +4,6 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
@@ -151,19 +150,15 @@ export default function ChatPage() {
   }, [listening, streaming]);
 
   const closeChat = useCallback(() => {
-    if (window.history.length > 1) {
-      router.back();
-      return;
-    }
     router.push("/dashboard");
   }, [router]);
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col">
+    <div className="flex h-[calc(100dvh-6.5rem)] min-h-0 flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
-        <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-display font-bold tracking-tight">AI Fitness Coach</h2>
+            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">AI Fitness Coach</h2>
             <p className="text-muted-foreground text-sm mt-1">Get personalized fitness and nutrition advice</p>
           </div>
           <Button
@@ -179,8 +174,8 @@ export default function ChatPage() {
         </div>
       </FadeIn>
 
-      <Card className="flex-1 flex flex-col overflow-hidden">
-        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-3 sm:p-4">
           {(messages ?? [])?.length === 0 && (
             <div className="text-center py-12">
               <Bot className="w-12 h-12 text-primary/30 mx-auto mb-3" />
@@ -195,13 +190,13 @@ export default function ChatPage() {
             </div>
           )}
           {(messages ?? []).map((msg: any, i: number) => (
-            <div key={msg?.id ?? i} className={`flex gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
+            <div key={msg?.id ?? i} className={`flex gap-2 sm:gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
               {msg?.role === "assistant" && (
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex">
                   <Bot className="w-4 h-4 text-primary" />
                 </div>
               )}
-              <div className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm whitespace-pre-wrap ${
+              <div className={`max-w-[88%] overflow-hidden break-words rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap sm:max-w-[80%] sm:px-4 ${
                 msg?.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted"
@@ -216,7 +211,7 @@ export default function ChatPage() {
                 {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
               </div>
               {msg?.role === "user" && (
-                <div className="w-8 h-8 rounded-full bg-secondary flex items-center justify-center shrink-0">
+                <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary sm:flex">
                   <User className="w-4 h-4 text-secondary-foreground" />
                 </div>
               )}
@@ -224,7 +219,7 @@ export default function ChatPage() {
           ))}
         </div>
 
-        <div className="p-4 border-t border-border">
+        <div className="border-t border-border p-3 sm:p-4">
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
@@ -237,7 +232,7 @@ export default function ChatPage() {
               </Button>
             </div>
           )}
-          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[auto_auto_1fr_auto] gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -255,6 +250,7 @@ export default function ChatPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={streaming}
               title="Attach food photo"
+              className="h-11 w-11 shrink-0"
             >
               <ImagePlus className="w-4 h-4" />
             </Button>
@@ -265,6 +261,7 @@ export default function ChatPage() {
               onClick={toggleVoiceInput}
               disabled={streaming}
               title={listening ? "Stop listening" : "Speak message"}
+              className="h-11 w-11 shrink-0"
             >
               {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </Button>
@@ -273,9 +270,9 @@ export default function ChatPage() {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
               placeholder={listening ? "Listening..." : "Ask, log food, attach food/sleep image..."}
               disabled={streaming}
-              className="flex-1"
+              className="h-11 min-w-0"
             />
-            <Button type="submit" disabled={streaming || (!input?.trim() && !imageDataUrl)}>
+            <Button type="submit" disabled={streaming || (!input?.trim() && !imageDataUrl)} className="h-11 w-11 shrink-0 px-0">
               {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </form>
