@@ -127,7 +127,7 @@ export default function SignupPage() {
                 <div className="space-y-2">
                   <Label htmlFor="otp">Verification Code</Label>
                   <Input id="otp" inputMode="numeric" maxLength={6} placeholder="6-digit code" value={otp} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))} required />
-                  <p className="text-xs text-muted-foreground">Enter the code sent to your email. In local dev without email setup, the code appears in the toast.</p>
+                  <p className="text-xs text-muted-foreground">Enter the code sent to your email.</p>
                 </div>
               )}
               <div className="space-y-2">
