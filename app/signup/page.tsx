@@ -40,7 +40,12 @@ export default function SignupPage() {
         return;
       }
       setOtpSent(true);
-      toast.success(data?.devOtp ? `Verification code: ${data.devOtp}` : "Verification code sent to your email");
+      if (data?.devOtp) {
+        setOtp(data.devOtp);
+        toast.success(`Verification code filled for local testing: ${data.devOtp}`);
+      } else {
+        toast.success("Verification code sent to your email");
+      }
     } catch {
       toast.error("Could not send verification code");
     } finally {

@@ -73,14 +73,14 @@ export async function POST(req: Request) {
       emailWarning = error?.message?.includes("testing emails")
         ? "Resend is in testing mode. Verify a domain in Resend to email other users."
         : "Email provider could not send the code.";
-      if (process.env.NODE_ENV === "production") {
+      if (process.env.NODE_ENV === "production" && process.env.ALLOW_OTP_DEBUG !== "true") {
         return NextResponse.json({ error: emailWarning }, { status: 400 });
       }
     }
     return NextResponse.json({
       message: sent ? "Verification code sent" : "Verification code generated",
       warning: emailWarning,
-      devOtp: sent || process.env.NODE_ENV === "production" ? undefined : otp,
+      devOtp: sent || (process.env.NODE_ENV === "production" && process.env.ALLOW_OTP_DEBUG !== "true") ? undefined : otp,
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed to send verification code" }, { status: 500 });
