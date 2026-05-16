@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { signIn } from "next-auth/react";
-import { CalendarDays, CreditCard, Mail, Pencil, Plus, RefreshCw, Search, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
+import { AlertCircle, Banknote, CalendarDays, CreditCard, Download, HandCoins, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Sparkles, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +21,35 @@ const blankForm = {
   amount: "",
   currency: "INR",
   category: "",
+  date: new Date().toISOString().slice(0, 10),
+  notes: "",
+  creditCardId: "none",
+};
+
+const blankCardForm = {
+  id: "",
+  name: "",
+  bankName: "",
+  last4: "",
+  currentDue: "",
+  dueDay: "",
+};
+
+const blankBankForm = {
+  id: "",
+  name: "",
+  bankName: "",
+  accountType: "savings",
+  last4: "",
+  balance: "",
+  currency: "INR",
+};
+
+const blankMoneyLinkForm = {
+  person: "",
+  type: "lend",
+  amount: "",
+  currency: "INR",
   date: new Date().toISOString().slice(0, 10),
   notes: "",
 };
@@ -62,22 +91,54 @@ export default function SpendsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
+  const [targetEditing, setTargetEditing] = useState(false);
   const [targetSaving, setTargetSaving] = useState(false);
   const [search, setSearch] = useState("");
-  const [periodFilter, setPeriodFilter] = useState("month");
+  const [periodFilter, setPeriodFilter] = useState("custom");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [cardFilter, setCardFilter] = useState("all");
+  const [customStart, setCustomStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
+  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [form, setForm] = useState(blankForm);
+  const [financeProfile, setFinanceProfile] = useState<any>(null);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [creditCards, setCreditCards] = useState<any[]>([]);
+  const [moneyLinks, setMoneyLinks] = useState<any[]>([]);
+  const [financeForm, setFinanceForm] = useState({ currentBalance: "", totalAmount: "" });
+  const [cardDialogOpen, setCardDialogOpen] = useState(false);
+  const [cardForm, setCardForm] = useState(blankCardForm);
+  const [bankDialogOpen, setBankDialogOpen] = useState(false);
+  const [bankForm, setBankForm] = useState(blankBankForm);
+  const [moneyLinkForm, setMoneyLinkForm] = useState(blankMoneyLinkForm);
 
   const loadData = async () => {
     try {
-      const [spendsRes, settingsRes] = await Promise.all([
+      const [spendsRes, settingsRes, financeRes, bankRes, cardsRes, moneyLinksRes] = await Promise.all([
         fetch("/api/spends"),
         fetch("/api/spends/settings"),
+        fetch("/api/finance"),
+        fetch("/api/bank-accounts"),
+        fetch("/api/credit-cards"),
+        fetch("/api/money-links"),
       ]);
       const spendsData = await spendsRes.json();
       const settingsData = await settingsRes.json();
+      const financeData = await financeRes.json();
+      const bankData = await bankRes.json();
+      const cardsData = await cardsRes.json();
+      const moneyLinksData = await moneyLinksRes.json();
       setSpends(spendsData?.spends ?? []);
       setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
+      setTargetEditing(!settingsData?.targetMonthlySpend);
+      setFinanceProfile(financeData?.financeProfile ?? null);
+      setFinanceForm({
+        currentBalance: financeData?.financeProfile?.currentBalance != null ? String(financeData.financeProfile.currentBalance) : "",
+        totalAmount: financeData?.financeProfile?.totalAmount != null ? String(financeData.financeProfile.totalAmount) : "",
+      });
+      setBankAccounts(bankData?.bankAccounts ?? []);
+      setCreditCards(cardsData?.creditCards ?? []);
+      setMoneyLinks(moneyLinksData?.moneyLinks ?? []);
     } catch (error) {
       console.error(error);
     } finally {
@@ -94,16 +155,51 @@ export default function SpendsPage() {
     const total = monthSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0);
     const gmail = monthSpends.filter((spend) => spend.source === "gmail").length;
     const manual = monthSpends.filter((spend) => spend.source === "manual").length;
+    const creditCardSpend = monthSpends.filter((spend) => spend.creditCardId).reduce((sum, spend) => sum + (spend.amount ?? 0), 0);
     const target = Number(targetMonthlySpend) || 0;
     const remaining = target > 0 ? Math.max(0, target - total) : 0;
     const progress = target > 0 ? Math.min(100, Math.round((total / target) * 100)) : 0;
     const daysPassed = Math.max(1, now.getDate());
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysRemaining = Math.max(1, daysInMonth - now.getDate() + 1);
     const dailyAverage = total / daysPassed;
     const projected = dailyAverage * daysInMonth;
+    const safeDailySpend = target > 0 ? remaining / daysRemaining : 0;
     const largest = [...monthSpends].sort((a, b) => (b.amount ?? 0) - (a.amount ?? 0))[0];
-    return { total, count: monthSpends.length, gmail, manual, target, remaining, progress, dailyAverage, projected, largest };
+    return { total, count: monthSpends.length, gmail, manual, creditCardSpend, target, remaining, progress, dailyAverage, projected, safeDailySpend, daysRemaining, largest };
   }, [spends, targetMonthlySpend]);
+
+  const financeTotals = useMemo(() => {
+    const openLinks = moneyLinks.filter((link) => !link.settled);
+    const totalLend = openLinks.filter((link) => link.type === "lend").reduce((sum, link) => sum + (link.amount ?? 0), 0);
+    const totalBorrow = openLinks.filter((link) => link.type === "borrow").reduce((sum, link) => sum + (link.amount ?? 0), 0);
+    const currentCardDue = creditCards.reduce((sum, card) => sum + (card.currentDue ?? 0), 0);
+    const totalBankBalance = bankAccounts.reduce((sum, account) => sum + (account.balance ?? 0), 0);
+    return {
+      currentBalance: totalBankBalance || financeProfile?.currentBalance || 0,
+      totalAmount: financeProfile?.totalAmount ?? 0,
+      totalBankBalance,
+      totalLend,
+      totalBorrow,
+      currentCardDue,
+      netBalance: (totalBankBalance || financeProfile?.currentBalance || 0) + totalLend - totalBorrow - currentCardDue,
+    };
+  }, [bankAccounts, creditCards, financeProfile, moneyLinks]);
+
+  const cardDueAlerts = useMemo(() => {
+    const today = new Date();
+    const todayDay = today.getDate();
+    return creditCards
+      .filter((card) => card.dueDay && (card.currentDue ?? 0) > 0)
+      .map((card) => {
+        const daysUntilDue = card.dueDay >= todayDay
+          ? card.dueDay - todayDay
+          : new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - todayDay + card.dueDay;
+        return { ...card, daysUntilDue };
+      })
+      .sort((a, b) => a.daysUntilDue - b.daysUntilDue)
+      .slice(0, 3);
+  }, [creditCards]);
 
   const categoryTotals = useMemo(() => {
     const now = new Date();
@@ -131,23 +227,35 @@ export default function SpendsPage() {
     }
     if (periodFilter === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
     if (periodFilter === "year") return new Date(now.getFullYear(), 0, 1);
+    if (periodFilter === "custom") return customStart ? new Date(`${customStart}T00:00:00`) : null;
     return null;
-  }, [periodFilter]);
+  }, [customStart, periodFilter]);
+
+  const filterEndDate = useMemo(() => {
+    if (periodFilter !== "custom" || !customEnd) return null;
+    const end = new Date(`${customEnd}T23:59:59`);
+    return Number.isNaN(end.getTime()) ? null : end;
+  }, [customEnd, periodFilter]);
 
   const filteredSpends = useMemo(() => {
     const query = search.trim().toLowerCase();
     return spends.filter((spend) => {
       const spendDate = new Date(spend.date);
       const matchesPeriod = !filterStartDate || spendDate >= filterStartDate;
+      const matchesEnd = !filterEndDate || spendDate <= filterEndDate;
       const matchesCategory = categoryFilter === "all" || (spend.category || "Uncategorized") === categoryFilter;
+      const matchesSource = sourceFilter === "all" || spend.source === sourceFilter;
+      const matchesCard =
+        cardFilter === "all" ||
+        (cardFilter === "none" ? !spend.creditCardId : spend.creditCardId === cardFilter);
       const matchesSearch =
         !query ||
-        [spend.merchant, spend.category, spend.notes, spend.emailSubject]
+        [spend.merchant, spend.category, spend.notes, spend.emailSubject, spend.creditCard?.name]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(query));
-      return matchesPeriod && matchesCategory && matchesSearch;
+      return matchesPeriod && matchesEnd && matchesCategory && matchesSource && matchesCard && matchesSearch;
     });
-  }, [categoryFilter, filterStartDate, search, spends]);
+  }, [cardFilter, categoryFilter, filterEndDate, filterStartDate, search, sourceFilter, spends]);
 
   const filteredTotal = useMemo(
     () => filteredSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0),
@@ -161,6 +269,28 @@ export default function SpendsPage() {
   }, [spends]);
 
   const topCategory = categoryTotals[0];
+
+  const filteredReport = useMemo(() => {
+    const groupedDays = filteredSpends.reduce((acc: Record<string, any>, spend) => {
+      const key = dateKey(new Date(spend.date));
+      if (!acc[key]) {
+        acc[key] = { key, label: formatPeriodLabel(key, "daily"), amount: 0, count: 0 };
+      }
+      acc[key].amount += spend.amount ?? 0;
+      acc[key].count += 1;
+      return acc;
+    }, {});
+    const dayRows = Object.values(groupedDays).sort((a: any, b: any) => a.key.localeCompare(b.key));
+    const total = filteredSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0);
+    const topDay = [...dayRows].sort((a: any, b: any) => b.amount - a.amount)[0];
+    const merchants = filteredSpends.reduce((acc: Record<string, number>, spend) => {
+      acc[spend.merchant] = (acc[spend.merchant] ?? 0) + (spend.amount ?? 0);
+      return acc;
+    }, {});
+    const topMerchant = Object.entries(merchants).map(([merchant, amount]) => ({ merchant, amount })).sort((a, b) => b.amount - a.amount)[0];
+    const averagePerDay = dayRows.length ? total / dayRows.length : 0;
+    return { dayRows, total, topDay, topMerchant, averagePerDay };
+  }, [filteredSpends]);
 
   const buildHistory = (mode: "daily" | "weekly" | "monthly") => {
     const grouped = spends.reduce((acc: Record<string, any>, spend) => {
@@ -206,6 +336,7 @@ export default function SpendsPage() {
       category: spend.category ?? "",
       date: new Date(spend.date ?? Date.now()).toISOString().slice(0, 10),
       notes: spend.notes ?? "",
+      creditCardId: spend.creditCardId ?? "none",
     });
     setDialogOpen(true);
   };
@@ -248,6 +379,7 @@ export default function SpendsPage() {
         return;
       }
       setTargetMonthlySpend(String(data.targetMonthlySpend ?? ""));
+      setTargetEditing(false);
       toast.success("Monthly target saved");
     } catch {
       toast.error("Failed to save target");
@@ -263,6 +395,214 @@ export default function SpendsPage() {
       loadData();
     } catch {
       toast.error("Failed to remove spend");
+    }
+  };
+
+  const exportFilteredSpends = () => {
+    if (filteredSpends.length === 0) {
+      toast.error("No spends to export");
+      return;
+    }
+    const headers = ["Date", "Merchant", "Amount", "Currency", "Category", "Source", "Credit Card", "Notes"];
+    const rows = filteredSpends.map((spend) => [
+      new Date(spend.date).toISOString().slice(0, 10),
+      spend.merchant ?? "",
+      Number(spend.amount ?? 0).toFixed(2),
+      spend.currency ?? "INR",
+      spend.category ?? "",
+      spend.source ?? "",
+      spend.creditCard?.name ?? "",
+      spend.notes ?? "",
+    ]);
+    const csv = [headers, ...rows]
+      .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `dayza-spends-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("Spend CSV exported");
+  };
+
+  const clearFilters = () => {
+    setSearch("");
+    setPeriodFilter("custom");
+    setCategoryFilter("all");
+    setSourceFilter("all");
+    setCardFilter("all");
+    setCustomStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
+    setCustomEnd(new Date().toISOString().slice(0, 10));
+  };
+
+  const saveFinance = async () => {
+    try {
+      const res = await fetch("/api/finance", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...financeForm, currency: "INR" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save balances");
+        return;
+      }
+      toast.success("Balances saved");
+      loadData();
+    } catch {
+      toast.error("Failed to save balances");
+    }
+  };
+
+  const openAddBank = () => {
+    setBankForm(blankBankForm);
+    setBankDialogOpen(true);
+  };
+
+  const openEditBank = (account: any) => {
+    setBankForm({
+      id: account.id,
+      name: account.name ?? "",
+      bankName: account.bankName ?? "",
+      accountType: account.accountType ?? "savings",
+      last4: account.last4 ?? "",
+      balance: account.balance != null ? String(account.balance) : "",
+      currency: account.currency ?? "INR",
+    });
+    setBankDialogOpen(true);
+  };
+
+  const saveBank = async () => {
+    if (!bankForm.name) {
+      toast.error("Account name is required");
+      return;
+    }
+    try {
+      const res = await fetch("/api/bank-accounts", {
+        method: bankForm.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bankForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save bank account");
+        return;
+      }
+      toast.success(bankForm.id ? "Bank account updated" : "Bank account added");
+      setBankDialogOpen(false);
+      loadData();
+    } catch {
+      toast.error("Failed to save bank account");
+    }
+  };
+
+  const deleteBank = async (id: string) => {
+    try {
+      await fetch(`/api/bank-accounts?id=${id}`, { method: "DELETE" });
+      toast.success("Bank account removed");
+      loadData();
+    } catch {
+      toast.error("Failed to remove bank account");
+    }
+  };
+
+  const openAddCard = () => {
+    setCardForm(blankCardForm);
+    setCardDialogOpen(true);
+  };
+
+  const openEditCard = (card: any) => {
+    setCardForm({
+      id: card.id,
+      name: card.name ?? "",
+      bankName: card.bankName ?? "",
+      last4: card.last4 ?? "",
+      currentDue: card.currentDue != null ? String(card.currentDue) : "",
+      dueDay: card.dueDay != null ? String(card.dueDay) : "",
+    });
+    setCardDialogOpen(true);
+  };
+
+  const saveCard = async () => {
+    if (!cardForm.name) {
+      toast.error("Card name is required");
+      return;
+    }
+    try {
+      const res = await fetch("/api/credit-cards", {
+        method: cardForm.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cardForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save card");
+        return;
+      }
+      toast.success(cardForm.id ? "Card updated" : "Card added");
+      setCardDialogOpen(false);
+      loadData();
+    } catch {
+      toast.error("Failed to save card");
+    }
+  };
+
+  const deleteCard = async (id: string) => {
+    try {
+      await fetch(`/api/credit-cards?id=${id}`, { method: "DELETE" });
+      toast.success("Card removed");
+      loadData();
+    } catch {
+      toast.error("Failed to remove card");
+    }
+  };
+
+  const saveMoneyLink = async () => {
+    if (!moneyLinkForm.person || !moneyLinkForm.amount) {
+      toast.error("Person and amount are required");
+      return;
+    }
+    try {
+      const res = await fetch("/api/money-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(moneyLinkForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save lend/borrow");
+        return;
+      }
+      toast.success(moneyLinkForm.type === "lend" ? "Lend entry added" : "Borrow entry added");
+      setMoneyLinkForm(blankMoneyLinkForm);
+      loadData();
+    } catch {
+      toast.error("Failed to save lend/borrow");
+    }
+  };
+
+  const updateMoneyLink = async (id: string, data: any) => {
+    try {
+      await fetch("/api/money-links", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...data }),
+      });
+      loadData();
+    } catch {
+      toast.error("Failed to update lend/borrow");
+    }
+  };
+
+  const deleteMoneyLink = async (id: string) => {
+    try {
+      await fetch(`/api/money-links?id=${id}`, { method: "DELETE" });
+      toast.success("Entry removed");
+      loadData();
+    } catch {
+      toast.error("Failed to remove entry");
     }
   };
 
@@ -319,6 +659,22 @@ export default function SpendsPage() {
                     <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1" placeholder="Food, travel, shopping" /></div>
                     <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1" /></div>
                   </div>
+                  <div>
+                    <Label>Credit Card</Label>
+                    <Select value={form.creditCardId} onValueChange={(creditCardId) => setForm({ ...form, creditCardId })}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Optional card" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">No card / cash / UPI</SelectItem>
+                        {creditCards.map((card) => (
+                          <SelectItem key={card.id} value={card.id}>
+                            {card.name}{card.last4 ? ` - ${card.last4}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                   <div className="flex flex-wrap gap-2">
                     {spendCategories.map((category) => (
                       <Button key={category} type="button" variant={form.category === category ? "default" : "outline"} size="sm" onClick={() => setForm({ ...form, category })}>
@@ -335,6 +691,234 @@ export default function SpendsPage() {
         </div>
       </FadeIn>
 
+      <Card className="border-primary/30">
+        <CardHeader>
+          <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Landmark className="h-5 w-5 text-primary" />
+              Money Hub
+            </CardTitle>
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openAddBank} size="sm" variant="outline"><Plus className="mr-2 h-4 w-4" />Add Bank</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader><DialogTitle>{bankForm.id ? "Edit Bank Account" : "Add Bank Account"}</DialogTitle></DialogHeader>
+                  <div className="space-y-4">
+                    <div><Label>Account Name</Label><Input value={bankForm.name} onChange={(e) => setBankForm({ ...bankForm, name: e.target.value })} className="mt-1" placeholder="Salary account, Savings..." /></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><Label>Bank</Label><Input value={bankForm.bankName} onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })} className="mt-1" /></div>
+                      <div><Label>Last 4</Label><Input value={bankForm.last4} onChange={(e) => setBankForm({ ...bankForm, last4: e.target.value.slice(0, 4) })} className="mt-1" /></div>
+                      <div>
+                        <Label>Type</Label>
+                        <Select value={bankForm.accountType} onValueChange={(accountType) => setBankForm({ ...bankForm, accountType })}>
+                          <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="savings">Savings</SelectItem>
+                            <SelectItem value="current">Current</SelectItem>
+                            <SelectItem value="salary">Salary</SelectItem>
+                            <SelectItem value="wallet">Wallet</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div><Label>Balance</Label><Input type="number" value={bankForm.balance} onChange={(e) => setBankForm({ ...bankForm, balance: e.target.value })} className="mt-1" /></div>
+                    </div>
+                    <Button onClick={saveBank} className="w-full">{bankForm.id ? "Update Bank" : "Save Bank"}</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+              <Dialog open={cardDialogOpen} onOpenChange={setCardDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button onClick={openAddCard} size="sm"><Plus className="mr-2 h-4 w-4" />Add Credit Card</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-md">
+                  <DialogHeader><DialogTitle>{cardForm.id ? "Edit Credit Card" : "Add Credit Card"}</DialogTitle></DialogHeader>
+                  <div className="space-y-4">
+                    <div><Label>Card Name</Label><Input value={cardForm.name} onChange={(e) => setCardForm({ ...cardForm, name: e.target.value })} className="mt-1" placeholder="HDFC Regalia, SBI Cashback..." /></div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div><Label>Bank</Label><Input value={cardForm.bankName} onChange={(e) => setCardForm({ ...cardForm, bankName: e.target.value })} className="mt-1" /></div>
+                      <div><Label>Last 4</Label><Input value={cardForm.last4} onChange={(e) => setCardForm({ ...cardForm, last4: e.target.value.slice(0, 4) })} className="mt-1" /></div>
+                      <div><Label>Current Due</Label><Input type="number" value={cardForm.currentDue} onChange={(e) => setCardForm({ ...cardForm, currentDue: e.target.value })} className="mt-1" /></div>
+                      <div><Label>Due Day</Label><Input type="number" min="1" max="31" value={cardForm.dueDay} onChange={(e) => setCardForm({ ...cardForm, dueDay: e.target.value })} className="mt-1" placeholder="5" /></div>
+                    </div>
+                    <Button onClick={saveCard} className="w-full">{cardForm.id ? "Update Card" : "Save Card"}</Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+            <SummaryCard title="Bank Balance" value={formatInr(financeTotals.totalBankBalance)} detail={`${bankAccounts.length} accounts`} icon={Landmark} />
+            <SummaryCard title="Current Balance" value={formatInr(financeTotals.currentBalance)} detail="bank/cash now" icon={Banknote} />
+            <SummaryCard title="Total Amount" value={formatInr(financeTotals.totalAmount)} detail="your saved total" icon={WalletCards} />
+            <SummaryCard title="Total Lend" value={formatInr(financeTotals.totalLend)} detail="money to receive" icon={HandCoins} />
+            <SummaryCard title="Total Borrow" value={formatInr(financeTotals.totalBorrow)} detail="money to return" icon={CreditCard} />
+            <SummaryCard title="Card Spend" value={formatInr(totals.creditCardSpend)} detail="this month" icon={CreditCard} />
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <InsightCard
+              title="Net Position"
+              value={formatInr(financeTotals.netBalance)}
+              detail="balance + lent - borrowed - card due"
+              warning={financeTotals.netBalance < 0}
+            />
+            <InsightCard
+              title="Total Card Payable"
+              value={formatInr(financeTotals.currentCardDue)}
+              detail={`${creditCards.length} active cards`}
+            />
+            <InsightCard
+              title="Safe Daily Spend"
+              value={totals.target ? formatInr(totals.safeDailySpend) : "Set target"}
+              detail={totals.target ? `${totals.daysRemaining} days left this month` : "monthly target required"}
+              warning={Boolean(totals.target && totals.safeDailySpend <= 0)}
+            />
+          </div>
+
+          {cardDueAlerts.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
+                <AlertCircle className="h-4 w-4 text-amber-400" />
+                Upcoming Card Dues
+              </div>
+              <div className="grid gap-2 md:grid-cols-3">
+                {cardDueAlerts.map((card) => (
+                  <div key={card.id} className="rounded-md bg-background/60 px-3 py-2 text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate font-medium">{card.name}</span>
+                      <span className="font-mono">{formatInr(card.currentDue ?? 0)}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {card.daysUntilDue === 0 ? "Due today" : `Due in ${card.daysUntilDue} days`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="grid gap-3 rounded-lg bg-muted/30 p-3 md:grid-cols-[1fr_auto] md:items-end">
+            <div><Label>Total Amount</Label><Input type="number" value={financeForm.totalAmount} onChange={(e) => setFinanceForm({ ...financeForm, totalAmount: e.target.value })} className="mt-1" /></div>
+            <Button onClick={saveFinance}>Save Total</Button>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-3">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold">Bank Accounts</h3>
+                <p className="text-xs text-muted-foreground">Total: {formatInr(financeTotals.totalBankBalance)}</p>
+              </div>
+              {bankAccounts.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
+              ) : (
+                <div className="grid gap-2">
+                  {bankAccounts.map((account) => (
+                    <div key={account.id} className="rounded-lg bg-muted/40 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium">{account.name}</p>
+                          <p className="text-xs capitalize text-muted-foreground">{[account.bankName, account.accountType, account.last4 ? `Account ending ${account.last4}` : null].filter(Boolean).join(" - ")}</p>
+                        </div>
+                        <div className="flex shrink-0 gap-1">
+                          <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
+                          <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        </div>
+                      </div>
+                      <div className="mt-3 text-sm">
+                        <span className="text-muted-foreground">Balance</span>
+                        <p className="font-mono">{formatInr(account.balance ?? 0)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold">Credit Cards</h3>
+                <p className="text-xs text-muted-foreground">Current due: {formatInr(financeTotals.currentCardDue)}</p>
+              </div>
+              {creditCards.length === 0 ? (
+                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No credit cards added yet.</div>
+              ) : (
+                <div className="grid gap-2">
+                  {creditCards.map((card) => {
+                    const monthSpend = spends.filter((spend) => spend.creditCardId === card.id).reduce((sum, spend) => {
+                      const date = new Date(spend.date);
+                      const now = new Date();
+                      return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear() ? sum + (spend.amount ?? 0) : sum;
+                    }, 0);
+                    return (
+                      <div key={card.id} className="rounded-lg bg-muted/40 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{card.name}</p>
+                            <p className="text-xs text-muted-foreground">{[card.bankName, card.last4 ? `Card ending ${card.last4}` : null, card.dueDay ? `Due ${card.dueDay}` : null].filter(Boolean).join(" - ")}</p>
+                          </div>
+                          <div className="flex shrink-0 gap-1">
+                            <Button variant="ghost" size="icon" onClick={() => openEditCard(card)} title="Edit card"><Pencil className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id)} title="Delete card"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                          <div><span className="text-muted-foreground">Current due</span><p className="font-mono">{formatInr(card.currentDue ?? 0)}</p></div>
+                          <div><span className="text-muted-foreground">This month</span><p className="font-mono">{formatInr(monthSpend)}</p></div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="font-semibold">Lend / Borrow</h3>
+              <div className="grid gap-2 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
+                <Input placeholder="Person" value={moneyLinkForm.person} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, person: e.target.value })} />
+                <Input type="number" placeholder="Amount" value={moneyLinkForm.amount} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, amount: e.target.value })} />
+                <Select value={moneyLinkForm.type} onValueChange={(type) => setMoneyLinkForm({ ...moneyLinkForm, type })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lend">I lent money</SelectItem>
+                    <SelectItem value="borrow">I borrowed money</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input type="date" value={moneyLinkForm.date} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, date: e.target.value })} />
+                <Input className="sm:col-span-2" placeholder="Notes" value={moneyLinkForm.notes} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, notes: e.target.value })} />
+                <Button className="sm:col-span-2" onClick={saveMoneyLink}><Plus className="mr-2 h-4 w-4" />Add Entry</Button>
+              </div>
+              <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
+                {moneyLinks.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No lend or borrow entries yet.</div>
+                ) : moneyLinks.map((link) => (
+                  <div key={link.id} className={`grid gap-2 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center ${link.settled ? "opacity-60" : ""}`}>
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{link.person}</p>
+                        <Badge variant={link.type === "lend" ? "secondary" : "outline"}>{link.type === "lend" ? "Lent" : "Borrowed"}</Badge>
+                        {link.settled && <Badge variant="outline">Settled</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.notes ? `- ${link.notes}` : ""}</p>
+                    </div>
+                    <div className="flex items-center justify-between gap-1 sm:justify-end">
+                      <span className="font-mono text-sm">{formatInr(link.amount ?? 0)}</span>
+                      <Button variant="ghost" size="sm" onClick={() => updateMoneyLink(link.id, { settled: !link.settled })}>{link.settled ? "Open" : "Settle"}</Button>
+                      <Button variant="ghost" size="icon" onClick={() => deleteMoneyLink(link.id)} title="Delete entry"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card className="border-primary/30 bg-primary/5">
         <CardContent className="space-y-4 p-4">
           <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
@@ -349,10 +933,23 @@ export default function SpendsPage() {
                   : "Set a monthly spend target to track budget progress."}
               </p>
             </div>
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" />
-              <Button onClick={saveTarget} disabled={targetSaving}>{targetSaving ? "Saving" : "Save"}</Button>
-            </div>
+            {targetEditing ? (
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" />
+                <Button onClick={saveTarget} disabled={targetSaving}>{targetSaving ? "Saving" : "Save"}</Button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-3 rounded-lg bg-background/60 px-3 py-2 sm:min-w-72">
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">Saved target</p>
+                  <p className="truncate font-mono font-semibold">{formatInr(totals.target)}</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setTargetEditing(true)}>
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Edit
+                </Button>
+              </div>
+            )}
           </div>
           <div>
             <div className="mb-2 flex items-center justify-between text-sm">
@@ -390,12 +987,71 @@ export default function SpendsPage() {
           value={totals.largest ? formatInr(totals.largest.amount ?? 0) : "None"}
           detail={totals.largest ? totals.largest.merchant : "no spends this month"}
         />
-        <InsightCard
-          title="Top Category"
-          value={topCategory ? topCategory.category : "None"}
-          detail={topCategory ? formatInr(topCategory.amount) : "no category data"}
-        />
+        <InsightCard title="Top Category" value={topCategory ? topCategory.category : "None"} detail={topCategory ? formatInr(topCategory.amount) : "no category data"} />
       </div>
+
+      <Card className="border-primary/30">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Custom Spend Report
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_160px_180px]">
+            <div>
+              <Label>From</Label>
+              <Input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
+            </div>
+            <div>
+              <Label>To</Label>
+              <Input type="date" value={customEnd} onChange={(e) => { setCustomEnd(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
+            </div>
+            <div>
+              <Label>Category</Label>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {availableCategories.map((category) => (
+                    <SelectItem key={category} value={category}>{category === "all" ? "All categories" : category}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Source</Label>
+              <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All sources</SelectItem>
+                  <SelectItem value="manual">Manual</SelectItem>
+                  <SelectItem value="gmail">Gmail</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Card</Label>
+              <Select value={cardFilter} onValueChange={setCardFilter}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All cards</SelectItem>
+                  <SelectItem value="none">No card</SelectItem>
+                  {creditCards.map((card) => (
+                    <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid gap-3 md:grid-cols-4">
+            <InsightCard title="Range Total" value={formatInr(filteredReport.total)} detail={`${filteredSpends.length} spends`} />
+            <InsightCard title="Avg Active Day" value={formatInr(filteredReport.averagePerDay)} detail="days with spending" />
+            <InsightCard title="Highest Day" value={filteredReport.topDay ? formatInr(filteredReport.topDay.amount) : "None"} detail={filteredReport.topDay?.label ?? "no spends"} />
+            <InsightCard title="Top Merchant" value={filteredReport.topMerchant?.merchant ?? "None"} detail={filteredReport.topMerchant ? formatInr(filteredReport.topMerchant.amount) : "no spends"} />
+          </div>
+          <HistoryPanel data={filteredReport.dayRows} emptyLabel="No spends in this custom range." />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" />Category Breakdown</CardTitle></CardHeader>
@@ -453,7 +1109,7 @@ export default function SpendsPage() {
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="w-5 h-5 text-primary" />Recent Spends</CardTitle></CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px]">
+          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px_160px_180px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" placeholder="Search merchant, category, notes..." />
@@ -464,6 +1120,7 @@ export default function SpendsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="custom">Custom range</SelectItem>
                 <SelectItem value="week">This week</SelectItem>
                 <SelectItem value="month">This month</SelectItem>
                 <SelectItem value="year">This year</SelectItem>
@@ -480,11 +1137,41 @@ export default function SpendsPage() {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger>
+                <SelectValue placeholder="Source" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All sources</SelectItem>
+                <SelectItem value="manual">Manual</SelectItem>
+                <SelectItem value="gmail">Gmail</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={cardFilter} onValueChange={setCardFilter}>
+              <SelectTrigger>
+                <CreditCard className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Card" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All cards</SelectItem>
+                <SelectItem value="none">No card</SelectItem>
+                {creditCards.map((card) => (
+                  <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
             <span className="text-muted-foreground">{filteredSpends.length} matching spends</span>
-            <span className="font-mono font-semibold">{formatInr(filteredTotal)}</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
+              <Button variant="outline" size="sm" onClick={exportFilteredSpends}>
+                <Download className="mr-2 h-4 w-4" />
+                Export
+              </Button>
+              <span className="font-mono font-semibold">{formatInr(filteredTotal)}</span>
+            </div>
           </div>
 
           {spends.length === 0 ? (
@@ -498,11 +1185,12 @@ export default function SpendsPage() {
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {new Date(spend.date).toLocaleDateString()} {spend.emailSubject ? `• ${spend.emailSubject}` : ""}
+                      {new Date(spend.date).toLocaleDateString()} {spend.emailSubject ? `- ${spend.emailSubject}` : ""}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>
                       {spend.category && <Badge variant="outline">{spend.category}</Badge>}
+                      {spend.creditCard && <Badge variant="secondary">{spend.creditCard.name}</Badge>}
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2 sm:justify-end">
@@ -599,3 +1287,4 @@ function HistoryPanel({ data, emptyLabel }: { data: any[]; emptyLabel: string })
     </div>
   );
 }
+

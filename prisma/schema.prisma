@@ -30,8 +30,14 @@ model User {
   progressPhotos ProgressPhoto[]
   healthMetrics HealthMetric[]
   spends        Spend[]
+  financeProfile FinanceProfile?
+  bankAccounts   BankAccount[]
+  creditCards   CreditCard[]
+  moneyLinks    MoneyLink[]
   reminderLists ReminderList[]
   reminders     Reminder[]
+  medications   Medication[]
+  medicationLogs MedicationLog[]
   passwordResetTokens PasswordResetToken[]
   signupOtps    SignupOtp[]
 }
@@ -296,11 +302,73 @@ model Spend {
   emailSubject String?
   emailFrom    String?
   gmailMessageId String?
+  creditCardId String?
+  creditCard   CreditCard? @relation(fields: [creditCardId], references: [id], onDelete: SetNull)
   notes       String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   @@index([userId, date])
   @@unique([userId, gmailMessageId])
+}
+
+model FinanceProfile {
+  id             String   @id @default(cuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  currentBalance Float    @default(0)
+  totalAmount    Float    @default(0)
+  currency       String   @default("INR")
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+}
+
+model BankAccount {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  bankName    String?
+  accountType String   @default("savings")
+  last4       String?
+  balance     Float    @default(0)
+  currency    String   @default("INR")
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([userId, active])
+}
+
+model CreditCard {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  bankName    String?
+  last4       String?
+  creditLimit Float?
+  currentDue  Float    @default(0)
+  dueDay      Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  spends      Spend[]
+  @@index([userId, active])
+}
+
+model MoneyLink {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person    String
+  type      String   // lend, borrow
+  amount    Float
+  currency  String   @default("INR")
+  notes     String?
+  settled   Boolean  @default(false)
+  date      DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, type, settled])
 }
 
 model ReminderList {
@@ -335,6 +403,42 @@ model Reminder {
   updatedAt   DateTime @updatedAt
   @@index([userId, dueDate])
   @@index([userId, completed])
+}
+
+model Medication {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  dosage      String?
+  instructions String?
+  timeOfDay   String   // HH:mm
+  recurrence  String   @default("daily") // daily, weekly, monthly, custom
+  recurrenceCustom String?
+  daysOfWeek  String?
+  dayOfMonth  Int?
+  startDate   DateTime?
+  endDate     DateTime?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  logs        MedicationLog[]
+  @@index([userId, active])
+  @@index([userId, timeOfDay])
+}
+
+model MedicationLog {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  medicationId String
+  medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  scheduledFor DateTime
+  status       String   @default("taken") // taken, skipped
+  notes        String?
+  createdAt    DateTime @default(now())
+  @@index([userId, scheduledFor])
+  @@index([medicationId, scheduledFor])
 }
 
 model TelegramBotState {

@@ -1,0 +1,400 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { Bell, CalendarDays, CheckCircle2, Clock, Edit, Pill, Plus, SkipForward, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FadeIn } from "@/components/ui/animate";
+
+const blankForm = {
+  id: "",
+  name: "",
+  dosage: "",
+  instructions: "",
+  timeOfDay: "08:00",
+  recurrence: "daily",
+  recurrenceCustom: "",
+  daysOfWeek: "",
+  dayOfMonth: "",
+  startDate: "",
+  endDate: "",
+  active: true,
+};
+
+const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function todayAt(timeOfDay: string) {
+  const [hours, minutes] = timeOfDay.split(":").map(Number);
+  const date = new Date();
+  date.setHours(hours || 0, minutes || 0, 0, 0);
+  return date;
+}
+
+function formatRepeat(med: any) {
+  if (med.recurrence === "weekly") return `Weekly${med.daysOfWeek ? `: ${med.daysOfWeek}` : ""}`;
+  if (med.recurrence === "monthly") return `Monthly${med.dayOfMonth ? ` on day ${med.dayOfMonth}` : ""}`;
+  if (med.recurrence === "custom") return med.recurrenceCustom || "Custom";
+  return "Daily";
+}
+
+export default function MedicationsPage() {
+  const [medications, setMedications] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [form, setForm] = useState(blankForm);
+
+  const loadData = async () => {
+    try {
+      const [medRes, logsRes] = await Promise.all([
+        fetch("/api/medications"),
+        fetch("/api/medications/logs?limit=50"),
+      ]);
+      const medData = await medRes.json();
+      const logsData = await logsRes.json();
+      setMedications(medData?.medications ?? []);
+      setLogs(logsData?.logs ?? []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  const activeMeds = medications.filter((med) => med.active);
+  const todayLogs = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    return logs.filter((log) => {
+      const date = new Date(log.scheduledFor);
+      return date >= start && date <= end;
+    });
+  }, [logs]);
+  const takenToday = todayLogs.filter((log) => log.status === "taken").length;
+  const skippedToday = todayLogs.filter((log) => log.status === "skipped").length;
+
+  const openAdd = () => {
+    setForm(blankForm);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (med: any) => {
+    setForm({
+      id: med.id,
+      name: med.name ?? "",
+      dosage: med.dosage ?? "",
+      instructions: med.instructions ?? "",
+      timeOfDay: med.timeOfDay ?? "08:00",
+      recurrence: med.recurrence ?? "daily",
+      recurrenceCustom: med.recurrenceCustom ?? "",
+      daysOfWeek: med.daysOfWeek ?? "",
+      dayOfMonth: med.dayOfMonth ? String(med.dayOfMonth) : "",
+      startDate: med.startDate ? new Date(med.startDate).toISOString().slice(0, 10) : "",
+      endDate: med.endDate ? new Date(med.endDate).toISOString().slice(0, 10) : "",
+      active: Boolean(med.active),
+    });
+    setDialogOpen(true);
+  };
+
+  const saveMedication = async () => {
+    if (!form.name || !form.timeOfDay) {
+      toast.error("Medication name and time are required");
+      return;
+    }
+    try {
+      const res = await fetch("/api/medications", {
+        method: form.id ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save medication");
+        return;
+      }
+      toast.success(form.id ? "Medication updated" : "Medication added");
+      setDialogOpen(false);
+      loadData();
+    } catch {
+      toast.error("Failed to save medication");
+    }
+  };
+
+  const deleteMedication = async (med: any) => {
+    if (!window.confirm(`Delete ${med.name}?`)) return;
+    try {
+      await fetch(`/api/medications?id=${med.id}`, { method: "DELETE" });
+      toast.success("Medication deleted");
+      loadData();
+    } catch {
+      toast.error("Failed to delete medication");
+    }
+  };
+
+  const logDose = async (med: any, status: "taken" | "skipped") => {
+    try {
+      const res = await fetch("/api/medications/logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ medicationId: med.id, status, scheduledFor: todayAt(med.timeOfDay).toISOString() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to log dose");
+        return;
+      }
+      toast.success(status === "taken" ? "Dose marked taken" : "Dose skipped");
+      loadData();
+    } catch {
+      toast.error("Failed to log dose");
+    }
+  };
+
+  if (loading) return <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="h-28 rounded-lg bg-muted animate-pulse" />)}</div>;
+
+  return (
+    <div className="space-y-5 sm:space-y-6">
+      <FadeIn>
+        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Medications</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Track medicine timings, repeats, and daily dose status</p>
+          </div>
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={openAdd} className="w-full sm:w-auto">
+                <Plus className="mr-2 h-4 w-4" />
+                Add Medication
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>{form.id ? "Edit Medication" : "Add Medication"}</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>Name</Label>
+                    <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Vitamin D" />
+                  </div>
+                  <div>
+                    <Label>Dosage</Label>
+                    <Input value={form.dosage} onChange={(e) => setForm({ ...form, dosage: e.target.value })} className="mt-1" placeholder="1 tablet / 500mg" />
+                  </div>
+                  <div>
+                    <Label>Time</Label>
+                    <Input type="time" value={form.timeOfDay} onChange={(e) => setForm({ ...form, timeOfDay: e.target.value })} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Repeat</Label>
+                    <Select value={form.recurrence} onValueChange={(value) => setForm({ ...form, recurrence: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {form.recurrence === "weekly" && (
+                  <div>
+                    <Label>Days of week</Label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {weekDays.map((day) => {
+                        const selected = form.daysOfWeek.split(",").filter(Boolean).includes(day);
+                        return (
+                          <Button
+                            key={day}
+                            type="button"
+                            size="sm"
+                            variant={selected ? "default" : "outline"}
+                            onClick={() => {
+                              const values = new Set(form.daysOfWeek.split(",").filter(Boolean));
+                              if (selected) values.delete(day);
+                              else values.add(day);
+                              setForm({ ...form, daysOfWeek: Array.from(values).join(",") });
+                            }}
+                          >
+                            {day}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {form.recurrence === "monthly" && (
+                  <div>
+                    <Label>Day of month</Label>
+                    <Input type="number" min={1} max={31} value={form.dayOfMonth} onChange={(e) => setForm({ ...form, dayOfMonth: e.target.value })} className="mt-1" placeholder="1-31" />
+                  </div>
+                )}
+
+                {form.recurrence === "custom" && (
+                  <div>
+                    <Label>Custom repeat</Label>
+                    <Input value={form.recurrenceCustom} onChange={(e) => setForm({ ...form, recurrenceCustom: e.target.value })} className="mt-1" placeholder="Every 2 days, after breakfast..." />
+                  </div>
+                )}
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label>Start Date</Label>
+                    <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>End Date</Label>
+                    <Input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className="mt-1" />
+                  </div>
+                </div>
+
+                <div>
+                  <Label>Instructions</Label>
+                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1" placeholder="After food, before sleep, avoid with milk..." />
+                </div>
+
+                <Button onClick={saveMedication} className="w-full">{form.id ? "Update Medication" : "Save Medication"}</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </FadeIn>
+
+      <div className="grid grid-cols-3 gap-3">
+        <SummaryCard title="Active" value={activeMeds.length} icon={Pill} />
+        <SummaryCard title="Taken" value={takenToday} icon={CheckCircle2} />
+        <SummaryCard title="Skipped" value={skippedToday} icon={SkipForward} />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-primary" />
+            Today&apos;s Schedule
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {activeMeds.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">No active medications yet.</div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {activeMeds.map((med) => (
+                <Card key={med.id} className="bg-muted/20">
+                  <CardContent className="space-y-4 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="break-words font-semibold">{med.name}</h3>
+                        <p className="mt-1 text-sm text-muted-foreground">{med.dosage || "No dosage set"}</p>
+                      </div>
+                      <Badge variant="secondary"><Clock className="mr-1 h-3 w-3" />{med.timeOfDay}</Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Badge variant="outline">{formatRepeat(med)}</Badge>
+                      {med.instructions && <Badge variant="outline">Instructions</Badge>}
+                    </div>
+                    {med.instructions && <p className="text-sm text-muted-foreground">{med.instructions}</p>}
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" onClick={() => logDose(med, "taken")}>
+                        <CheckCircle2 className="mr-2 h-4 w-4" />
+                        Taken
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => logDose(med, "skipped")}>
+                        <SkipForward className="mr-2 h-4 w-4" />
+                        Skip
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5 text-primary" />
+            Medication List
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {medications.length === 0 ? (
+            <div className="py-10 text-center text-sm text-muted-foreground">Add your first medication schedule.</div>
+          ) : (
+            <div className="space-y-2">
+              {medications.map((med) => (
+                <div key={med.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{med.name}</p>
+                    <p className="text-xs text-muted-foreground">{med.timeOfDay} - {formatRepeat(med)} {med.dosage ? `- ${med.dosage}` : ""}</p>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 sm:justify-end">
+                    <Badge variant={med.active ? "secondary" : "outline"}>{med.active ? "Active" : "Paused"}</Badge>
+                    <Button variant="ghost" size="icon" onClick={() => openEdit(med)} title="Edit medication">
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => deleteMedication(med)} title="Delete medication">
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle>Recent Dose History</CardTitle></CardHeader>
+        <CardContent>
+          {logs.length === 0 ? (
+            <div className="py-8 text-center text-sm text-muted-foreground">No medication logs yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {logs.slice(0, 10).map((log) => (
+                <div key={log.id} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/40 px-3 py-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">{log.medication?.name}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(log.scheduledFor).toLocaleString()}</p>
+                  </div>
+                  <Badge variant={log.status === "taken" ? "secondary" : "outline"}>{log.status}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SummaryCard({ title, value, icon: Icon }: any) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10">
+            <Icon className="h-5 w-5 text-primary" />
+          </div>
+          <span className="text-sm font-medium">{title}</span>
+        </div>
+        <p className="text-2xl font-semibold">{value}</p>
+      </CardContent>
+    </Card>
+  );
+}

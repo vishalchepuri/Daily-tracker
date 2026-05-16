@@ -51,6 +51,43 @@ type AgentAction =
       category?: string;
       date?: string;
       notes?: string;
+      creditCardName?: string;
+    }
+  | {
+      type: "update_spend_target";
+      targetMonthlySpend: number;
+      reason?: string;
+    }
+  | {
+      type: "update_finance_profile";
+      currentBalance?: number;
+      totalAmount?: number;
+    }
+  | {
+      type: "create_credit_card";
+      name: string;
+      bankName?: string;
+      last4?: string;
+      currentDue?: number;
+      dueDay?: number;
+    }
+  | {
+      type: "create_bank_account";
+      name: string;
+      bankName?: string;
+      accountType?: string;
+      last4?: string;
+      balance?: number;
+      currency?: string;
+    }
+  | {
+      type: "create_money_link";
+      person: string;
+      linkType: "lend" | "borrow";
+      amount: number;
+      currency?: string;
+      date?: string;
+      notes?: string;
     }
   | {
       type: "create_workout_log";
@@ -327,6 +364,15 @@ async function executeAgentAction(userId: string, action: AgentAction) {
   }
 
   if (action.type === "create_spend_log") {
+    const card = action.creditCardName
+      ? await prisma.creditCard.findFirst({
+          where: {
+            userId,
+            active: true,
+            name: { contains: action.creditCardName, mode: "insensitive" },
+          },
+        })
+      : null;
     const spend = await prisma.spend.create({
       data: {
         userId,
@@ -337,9 +383,85 @@ async function executeAgentAction(userId: string, action: AgentAction) {
         date: action.date ? new Date(action.date) : new Date(),
         notes: action.notes || "Logged by AI Coach.",
         source: "manual",
+        creditCardId: card?.id ?? null,
       },
     });
-    return { type: action.type, label: `Logged spend at ${spend.merchant}`, id: spend.id };
+    return { type: action.type, label: `Logged spend at ${spend.merchant}${card ? ` on ${card.name}` : ""}`, id: spend.id };
+  }
+
+  if (action.type === "update_spend_target") {
+    const targetMonthlySpend = toNumber(action.targetMonthlySpend);
+    if (targetMonthlySpend <= 0) return null;
+    await prisma.userProfile.upsert({
+      where: { userId },
+      update: { targetMonthlySpend },
+      create: { userId, targetMonthlySpend },
+    });
+    return { type: action.type, label: `Updated monthly spend target to INR ${targetMonthlySpend}`, id: userId };
+  }
+
+  if (action.type === "update_finance_profile") {
+    const existing = await prisma.financeProfile.findUnique({ where: { userId } });
+    const financeProfile = await prisma.financeProfile.upsert({
+      where: { userId },
+      update: {
+        currentBalance: action.currentBalance == null ? existing?.currentBalance ?? 0 : toNumber(action.currentBalance),
+        totalAmount: action.totalAmount == null ? existing?.totalAmount ?? 0 : toNumber(action.totalAmount),
+        currency: "INR",
+      },
+      create: {
+        userId,
+        currentBalance: toNumber(action.currentBalance),
+        totalAmount: toNumber(action.totalAmount),
+        currency: "INR",
+      },
+    });
+    return { type: action.type, label: `Updated money balances to INR ${financeProfile.currentBalance}`, id: financeProfile.id };
+  }
+
+  if (action.type === "create_credit_card") {
+    const card = await prisma.creditCard.create({
+      data: {
+        userId,
+        name: action.name,
+        bankName: action.bankName || null,
+        last4: action.last4 || null,
+        creditLimit: null,
+        currentDue: toNumber(action.currentDue),
+        dueDay: action.dueDay == null ? null : Math.min(31, Math.max(1, Math.round(toNumber(action.dueDay)))),
+      },
+    });
+    return { type: action.type, label: `Added credit card ${card.name}`, id: card.id };
+  }
+
+  if (action.type === "create_bank_account") {
+    const account = await prisma.bankAccount.create({
+      data: {
+        userId,
+        name: action.name,
+        bankName: action.bankName || null,
+        accountType: action.accountType || "savings",
+        last4: action.last4 || null,
+        balance: toNumber(action.balance),
+        currency: action.currency || "INR",
+      },
+    });
+    return { type: action.type, label: `Added bank account ${account.name}`, id: account.id };
+  }
+
+  if (action.type === "create_money_link") {
+    const moneyLink = await prisma.moneyLink.create({
+      data: {
+        userId,
+        person: action.person,
+        type: action.linkType === "borrow" ? "borrow" : "lend",
+        amount: toNumber(action.amount),
+        currency: action.currency || "INR",
+        date: action.date ? new Date(action.date) : new Date(),
+        notes: action.notes || "Logged by AI Coach.",
+      },
+    });
+    return { type: action.type, label: `${moneyLink.type === "lend" ? "Lent" : "Borrowed"} INR ${moneyLink.amount} ${moneyLink.type === "lend" ? "to" : "from"} ${moneyLink.person}`, id: moneyLink.id };
   }
 
   if (action.type === "create_workout_log") {
@@ -619,7 +741,7 @@ export async function POST(req: Request) {
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, recentChat] =
+    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, financeProfile, bankAccounts, creditCards, moneyLinks, recentChat] =
       await Promise.all([
         prisma.userProfile.findUnique({ where: { userId } }),
         prisma.foodLog.findMany({
@@ -653,7 +775,22 @@ export async function POST(req: Request) {
         }),
         prisma.spend.findMany({
           where: { userId },
+          include: { creditCard: true },
           orderBy: { date: "desc" },
+          take: 20,
+        }),
+        prisma.financeProfile.findUnique({ where: { userId } }),
+        prisma.bankAccount.findMany({
+          where: { userId, active: true },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.creditCard.findMany({
+          where: { userId, active: true },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.moneyLink.findMany({
+          where: { userId },
+          orderBy: [{ settled: "asc" }, { date: "desc" }],
           take: 20,
         }),
         prisma.chatMessage.findMany({
@@ -684,6 +821,11 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - create_food_log: log a meal or snack.
 - create_progress_entry: save body weight, measurements, or progress notes.
 - create_spend_log: log a purchase, payment, receipt, or expense.
+- update_spend_target: update the user's monthly spend target.
+- update_finance_profile: update current balance and/or total amount in Spends.
+- create_bank_account: add a bank account with balance.
+- create_credit_card: add a credit card with optional bank, current payable amount, and due day.
+- create_money_link: track money lent to someone or borrowed from someone.
 - create_workout_log: save a completed workout. Only use exercise IDs that appear in context.
 - create_sleep_log: save sleep from a sleep screenshot or manual sleep message.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
@@ -773,6 +915,14 @@ ${JSON.stringify({
 - For spend screenshots, use create_spend_log when merchant/payee and amount are clear. Use INR for Indian rupees, USD only when dollars are visible or implied.
 - If the spend screenshot is missing merchant, amount, category, or whether it was a transfer vs purchase, ask one short follow-up question instead of logging.
 - Choose practical spend categories such as Food, Groceries, Travel, Shopping, Health, Fitness, Bills, Subscriptions, Entertainment, or Other.
+- If the user asks to set/change monthly spending budget/limit/target, use update_spend_target.
+- If the user asks to save current balance or total amount, use update_finance_profile.
+- If the user asks to add a bank account or save a bank balance, use create_bank_account when it is a new account. Ask only if the account name is missing.
+- If the user asks to add a credit card, use create_credit_card. Ask only if the card name is missing.
+- If the user logs a spend and says it was on a saved credit card, include creditCardName so the spend is attached to that card.
+- If the user says they lent money to someone or borrowed money from someone, use create_money_link with linkType "lend" or "borrow".
+- If the user asks about spending history, answer from recentSpends and ask them to use the Spends custom date report for exact older ranges when needed.
+- For spend and money questions, summarize balances, card dues/spends, lend/borrow totals, top categories, and patterns using INR when context exists.
 - For sleep screenshots, extract date, total sleep, Awake, REM, Core, and Deep when visible. Convert hours/minutes to minutes.
 - If a sleep screenshot has total sleep visible, use create_sleep_log. If stages are not visible, log total only.
 - For sleep screenshots, also use update_wellness_targets with targetSleepMinutes when the screenshot shows a sleep goal or a reliable typical sleep duration.
@@ -793,6 +943,12 @@ Available action examples:
 {"type":"create_food_log","foodName":"Chicken breast","mealType":"lunch","servingSize":"200g","calories":330,"protein":62,"carbs":0,"fat":7,"fiber":0}
 {"type":"create_progress_entry","weight":80.5,"notes":"Felt strong today"}
 {"type":"create_spend_log","merchant":"Swiggy","amount":420,"currency":"INR","category":"Food","notes":"Logged from payment screenshot."}
+{"type":"create_spend_log","merchant":"Amazon","amount":1499,"currency":"INR","category":"Shopping","creditCardName":"HDFC Regalia","notes":"Logged on credit card."}
+{"type":"update_spend_target","targetMonthlySpend":25000,"reason":"User asked to set monthly budget."}
+{"type":"update_finance_profile","currentBalance":35000,"totalAmount":120000}
+{"type":"create_bank_account","name":"Salary Account","bankName":"HDFC","accountType":"savings","last4":"4567","balance":35000,"currency":"INR"}
+{"type":"create_credit_card","name":"HDFC Regalia","bankName":"HDFC","last4":"1234","currentDue":12000,"dueDay":5}
+{"type":"create_money_link","person":"Rahul","linkType":"lend","amount":2000,"currency":"INR","notes":"To return next week."}
 {"type":"create_workout_log","templateName":"Push Day","duration":60,"notes":"Good session","exercises":[{"exerciseId":"barbell-bench-press","setNumber":1,"reps":8,"weight":70}]}
 {"type":"create_sleep_log","date":"2026-05-12","totalMinutes":452,"awakeMinutes":45,"remMinutes":100,"coreMinutes":294,"deepMinutes":58}
 {"type":"update_wellness_targets","targetSleepMinutes":452,"targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
@@ -814,6 +970,10 @@ Available action examples:
       workoutTemplates,
       dietPlans,
       recentSpends,
+      financeProfile,
+      bankAccounts,
+      creditCards,
+      moneyLinks,
       requiresJointAwarePlan: isJointSensitive(profile?.healthLimitations),
       today: today.toISOString(),
     };

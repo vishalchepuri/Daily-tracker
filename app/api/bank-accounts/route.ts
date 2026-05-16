@@ -9,25 +9,16 @@ function parseAmount(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function resolveCreditCardId(userId: string, creditCardId?: unknown) {
-  if (!creditCardId || creditCardId === "none") return null;
-  const card = await prisma.creditCard.findUnique({ where: { id: String(creditCardId) } });
-  if (!card || card.userId !== userId || !card.active) return null;
-  return card.id;
-}
-
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
-    const spends = await prisma.spend.findMany({
-      where: { userId },
-      include: { creditCard: true },
-      orderBy: { date: "desc" },
-      take: 500,
+    const bankAccounts = await prisma.bankAccount.findMany({
+      where: { userId, active: true },
+      orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json({ spends });
+    return NextResponse.json({ bankAccounts });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -39,25 +30,19 @@ export async function POST(req: Request) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
     const data = await req.json();
-    if (!data?.merchant || !data?.amount) {
-      return NextResponse.json({ error: "Merchant and amount are required" }, { status: 400 });
-    }
-
-    const spend = await prisma.spend.create({
+    if (!data?.name) return NextResponse.json({ error: "Account name is required" }, { status: 400 });
+    const bankAccount = await prisma.bankAccount.create({
       data: {
         userId,
-        merchant: data.merchant,
-        amount: parseAmount(data.amount),
+        name: data.name,
+        bankName: data.bankName || null,
+        accountType: data.accountType || "savings",
+        last4: data.last4 || null,
+        balance: parseAmount(data.balance),
         currency: data.currency || "INR",
-        category: data.category || null,
-        date: data.date ? new Date(data.date) : new Date(),
-        notes: data.notes || null,
-        source: "manual",
-        creditCardId: await resolveCreditCardId(userId, data.creditCardId),
       },
-      include: { creditCard: true },
     });
-    return NextResponse.json({ spend });
+    return NextResponse.json({ bankAccount });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -70,24 +55,20 @@ export async function PATCH(req: Request) {
     const userId = (session.user as any)?.id;
     const data = await req.json();
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
-
-    const existing = await prisma.spend.findUnique({ where: { id: data.id } });
+    const existing = await prisma.bankAccount.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-    const spend = await prisma.spend.update({
+    const bankAccount = await prisma.bankAccount.update({
       where: { id: data.id },
       data: {
-        merchant: data.merchant,
-        amount: parseAmount(data.amount),
+        name: data.name || existing.name,
+        bankName: data.bankName || null,
+        accountType: data.accountType || existing.accountType,
+        last4: data.last4 || null,
+        balance: parseAmount(data.balance),
         currency: data.currency || "INR",
-        category: data.category || null,
-        date: data.date ? new Date(data.date) : undefined,
-        notes: data.notes || null,
-        creditCardId: await resolveCreditCardId(userId, data.creditCardId),
       },
-      include: { creditCard: true },
     });
-    return NextResponse.json({ spend });
+    return NextResponse.json({ bankAccount });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -101,10 +82,9 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
-
-    const existing = await prisma.spend.findUnique({ where: { id } });
+    const existing = await prisma.bankAccount.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    await prisma.spend.delete({ where: { id } });
+    await prisma.bankAccount.update({ where: { id }, data: { active: false } });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

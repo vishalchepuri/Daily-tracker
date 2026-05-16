@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
-  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo
+  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Reminders", href: "/reminders", icon: ListTodo },
+  { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
@@ -25,7 +26,7 @@ const navItems = [
 ];
 
 const mobileNavItems = navItems.filter((item) =>
-  ["/dashboard", "/reminders", "/nutrition", "/workouts", "/progress"].includes(item.href)
+  ["/dashboard", "/reminders", "/medications", "/nutrition", "/workouts", "/progress"].includes(item.href)
 );
 
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
@@ -43,6 +44,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Create reminders for workouts, meals, water, or supplements.",
       "Tune reminder timing around your schedule.",
       "Turn missed habits into a realistic follow-up plan.",
+    ],
+  },
+  "/medications": {
+    label: "Medications",
+    suggestions: [
+      "Create medication schedules with daily, weekly, monthly, or custom repeats.",
+      "Track taken and skipped doses.",
+      "Review medication timing and consistency.",
     ],
   },
   "/spends": {

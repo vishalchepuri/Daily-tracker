@@ -9,11 +9,11 @@ function parseAmount(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-async function resolveCreditCardId(userId: string, creditCardId?: unknown) {
-  if (!creditCardId || creditCardId === "none") return null;
-  const card = await prisma.creditCard.findUnique({ where: { id: String(creditCardId) } });
-  if (!card || card.userId !== userId || !card.active) return null;
-  return card.id;
+function parseDueDay(value: unknown) {
+  if (value === "" || value == null) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.min(31, Math.max(1, Math.round(parsed)));
 }
 
 export async function GET() {
@@ -21,13 +21,11 @@ export async function GET() {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
-    const spends = await prisma.spend.findMany({
-      where: { userId },
-      include: { creditCard: true },
-      orderBy: { date: "desc" },
-      take: 500,
+    const creditCards = await prisma.creditCard.findMany({
+      where: { userId, active: true },
+      orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json({ spends });
+    return NextResponse.json({ creditCards });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -39,25 +37,19 @@ export async function POST(req: Request) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
     const data = await req.json();
-    if (!data?.merchant || !data?.amount) {
-      return NextResponse.json({ error: "Merchant and amount are required" }, { status: 400 });
-    }
-
-    const spend = await prisma.spend.create({
+    if (!data?.name) return NextResponse.json({ error: "Card name is required" }, { status: 400 });
+    const creditCard = await prisma.creditCard.create({
       data: {
         userId,
-        merchant: data.merchant,
-        amount: parseAmount(data.amount),
-        currency: data.currency || "INR",
-        category: data.category || null,
-        date: data.date ? new Date(data.date) : new Date(),
-        notes: data.notes || null,
-        source: "manual",
-        creditCardId: await resolveCreditCardId(userId, data.creditCardId),
+        name: data.name,
+        bankName: data.bankName || null,
+        last4: data.last4 || null,
+        creditLimit: null,
+        currentDue: parseAmount(data.currentDue),
+        dueDay: parseDueDay(data.dueDay),
       },
-      include: { creditCard: true },
     });
-    return NextResponse.json({ spend });
+    return NextResponse.json({ creditCard });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -70,24 +62,20 @@ export async function PATCH(req: Request) {
     const userId = (session.user as any)?.id;
     const data = await req.json();
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
-
-    const existing = await prisma.spend.findUnique({ where: { id: data.id } });
+    const existing = await prisma.creditCard.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-    const spend = await prisma.spend.update({
+    const creditCard = await prisma.creditCard.update({
       where: { id: data.id },
       data: {
-        merchant: data.merchant,
-        amount: parseAmount(data.amount),
-        currency: data.currency || "INR",
-        category: data.category || null,
-        date: data.date ? new Date(data.date) : undefined,
-        notes: data.notes || null,
-        creditCardId: await resolveCreditCardId(userId, data.creditCardId),
+        name: data.name || existing.name,
+        bankName: data.bankName || null,
+        last4: data.last4 || null,
+        creditLimit: null,
+        currentDue: parseAmount(data.currentDue),
+        dueDay: parseDueDay(data.dueDay),
       },
-      include: { creditCard: true },
     });
-    return NextResponse.json({ spend });
+    return NextResponse.json({ creditCard });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -101,10 +89,9 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
-
-    const existing = await prisma.spend.findUnique({ where: { id } });
+    const existing = await prisma.creditCard.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    await prisma.spend.delete({ where: { id } });
+    await prisma.creditCard.update({ where: { id }, data: { active: false } });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
