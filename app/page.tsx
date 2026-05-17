@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { Dumbbell, MessageSquare, WalletCards, Youtube } from "lucide-react";
+import { Dumbbell, MessageSquare, Pill, ShieldCheck, Utensils, WalletCards, Youtube } from "lucide-react";
 import { authOptions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,8 +11,8 @@ export default async function Home() {
   if (session) redirect("/dashboard");
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <section className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-6">
+    <main className="app-viewport overflow-y-auto bg-background text-foreground ios-scroll">
+      <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6">
         <nav className="flex items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-2">
             <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
@@ -38,7 +38,7 @@ export default async function Home() {
                 Plan workouts, meals, reminders, spends, and YouTube learning in one place.
               </h1>
               <p className="max-w-2xl text-base leading-7 text-muted-foreground">
-                Dayza helps users track fitness, nutrition, medications, expenses, reminders, and AI-assisted summaries for YouTube videos they choose from their subscriptions.
+                Dayza helps users manage everyday health and planning: workout programs, nutrition targets, medications, reminders, spending, progress tracking, and AI-assisted summaries for YouTube videos they choose from their subscriptions.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -56,11 +56,25 @@ export default async function Home() {
           </div>
 
           <div className="grid gap-3">
-            <FeatureCard icon={Dumbbell} title="Fitness and nutrition" text="Track workouts, diet, health targets, and progress." />
-            <FeatureCard icon={WalletCards} title="Spends and reminders" text="Manage monthly spend targets, bank accounts, credit card payables, and daily reminders." />
-            <FeatureCard icon={Youtube} title="YT Summary" text="Connect YouTube access to list subscriptions and summarize selected videos." />
-            <FeatureCard icon={MessageSquare} title="AI Coach" text="Ask for help interpreting logs, screenshots, and daily plans." />
+            <FeatureCard icon={Dumbbell} title="Workouts and progress" text="Create training days, log workouts set by set, and track body progress over time." />
+            <FeatureCard icon={Utensils} title="Nutrition and diet" text="Track meals, create diet plans, and compare daily intake with calorie and macro targets." />
+            <FeatureCard icon={WalletCards} title="Spends and money hub" text="Manage monthly spend targets, bank accounts, credit card payables, lending, and borrowing." />
+            <FeatureCard icon={Pill} title="Medications and reminders" text="Schedule medications and create personal reminders with repeat timing." />
+            <FeatureCard icon={Youtube} title="YT Summary" text="Connect YouTube read-only access to list subscriptions and summarize selected videos." />
+            <FeatureCard icon={MessageSquare} title="AI Coach" text="Ask for help interpreting logs, screenshots, meals, workouts, spending, and video summaries." />
           </div>
+        </div>
+
+        <div className="grid gap-4 pb-12 md:grid-cols-3">
+          <InfoCard title="How Google access is used">
+            Google sign-in identifies your account. YouTube read-only access is used to show your subscriptions and recent videos for summaries. Gmail read-only access is used only when you choose to import receipt-like emails into Spends.
+          </InfoCard>
+          <InfoCard title="You stay in control">
+            Dayza does not upload, edit, delete, or manage YouTube content. It does not send, delete, or modify Gmail messages. You can revoke Google access from your Google Account at any time.
+          </InfoCard>
+          <InfoCard title="Privacy-minded by design">
+            Public policy pages explain what is collected, why it is used, how AI processing works, and how account deletion works.
+          </InfoCard>
         </div>
       </section>
     </main>
@@ -78,6 +92,20 @@ function FeatureCard({ icon: Icon, title, text }: { icon: any; title: string; te
           <h2 className="font-semibold">{title}</h2>
           <p className="mt-1 text-sm text-muted-foreground">{text}</p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function InfoCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <ShieldCheck className="h-5 w-5" />
+        </div>
+        <h2 className="font-semibold">{title}</h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{children}</p>
       </CardContent>
     </Card>
   );
