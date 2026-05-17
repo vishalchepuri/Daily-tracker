@@ -103,6 +103,20 @@ export default function SignupPage() {
             <CardDescription>Start your muscle-building journey today</CardDescription>
           </CardHeader>
           <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-4 w-full"
+              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+            >
+              <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>
+              Continue with Google
+            </Button>
+            <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px bg-border" />
+              <span>or sign up with email</span>
+              <div className="h-px bg-border" />
+            </div>
             <form onSubmit={handleSignup} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>
@@ -148,6 +162,10 @@ export default function SignupPage() {
               Already have an account?{" "}
               <Link href="/login" className="text-primary hover:underline font-medium">Sign In</Link>
             </p>
+            <div className="mt-4 flex justify-center gap-4 text-xs text-muted-foreground">
+              <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link>
+              <Link href="/terms" className="hover:text-foreground hover:underline">Terms</Link>
+            </div>
           </CardContent>
         </Card>
       </div>

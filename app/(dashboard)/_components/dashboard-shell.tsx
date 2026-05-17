@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
-  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill
+  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ const navItems = [
   { label: "Reminders", href: "/reminders", icon: ListTodo },
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
+  { label: "YT Summary", href: "/yt-summary", icon: Youtube },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
   { label: "Progress", href: "/progress", icon: TrendingUp },
@@ -26,7 +27,7 @@ const navItems = [
 ];
 
 const mobileNavItems = navItems.filter((item) =>
-  ["/dashboard", "/reminders", "/medications", "/nutrition", "/workouts", "/progress"].includes(item.href)
+  ["/dashboard", "/reminders", "/medications", "/nutrition", "/workouts"].includes(item.href)
 );
 
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
@@ -68,6 +69,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Estimate macros from meals or food photos.",
       "Build meal ideas around your calorie and protein goals.",
       "Explain what to adjust based on your recent eating pattern.",
+    ],
+  },
+  "/yt-summary": {
+    label: "YT Summary",
+    suggestions: [
+      "Summarize videos from channels you subscribe to.",
+      "Pull out key ideas, action items, and timestamps when available.",
+      "Turn long videos into a quick reading list.",
     ],
   },
   "/workouts": {

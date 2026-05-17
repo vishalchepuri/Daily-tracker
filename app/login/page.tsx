@@ -104,6 +104,10 @@ export default function LoginPage() {
                 Sign Up
               </Link>
             </p>
+            <div className="mt-4 flex justify-center gap-4 text-xs text-muted-foreground">
+              <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link>
+              <Link href="/terms" className="hover:text-foreground hover:underline">Terms</Link>
+            </div>
           </CardContent>
         </Card>
       </div>
