@@ -11,7 +11,7 @@ export default function PrivacyPage() {
         </div>
 
         <PolicySection title="Overview">
-          Dayza is a personal dashboard for fitness, nutrition, reminders, medications, spending, progress tracking, AI coaching, and YouTube video summaries. This policy explains what information Dayza collects, how it is used, and how Google user data is handled.
+          Dayza is a personal dashboard for fitness, nutrition, reminders, medications, spending, progress tracking, Dayza Agent, and YouTube video summaries. This policy explains what information Dayza collects, how it is used, and how Google user data is handled.
         </PolicySection>
 
         <PolicySection title="Information You Provide">
@@ -31,7 +31,7 @@ export default function PrivacyPage() {
         </PolicySection>
 
         <PolicySection title="How Dayza Uses Data">
-          Dayza uses your data to provide dashboard features, authenticate your account, calculate fitness and nutrition targets, display history, create reminders, manage personal spending records, summarize selected YouTube videos, generate AI coaching responses, and improve your in-app experience.
+          Dayza uses your data to provide dashboard features, authenticate your account, calculate fitness and nutrition targets, display history, create reminders, manage personal spending records, summarize selected YouTube videos, generate Dayza Agent responses, and improve your in-app experience.
         </PolicySection>
 
         <PolicySection title="AI Processing">

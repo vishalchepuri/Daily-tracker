@@ -24,6 +24,29 @@ export async function generatePresignedUploadUrl(
   return { uploadUrl, cloud_storage_path };
 }
 
+export async function uploadBuffer(
+  fileName: string,
+  contentType: string,
+  buffer: Buffer,
+  folder: string = "uploads/chat"
+) {
+  const { bucketName, folderPrefix } = getBucketConfig();
+  if (!bucketName) throw new Error("AWS bucket is not configured");
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "-");
+  const cloud_storage_path = `${folderPrefix}${folder}/${Date.now()}-${safeName}`;
+
+  await s3.send(
+    new PutObjectCommand({
+      Bucket: bucketName,
+      Key: cloud_storage_path,
+      ContentType: contentType,
+      Body: buffer,
+    })
+  );
+
+  return cloud_storage_path;
+}
+
 export async function getFileUrl(cloud_storage_path: string, isPublic: boolean) {
   const { bucketName } = getBucketConfig();
   if (isPublic) {

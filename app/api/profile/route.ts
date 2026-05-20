@@ -26,6 +26,15 @@ export async function POST(req: Request) {
     // Calculate TDEE and macros
     let tdee = 0;
     const { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies } = data;
+    const goalOutcome = typeof data.goalOutcome === "string" && data.goalOutcome.trim()
+      ? data.goalOutcome.trim()
+      : goal === "fat_loss" ? "fat loss" : goal === "muscle_gain" ? "muscle gain" : goal === "maintain" ? "maintenance" : null;
+    const goalTimelineDays = Number.isFinite(Number(data.goalTimelineDays)) && Number(data.goalTimelineDays) > 0
+      ? Math.round(Number(data.goalTimelineDays))
+      : null;
+    const goalTargetWeight = Number.isFinite(Number(data.goalTargetWeight)) && Number(data.goalTargetWeight) > 0
+      ? Number(data.goalTargetWeight)
+      : null;
     if (weight && height && age && gender) {
       // Mifflin-St Jeor
       const bmr = gender === 'male'
@@ -44,11 +53,13 @@ export async function POST(req: Request) {
     const targetProtein = Math.round(weight ? weight * 2.2 : 150);
     const targetFat = Math.round(targetCalories * 0.25 / 9);
     const targetCarbs = Math.round((targetCalories - targetProtein * 4 - targetFat * 9) / 4);
+    const targetFiber = Math.round(goal === "fat_loss" ? 35 : 30);
+    const targetWaterMl = Math.round(weight ? weight * 35 : 3000);
 
     const profile = await prisma.userProfile.upsert({
       where: { userId },
-      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, tdee, targetCalories, targetProtein, targetCarbs, targetFat },
-      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, tdee, targetCalories, targetProtein, targetCarbs, targetFat },
+      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, goalOutcome, goalTimelineDays, goalTargetWeight, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, goalOutcome, goalTimelineDays, goalTargetWeight, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
     });
     return NextResponse.json({ profile });
   } catch (error: any) {

@@ -5,6 +5,8 @@ import { Dumbbell, MessageSquare, Pill, ShieldCheck, Utensils, WalletCards, Yout
 import { authOptions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { IssueReportForm } from "@/components/issue-report-form";
+import { BrandLogo } from "@/components/brand-logo";
 
 export default async function Home() {
   const session = await getServerSession(authOptions);
@@ -14,11 +16,8 @@ export default async function Home() {
     <main className="app-viewport overflow-y-auto bg-background text-foreground ios-scroll">
       <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6">
         <nav className="flex items-center justify-between gap-4">
-          <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-              <Dumbbell className="h-6 w-6 text-primary-foreground" />
-            </div>
-            <span className="font-display text-2xl font-bold tracking-tight">Dayza</span>
+          <Link href="/">
+            <BrandLogo />
           </Link>
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost">
@@ -61,7 +60,7 @@ export default async function Home() {
             <FeatureCard icon={WalletCards} title="Spends and money hub" text="Manage monthly spend targets, bank accounts, credit card payables, lending, and borrowing." />
             <FeatureCard icon={Pill} title="Medications and reminders" text="Schedule medications and create personal reminders with repeat timing." />
             <FeatureCard icon={Youtube} title="YT Summary" text="Connect YouTube read-only access to list subscriptions and summarize selected videos." />
-            <FeatureCard icon={MessageSquare} title="AI Coach" text="Ask for help interpreting logs, screenshots, meals, workouts, spending, and video summaries." />
+            <FeatureCard icon={MessageSquare} title="Dayza Agent" text="Ask for help interpreting logs, screenshots, meals, workouts, spending, and video summaries." />
           </div>
         </div>
 
@@ -75,6 +74,10 @@ export default async function Home() {
           <InfoCard title="Privacy-minded by design">
             Public policy pages explain what is collected, why it is used, how AI processing works, and how account deletion works.
           </InfoCard>
+        </div>
+
+        <div className="pb-12">
+          <IssueReportForm defaultPage="Home page" showContactFields />
         </div>
       </section>
     </main>

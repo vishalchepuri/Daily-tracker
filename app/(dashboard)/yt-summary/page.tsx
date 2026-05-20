@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSession } from "next-auth/react";
 import { signIn } from "next-auth/react";
 import { PlayCircle, RefreshCw, Sparkles, Youtube } from "lucide-react";
 import { toast } from "sonner";
@@ -9,7 +10,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
 
+function formatDuration(seconds?: number) {
+  if (!seconds) return "";
+  const minutes = Math.floor(seconds / 60);
+  const remaining = seconds % 60;
+  if (minutes >= 60) {
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}:${String(mins).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
+  }
+  return `${minutes}:${String(remaining).padStart(2, "0")}`;
+}
+
 export default function YtSummaryPage() {
+  const { data: session } = useSession();
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<any>(null);
@@ -20,6 +34,13 @@ export default function YtSummaryPage() {
   const [loadingVideos, setLoadingVideos] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
   const [needsConnection, setNeedsConnection] = useState(false);
+  const [youtubeError, setYoutubeError] = useState<{ message: string; actionUrl?: string } | null>(null);
+
+  const errorMessage = (value: any, fallback: string) => {
+    if (typeof value === "string") return value;
+    if (value?.message) return String(value.message);
+    return fallback;
+  };
 
   const loadSubscriptions = async () => {
     setLoadingSubscriptions(true);
@@ -28,10 +49,14 @@ export default function YtSummaryPage() {
       const data = await res.json();
       if (!res.ok) {
         setNeedsConnection(Boolean(data?.needsConnection));
-        if (!data?.needsConnection) toast.error(data?.error ?? "Failed to load subscriptions");
+        if (!data?.needsConnection) {
+          setYoutubeError({ message: errorMessage(data?.error, "Failed to load subscriptions"), actionUrl: data?.actionUrl });
+          toast.error(errorMessage(data?.error, "Failed to load subscriptions"));
+        }
         return;
       }
       setNeedsConnection(false);
+      setYoutubeError(null);
       setSubscriptions(data.subscriptions ?? []);
     } catch {
       toast.error("Failed to load subscriptions");
@@ -52,7 +77,9 @@ export default function YtSummaryPage() {
       const res = await fetch(`/api/youtube/videos?channelId=${encodeURIComponent(channel.channelId)}`);
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data?.error ?? "Failed to load videos");
+        if (data?.needsConnection) setNeedsConnection(true);
+        if (!data?.needsConnection) setYoutubeError({ message: errorMessage(data?.error, "Failed to load videos"), actionUrl: data?.actionUrl });
+        toast.error(errorMessage(data?.error, "Failed to load videos"));
         return;
       }
       setVideos(data.videos ?? []);
@@ -76,7 +103,9 @@ export default function YtSummaryPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data?.error ?? "Failed to summarize video");
+        if (data?.needsConnection) setNeedsConnection(true);
+        if (!data?.needsConnection) setYoutubeError({ message: errorMessage(data?.error, "Failed to summarize video"), actionUrl: data?.actionUrl });
+        toast.error(errorMessage(data?.error, "Failed to summarize video"));
         return;
       }
       setSummary(data.summary ?? "");
@@ -102,8 +131,22 @@ export default function YtSummaryPage() {
             <p className="text-sm text-muted-foreground">
               Sign in with Google again so Dayza can read your YouTube subscriptions and show videos to summarize.
             </p>
-            <Button onClick={() => signIn("google", { callbackUrl: "/yt-summary" })} className="w-full">
-              Sign in with Google
+            <Button
+              onClick={() =>
+                signIn(
+                  "google",
+                  { callbackUrl: "/yt-summary" },
+                  {
+                    scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+                    access_type: "offline",
+                    prompt: "consent",
+                    login_hint: session?.user?.email ?? undefined,
+                  } as any
+                )
+              }
+              className="w-full"
+            >
+              Connect YouTube with Google
             </Button>
           </CardContent>
         </Card>
@@ -125,6 +168,19 @@ export default function YtSummaryPage() {
           </Button>
         </div>
       </FadeIn>
+
+      {youtubeError && (
+        <Card className="border-amber-500/40 bg-amber-500/10">
+          <CardContent className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-amber-100">{youtubeError.message}</p>
+            {youtubeError.actionUrl && (
+              <Button asChild size="sm" variant="outline">
+                <a href={youtubeError.actionUrl} target="_blank" rel="noreferrer">Enable API</a>
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[18rem_1fr]">
         <Card>
@@ -163,10 +219,18 @@ export default function YtSummaryPage() {
         <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <PlayCircle className="h-5 w-5 text-primary" />
-                {selectedChannel ? selectedChannel.title : "Recent Videos"}
-              </CardTitle>
+              <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <PlayCircle className="h-5 w-5 text-primary" />
+                  {selectedChannel ? selectedChannel.title : "Recent Videos"}
+                </CardTitle>
+                {selectedChannel && videos.length > 0 && (
+                  <div className="flex gap-2 text-xs text-muted-foreground">
+                    <Badge variant="secondary">{videos.filter((video) => video.kind === "video").length} videos</Badge>
+                    <Badge variant="outline">{videos.filter((video) => video.kind === "short").length} shorts</Badge>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {!selectedChannel ? (
@@ -184,6 +248,8 @@ export default function YtSummaryPage() {
                         <p className="line-clamp-2 text-sm font-semibold">{video.title}</p>
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline">{new Date(video.publishedAt).toLocaleDateString()}</Badge>
+                          {video.durationSeconds > 0 && <Badge variant="outline">{formatDuration(video.durationSeconds)}</Badge>}
+                          <Badge variant={video.kind === "video" ? "default" : "outline"}>{video.kind === "video" ? "Video" : "Short"}</Badge>
                           <Badge variant="secondary">Summarize</Badge>
                         </div>
                       </div>

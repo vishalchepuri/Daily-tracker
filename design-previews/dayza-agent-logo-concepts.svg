@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="920" viewBox="0 0 1400 920">
+  <defs>
+    <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#10b981"/><stop offset="1" stop-color="#22c55e"/></linearGradient>
+    <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0ea5e9"/><stop offset="1" stop-color="#22c55e"/></linearGradient>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#14b8a6"/><stop offset="1" stop-color="#facc15"/></linearGradient>
+    <linearGradient id="g4" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#22c55e"/><stop offset="1" stop-color="#84cc16"/></linearGradient>
+    <linearGradient id="g5" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#06b6d4"/><stop offset="1" stop-color="#10b981"/></linearGradient>
+    <linearGradient id="g6" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16a34a"/><stop offset="1" stop-color="#f59e0b"/></linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#020817" flood-opacity=".45"/></filter>
+    <style>
+      .bg{fill:#020817}.card{fill:#0b1220;stroke:#21314b;stroke-width:2}.label{font:700 28px Inter,Segoe UI,sans-serif;fill:#fff}.sub{font:500 18px Inter,Segoe UI,sans-serif;fill:#8ea6c9}.name{font:800 34px Inter,Segoe UI,sans-serif;fill:#fff}.small{font:600 17px Inter,Segoe UI,sans-serif;fill:#9fb3d1}.white{stroke:#fff;stroke-linecap:round;stroke-linejoin:round}.mint{stroke:#bbf7d0;stroke-linecap:round;stroke-linejoin:round}.dark{fill:#071424}.accent{fill:#facc15}.green{fill:#22c55e}.teal{fill:#2dd4bf}
+    </style>
+  </defs>
+  <rect class="bg" width="1400" height="920"/>
+  <text x="60" y="72" class="name">Dayza Agentic Logo Concepts</text>
+  <text x="60" y="106" class="sub">Pick one direction. I will polish the selected one and replace the app icons.</text>
+
+  <g transform="translate(60 150)">
+    <rect class="card" width="390" height="310" rx="28"/>
+    <g transform="translate(105 38)" filter="url(#shadow)">
+      <rect width="180" height="180" rx="42" fill="url(#g2)"/>
+      <rect x="24" y="24" width="132" height="132" rx="34" fill="#06101d" opacity=".88"/>
+      <path d="M90 42v26" class="mint" stroke-width="10"/>
+      <circle cx="90" cy="32" r="12" class="accent"/>
+      <rect x="50" y="66" width="80" height="76" rx="28" class="dark" stroke="#fff" stroke-width="10"/>
+      <circle cx="72" cy="101" r="9" class="green"/><circle cx="108" cy="101" r="9" class="accent"/>
+      <path d="M71 126c12 8 26 8 38 0" class="white" stroke-width="8"/>
+      <path d="M132 52l7 14 15 6-15 7-7 16-7-16-15-7 15-6z" fill="#bbf7d0"/>
+    </g>
+    <text x="28" y="248" class="label">1. Coach Agent</text>
+    <text x="28" y="280" class="sub">Friendly assistant face, clear AI coach feel.</text>
+  </g>
+
+  <g transform="translate(505 150)">
+    <rect class="card" width="390" height="310" rx="28"/>
+    <g transform="translate(105 38)" filter="url(#shadow)">
+      <rect width="180" height="180" rx="42" fill="url(#g1)"/>
+      <path d="M90 30c46 0 72 35 72 74 0 38-28 66-72 66s-72-28-72-66c0-39 26-74 72-74Z" fill="#06101d" opacity=".9"/>
+      <path d="M52 97h76" class="white" stroke-width="12"/>
+      <path d="M90 59v76" class="white" stroke-width="12"/>
+      <path d="M54 135c22-34 54-55 94-62" class="mint" stroke-width="10"/>
+      <circle cx="130" cy="54" r="13" class="accent"/>
+      <path d="M132 99l17-26-30-4" class="mint" stroke-width="9"/>
+    </g>
+    <text x="28" y="248" class="label">2. Daily Compass</text>
+    <text x="28" y="280" class="sub">Agent as guide for health, money, reminders.</text>
+  </g>
+
+  <g transform="translate(950 150)">
+    <rect class="card" width="390" height="310" rx="28"/>
+    <g transform="translate(105 38)" filter="url(#shadow)">
+      <rect width="180" height="180" rx="42" fill="url(#g3)"/>
+      <rect x="24" y="35" width="132" height="92" rx="34" fill="#06101d" opacity=".9" stroke="#fff" stroke-width="10"/>
+      <path d="M66 127l-20 25v-34" fill="#06101d" stroke="#fff" stroke-width="10" stroke-linejoin="round"/>
+      <circle cx="73" cy="82" r="9" class="green"/><circle cx="110" cy="82" r="9" class="accent"/>
+      <path d="M70 106c12 8 28 8 40 0" class="white" stroke-width="8"/>
+      <path d="M136 30l6 13 13 6-13 6-6 14-6-14-13-6 13-6z" fill="#bbf7d0"/>
+    </g>
+    <text x="28" y="248" class="label">3. Chat Agent</text>
+    <text x="28" y="280" class="sub">Best if Dayza Coach is the main identity.</text>
+  </g>
+
+  <g transform="translate(60 515)">
+    <rect class="card" width="390" height="310" rx="28"/>
+    <g transform="translate(105 38)" filter="url(#shadow)">
+      <rect width="180" height="180" rx="42" fill="url(#g4)"/>
+      <path d="M90 32c31 0 56 25 56 56v30c0 25-20 45-45 45H79c-25 0-45-20-45-45V88c0-31 25-56 56-56Z" fill="#06101d" opacity=".9" stroke="#fff" stroke-width="10"/>
+      <path d="M54 82c16-24 39-36 69-36" class="mint" stroke-width="9"/>
+      <path d="M118 43l18 3-7 17" class="mint" stroke-width="9"/>
+      <circle cx="74" cy="102" r="9" class="green"/><circle cx="109" cy="102" r="9" class="green"/>
+      <path d="M72 130h38" class="white" stroke-width="8"/>
+      <circle cx="140" cy="126" r="14" class="accent"/>
+    </g>
+    <text x="28" y="248" class="label">4. Progress Agent</text>
+    <text x="28" y="280" class="sub">Assistant plus growth signal, less playful.</text>
+  </g>
+
+  <g transform="translate(505 515)">
+    <rect class="card" width="390" height="310" rx="28"/>
+    <g transform="translate(105 38)" filter="url(#shadow)">
+      <rect width="180" height="180" rx="42" fill="url(#g5)"/>
+      <path d="M90 28l53 31v62l-53 31-53-31V59z" fill="#06101d" opacity=".9" stroke="#fff" stroke-width="10" stroke-linejoin="round"/>
+      <path d="M90 54v23" class="mint" stroke-width="9"/>
+      <circle cx="90" cy="45" r="10" class="accent"/>
+      <circle cx="72" cy="99" r="8" class="green"/><circle cx="108" cy="99" r="8" class="teal"/>
+      <path d="M71 122c12 7 26 7 38 0" class="white" stroke-width="8"/>
+      <path d="M45 60l90 0M45 136l90 0" stroke="#bbf7d0" stroke-width="7" stroke-linecap="round" opacity=".8"/>
+    </g>
+    <text x="28" y="248" class="label">5. Hub Agent</text>
+    <text x="28" y="280" class="sub">More premium, fits all-in-one daily hub.</text>
+  </g>
+
+  <g transform="translate(950 515)">
+    <rect class="card" width="390" height="310" rx="28"/>
+    <g transform="translate(105 38)" filter="url(#shadow)">
+      <rect width="180" height="180" rx="42" fill="url(#g6)"/>
+      <circle cx="90" cy="90" r="62" fill="#06101d" opacity=".9" stroke="#fff" stroke-width="10"/>
+      <path d="M58 72c17-18 44-24 68-10" class="mint" stroke-width="9"/>
+      <path d="M111 55l20 10-15 17" class="mint" stroke-width="9"/>
+      <circle cx="73" cy="96" r="8" class="green"/><circle cx="107" cy="96" r="8" class="accent"/>
+      <path d="M72 120c12 8 25 8 37 0" class="white" stroke-width="8"/>
+      <path d="M137 122l21 21" class="mint" stroke-width="11"/>
+    </g>
+    <text x="28" y="248" class="label">6. Insight Agent</text>
+    <text x="28" y="280" class="sub">AI that scans, summarizes, and recommends.</text>
+  </g>
+</svg>

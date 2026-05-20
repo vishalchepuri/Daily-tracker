@@ -1,7 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { BrandLogo } from "@/components/brand-logo";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -112,7 +113,7 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
     ],
   },
   "/chat": {
-    label: "AI Coach",
+    label: "Dayza Agent",
     suggestions: [
       "Ask questions about fitness, nutrition, recovery, or progress.",
       "Upload food or health screenshots for analysis.",
@@ -144,9 +145,28 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
     goal: initialProfile?.goal ?? "muscle_gain",
     healthLimitations: initialProfile?.healthLimitations ?? "",
     foodAllergies: initialProfile?.foodAllergies ?? "",
+    goalOutcome: initialProfile?.goalOutcome ?? "",
+    goalTimelineDays: initialProfile?.goalTimelineDays ? String(initialProfile.goalTimelineDays) : "",
+    goalTargetWeight: initialProfile?.goalTargetWeight ? String(initialProfile.goalTargetWeight) : "",
   });
   const pathname = usePathname();
+  const router = useRouter();
+  const [isRoutePending, startRouteTransition] = useTransition();
   const currentFeature = getFeatureHelp(pathname);
+
+  useEffect(() => {
+    const routeWarmup = window.setTimeout(() => {
+      navItems.forEach((item) => router.prefetch(item.href));
+      router.prefetch("/chat");
+    }, 250);
+    return () => window.clearTimeout(routeWarmup);
+  }, [router]);
+
+  const goToFeature = (href: string) => {
+    setSidebarOpen(false);
+    router.prefetch(href);
+    startRouteTransition(() => router.push(href));
+  };
 
   const saveProfile = async () => {
     if (!profileForm.age || !profileForm.weight || !profileForm.height) return;
@@ -164,6 +184,9 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           goal: profileForm.goal,
           healthLimitations: profileForm.healthLimitations || "None",
           foodAllergies: profileForm.foodAllergies || "None",
+          goalOutcome: profileForm.goalOutcome || null,
+          goalTimelineDays: parseInt(profileForm.goalTimelineDays) || null,
+          goalTargetWeight: parseFloat(profileForm.goalTargetWeight) || null,
         }),
       });
       if (res.ok) setProfileComplete(true);
@@ -274,6 +297,40 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
                 />
               </div>
             </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <Label>Goal outcome</Label>
+                <Input
+                  value={profileForm.goalOutcome}
+                  onChange={(e) => setProfileForm({ ...profileForm, goalOutcome: e.target.value })}
+                  className="mt-1"
+                  placeholder="Fat loss, muscle gain..."
+                />
+              </div>
+              <div>
+                <Label>Timeline days</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={profileForm.goalTimelineDays}
+                  onChange={(e) => setProfileForm({ ...profileForm, goalTimelineDays: e.target.value })}
+                  className="mt-1"
+                  placeholder="56"
+                />
+              </div>
+              <div>
+                <Label>Target weight</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  step="0.1"
+                  value={profileForm.goalTargetWeight}
+                  onChange={(e) => setProfileForm({ ...profileForm, goalTargetWeight: e.target.value })}
+                  className="mt-1"
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
             <Button
               type="button"
               className="w-full"
@@ -297,10 +354,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
         )}
       >
         <div className="flex items-center gap-2 px-4 h-16 border-b border-border">
-          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center">
-            <Dumbbell className="w-5 h-5 text-primary-foreground" />
-          </div>
-          <span className="font-display font-bold text-lg tracking-tight">Dayza</span>
+          <BrandLogo size="sm" />
           <button className="lg:hidden ml-auto" onClick={() => setSidebarOpen(false)}>
             <X className="w-5 h-5" />
           </button>
@@ -310,12 +364,14 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           {(navItems ?? []).map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
             return (
-              <Link
+              <button
                 key={item?.href}
-                href={item?.href}
-                onClick={() => setSidebarOpen(false)}
+                type="button"
+                onMouseEnter={() => router.prefetch(item?.href)}
+                onFocus={() => router.prefetch(item?.href)}
+                onClick={() => goToFeature(item?.href)}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all",
+                  "flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm font-medium transition-all",
                   isActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -324,7 +380,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
                 <item.icon className="w-5 h-5 shrink-0" />
                 {item?.label}
                 {isActive && <ChevronRight className="w-4 h-4 ml-auto" />}
-              </Link>
+              </button>
             );
           })}
         </nav>
@@ -370,9 +426,10 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           {mobileNavItems.map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
             return (
-              <Link
+              <button
                 key={item.href}
-                href={item.href}
+                type="button"
+                onClick={() => goToFeature(item.href)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[0.66rem] font-medium",
                   isActive ? "bg-primary/10 text-primary" : "text-muted-foreground"
@@ -380,11 +437,17 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
               >
                 <item.icon className="h-5 w-5 shrink-0" />
                 <span className="max-w-full truncate">{item.label}</span>
-              </Link>
+              </button>
             );
           })}
         </div>
       </nav>
+
+      {isRoutePending && (
+        <div className="pointer-events-none fixed left-0 right-0 top-0 z-[60] h-0.5 overflow-hidden bg-primary/15">
+          <div className="h-full w-1/2 animate-[loading-bar_0.9s_ease-in-out_infinite] bg-primary" />
+        </div>
+      )}
 
       {pathname !== "/chat" && (
       <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
@@ -417,7 +480,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
             </ul>
             <Button asChild className="mt-4 w-full">
               <Link href="/chat" onClick={() => setCoachOpen(false)}>
-                Open AI Coach
+                Open Dayza Agent
               </Link>
             </Button>
           </div>
@@ -427,7 +490,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           size="icon"
           className="h-12 w-12 rounded-full shadow-lg"
         >
-          <Link href="/chat" aria-label="Open AI coach">
+          <Link href="/chat" aria-label="Open Dayza Agent">
             <MessageSquare className="h-5 w-5" />
           </Link>
         </Button>

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat } from "lucide-react";
+import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, CalendarDays, TrendingUp } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -40,6 +40,7 @@ export default function NutritionPage() {
   const [dietDialogOpen, setDietDialogOpen] = useState(false);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [editingDietId, setEditingDietId] = useState<string | null>(null);
+  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [waterAmount, setWaterAmount] = useState("250");
   const [form, setForm] = useState({
     foodName: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "", fiber: "", servingSize: "",
@@ -68,16 +69,16 @@ export default function NutritionPage() {
 
   const loadData = useCallback(async () => {
     try {
-      const [logsRes, profileRes, waterRes, dietRes] = await Promise.all([
-        fetch("/api/food-logs"),
-        fetch("/api/profile"),
-        fetch("/api/water-logs"),
-        fetch("/api/diet-plans"),
+      const [logsResult, profileResult, waterResult, dietResult] = await Promise.allSettled([
+        fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}`).then((res) => res.ok ? res.json() : { logs: [] }),
+        fetch("/api/profile").then((res) => res.ok ? res.json() : { profile: null }),
+        fetch("/api/water-logs").then((res) => res.ok ? res.json() : { logs: [] }),
+        fetch("/api/diet-plans").then((res) => res.ok ? res.json() : { plans: [] }),
       ]);
-      const logsData = await logsRes.json();
-      const profileData = await profileRes.json();
-      const waterData = await waterRes.json();
-      const dietData = await dietRes.json();
+      const logsData = logsResult.status === "fulfilled" ? logsResult.value : { logs: [] };
+      const profileData = profileResult.status === "fulfilled" ? profileResult.value : { profile: null };
+      const waterData = waterResult.status === "fulfilled" ? waterResult.value : { logs: [] };
+      const dietData = dietResult.status === "fulfilled" ? dietResult.value : { plans: [] };
       setFoodLogs(logsData?.logs ?? []);
       setWaterLogs(waterData?.logs ?? []);
       setDietPlans(dietData?.plans ?? []);
@@ -95,7 +96,7 @@ export default function NutritionPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedDate]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -158,6 +159,7 @@ export default function NutritionPage() {
           fat: parseFloat(form.fat) || 0,
           fiber: parseFloat(form.fiber) || 0,
           servingSize: form.servingSize || null,
+          date: selectedDate,
         }),
       });
       if (res.ok) {
@@ -405,6 +407,23 @@ export default function NutritionPage() {
   const targetFiber = profile?.targetFiber ?? 30;
   const waterTotal = (waterLogs ?? []).reduce((sum: number, log: any) => sum + (log?.amountMl ?? 0), 0);
   const targetWater = profile?.targetWaterMl ?? 3000;
+  const remaining = {
+    calories: Math.max(0, targetCal - totals.calories),
+    protein: Math.max(0, targetProtein - totals.protein),
+    carbs: Math.max(0, targetCarbs - totals.carbs),
+    fat: Math.max(0, targetFat - totals.fat),
+    fiber: Math.max(0, targetFiber - totals.fiber),
+    water: Math.max(0, targetWater - waterTotal),
+  };
+  const mealBreakdown = ["breakfast", "lunch", "dinner", "snack"].map((mealType) => {
+    const meals = (foodLogs ?? []).filter((log: any) => log?.mealType === mealType);
+    const calories = meals.reduce((sum: number, meal: any) => sum + (meal?.calories ?? 0), 0);
+    const protein = meals.reduce((sum: number, meal: any) => sum + (meal?.protein ?? 0), 0);
+    return { mealType, count: meals.length, calories, protein };
+  });
+  const targetDateLabel = selectedDate === new Date().toISOString().slice(0, 10)
+    ? "Today"
+    : new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
   const filteredSuggestions = (allMealSuggestions ?? []).filter((s: any) =>
     s?.name?.toLowerCase?.()?.includes?.(searchTerm?.toLowerCase?.() ?? "") ?? false
@@ -428,7 +447,16 @@ export default function NutritionPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Nutrition Tracker</h2>
             <p className="mt-1 max-w-[18rem] text-sm text-muted-foreground sm:max-w-none">Log meals and track daily macros for muscle gain</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+          <div className="relative col-span-2 sm:col-span-1">
+            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="h-10 pl-9 sm:w-40"
+            />
+          </div>
           <Dialog open={targetsDialogOpen} onOpenChange={setTargetsDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><Pencil className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">Edit </span>Targets</Button>
@@ -544,6 +572,55 @@ export default function NutritionPage() {
         </TabsList>
 
         <TabsContent value="tracker" className="space-y-6">
+      <FadeIn delay={0.05}>
+        <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">{targetDateLabel} Remaining</p>
+                  <p className="mt-2 font-display text-3xl font-bold">{Math.round(remaining.calories)} kcal</p>
+                  <p className="mt-1 text-sm text-muted-foreground">left from {Math.round(targetCal)} kcal target</p>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10">
+                  <Target className="h-5 w-5 text-primary" />
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <MacroPill label="Protein" value={`${Math.round(remaining.protein)}g left`} />
+                <MacroPill label="Carbs" value={`${Math.round(remaining.carbs)}g left`} />
+                <MacroPill label="Fat" value={`${Math.round(remaining.fat)}g left`} />
+                <MacroPill label="Fiber" value={`${Math.round(remaining.fiber)}g left`} />
+                <MacroPill label="Water" value={`${Math.round(remaining.water)}ml left`} />
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                Meal Split
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {mealBreakdown.map((meal) => {
+                const pct = totals.calories > 0 ? Math.round((meal.calories / totals.calories) * 100) : 0;
+                return (
+                  <div key={meal.mealType} className="rounded-lg bg-muted/35 p-2">
+                    <div className="mb-1 flex items-center justify-between gap-2 text-sm">
+                      <span className="capitalize">{meal.mealType}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{Math.round(meal.calories)} kcal • P {Math.round(meal.protein)}g</span>
+                    </div>
+                    <Progress value={pct} className="h-1.5" />
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        </div>
+      </FadeIn>
+
       <FadeIn delay={0.1}>
         <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-6 lg:gap-4">
           {[
@@ -622,7 +699,7 @@ export default function NutritionPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Utensils className="w-5 h-5 text-primary" />
-              Today&apos;s Food Log
+              {targetDateLabel}&apos;s Food Log
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -727,7 +804,7 @@ export default function NutritionPage() {
             <Card>
               <CardContent className="py-12 text-center">
                 <Apple className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-muted-foreground">No diet plans yet. Ask AI Coach to create one or add it manually.</p>
+                <p className="text-muted-foreground">No diet plans yet. Ask Dayza Agent to create one or add it manually.</p>
               </CardContent>
             </Card>
           ) : (
@@ -809,6 +886,15 @@ export default function NutritionPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function MacroPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-primary/20 bg-background/60 px-3 py-2">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold">{value}</p>
     </div>
   );
 }

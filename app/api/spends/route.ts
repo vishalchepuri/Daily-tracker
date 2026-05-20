@@ -16,6 +16,13 @@ async function resolveCreditCardId(userId: string, creditCardId?: unknown) {
   return card.id;
 }
 
+async function resolveBankAccountId(userId: string, bankAccountId?: unknown) {
+  if (!bankAccountId || bankAccountId === "none") return null;
+  const account = await prisma.bankAccount.findUnique({ where: { id: String(bankAccountId) } });
+  if (!account || account.userId !== userId || !account.active) return null;
+  return account.id;
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -23,7 +30,7 @@ export async function GET() {
     const userId = (session.user as any)?.id;
     const spends = await prisma.spend.findMany({
       where: { userId },
-      include: { creditCard: true },
+      include: { bankAccount: true, creditCard: true },
       orderBy: { date: "desc" },
       take: 500,
     });
@@ -43,19 +50,39 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Merchant and amount are required" }, { status: 400 });
     }
 
-    const spend = await prisma.spend.create({
-      data: {
-        userId,
-        merchant: data.merchant,
-        amount: parseAmount(data.amount),
-        currency: data.currency || "INR",
-        category: data.category || null,
-        date: data.date ? new Date(data.date) : new Date(),
-        notes: data.notes || null,
-        source: "manual",
-        creditCardId: await resolveCreditCardId(userId, data.creditCardId),
-      },
-      include: { creditCard: true },
+    const amount = parseAmount(data.amount);
+    const bankAccountId = await resolveBankAccountId(userId, data.bankAccountId);
+    const creditCardId = await resolveCreditCardId(userId, data.creditCardId);
+    const spend = await prisma.$transaction(async (tx) => {
+      const created = await tx.spend.create({
+        data: {
+          userId,
+          merchant: data.merchant,
+          amount,
+          currency: data.currency || "INR",
+          category: data.category || null,
+          date: data.date ? new Date(data.date) : new Date(),
+          notes: data.notes || null,
+          source: "manual",
+          bankAccountId,
+          creditCardId,
+          balanceApplied: Boolean(bankAccountId || creditCardId),
+        },
+        include: { bankAccount: true, creditCard: true },
+      });
+      if (bankAccountId) {
+        await tx.bankAccount.update({
+          where: { id: bankAccountId },
+          data: { balance: { decrement: amount } },
+        });
+      }
+      if (creditCardId) {
+        await tx.creditCard.update({
+          where: { id: creditCardId },
+          data: { currentDue: { increment: amount } },
+        });
+      }
+      return created;
     });
     return NextResponse.json({ spend });
   } catch (error: any) {
@@ -74,18 +101,49 @@ export async function PATCH(req: Request) {
     const existing = await prisma.spend.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-    const spend = await prisma.spend.update({
-      where: { id: data.id },
-      data: {
-        merchant: data.merchant,
-        amount: parseAmount(data.amount),
-        currency: data.currency || "INR",
-        category: data.category || null,
-        date: data.date ? new Date(data.date) : undefined,
-        notes: data.notes || null,
-        creditCardId: await resolveCreditCardId(userId, data.creditCardId),
-      },
-      include: { creditCard: true },
+    const nextAmount = parseAmount(data.amount);
+    const nextBankAccountId = await resolveBankAccountId(userId, data.bankAccountId);
+    const nextCreditCardId = await resolveCreditCardId(userId, data.creditCardId);
+    const spend = await prisma.$transaction(async (tx) => {
+      if (existing.balanceApplied && existing.bankAccountId) {
+        await tx.bankAccount.update({
+          where: { id: existing.bankAccountId },
+          data: { balance: { increment: existing.amount } },
+        });
+      }
+      if (nextBankAccountId) {
+        await tx.bankAccount.update({
+          where: { id: nextBankAccountId },
+          data: { balance: { decrement: nextAmount } },
+        });
+      }
+      if (existing.balanceApplied && existing.creditCardId) {
+        await tx.creditCard.update({
+          where: { id: existing.creditCardId },
+          data: { currentDue: { decrement: existing.amount } },
+        });
+      }
+      if (nextCreditCardId) {
+        await tx.creditCard.update({
+          where: { id: nextCreditCardId },
+          data: { currentDue: { increment: nextAmount } },
+        });
+      }
+      return tx.spend.update({
+        where: { id: data.id },
+        data: {
+          merchant: data.merchant,
+          amount: nextAmount,
+          currency: data.currency || "INR",
+          category: data.category || null,
+          date: data.date ? new Date(data.date) : undefined,
+          notes: data.notes || null,
+          bankAccountId: nextBankAccountId,
+          creditCardId: nextCreditCardId,
+          balanceApplied: Boolean(nextBankAccountId || nextCreditCardId),
+        },
+        include: { bankAccount: true, creditCard: true },
+      });
     });
     return NextResponse.json({ spend });
   } catch (error: any) {
@@ -104,7 +162,21 @@ export async function DELETE(req: Request) {
 
     const existing = await prisma.spend.findUnique({ where: { id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
-    await prisma.spend.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      if (existing.balanceApplied && existing.bankAccountId) {
+        await tx.bankAccount.update({
+          where: { id: existing.bankAccountId },
+          data: { balance: { increment: existing.amount } },
+        });
+      }
+      if (existing.balanceApplied && existing.creditCardId) {
+        await tx.creditCard.update({
+          where: { id: existing.creditCardId },
+          data: { currentDue: { decrement: existing.amount } },
+        });
+      }
+      await tx.spend.delete({ where: { id } });
+    });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

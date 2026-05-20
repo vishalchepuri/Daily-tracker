@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { deleteFile, getFileUrl, uploadBuffer } from "@/lib/s3";
 
 type WorkoutExerciseWithExercise = {
   id: string;
@@ -51,7 +52,12 @@ type AgentAction =
       category?: string;
       date?: string;
       notes?: string;
+      bankName?: string;
+      accountName?: string;
+      accountLast4?: string;
       creditCardName?: string;
+      cardLast4?: string;
+      paymentSource?: "bank_account" | "credit_card" | "debit_card" | "wallet" | "cash" | "unknown";
     }
   | {
       type: "update_spend_target";
@@ -128,6 +134,13 @@ type AgentAction =
       type: "update_profile_safety";
       healthLimitations?: string;
       foodAllergies?: string;
+    }
+  | {
+      type: "update_goal_timeline";
+      goalOutcome: string;
+      goalTimelineDays: number;
+      goalTargetWeight?: number;
+      reason?: string;
     }
   | {
       type: "create_workout_template";
@@ -214,6 +227,26 @@ function isDataImageUrl(value: unknown): value is string {
   return typeof value === "string" && /^data:image\/(png|jpe?g|webp);base64,/i.test(value);
 }
 
+function parseDataImageUrl(value: string) {
+  const match = value.match(/^data:(image\/(?:png|jpe?g|webp));base64,(.+)$/i);
+  if (!match) return null;
+  const mimeType = match[1].toLowerCase();
+  const extension = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
+  return { mimeType, extension, buffer: Buffer.from(match[2], "base64") };
+}
+
+async function getOrCreateChatSession(userId: string, sessionId?: string | null, titleSeed?: string) {
+  if (sessionId) {
+    const existing = await prisma.chatSession.findFirst({ where: { id: sessionId, userId } });
+    if (existing) return existing;
+  }
+
+  const title = titleSeed?.trim()
+    ? titleSeed.trim().replace(/\s+/g, " ").slice(0, 48)
+    : "New chat";
+  return prisma.chatSession.create({ data: { userId, title } });
+}
+
 function slugify(value: string) {
   return value
     .trim()
@@ -261,6 +294,15 @@ function isWorkoutPlanIntent(text: unknown) {
 function isFoodPlanIntent(text: unknown) {
   if (typeof text !== "string") return false;
   return includesAny(text, ["meal plan", "diet plan", "food plan", "nutrition plan", "what should i eat"]);
+}
+
+function hasTimelineAnswer(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function messageIncludesTimeline(text: unknown) {
+  if (typeof text !== "string") return false;
+  return /\b\d+\s*(day|days|week|weeks|month|months)\b/i.test(text) || includesAny(text, ["fast progress", "quick progress", "as soon as possible", "asap"]);
 }
 
 function isJointSensitive(value?: string | null) {
@@ -322,7 +364,26 @@ async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?:
   });
 }
 
-async function executeAgentAction(userId: string, action: AgentAction) {
+function inferSpendPaymentSource(text: string, action: Extract<AgentAction, { type: "create_spend_log" }>) {
+  const sourceText = `${text}\n${action.notes ?? ""}`.replace(/\s+/g, " ");
+  const bankMatch = sourceText.match(/\b(HDFC|ICICI|SBI|Axis|Kotak|Yes Bank|IDFC|IndusInd|Federal|Canara|Punjab National|Bank of Baroda)\b(?:\s+Bank)?/i);
+  const debitMatch = sourceText.match(/debit\s+card(?:\s+(?:ending|xx|x+|no\.?))?\s*(\d{4})/i);
+  const creditMatch = sourceText.match(/credit\s+card(?:\s+(?:ending|xx|x+|no\.?))?\s*(\d{4})/i);
+  const cardEndingMatch = sourceText.match(/\bcard\s+(?:ending|xx|x+|no\.?)\s*(\d{4})/i);
+  const accountMatch = sourceText.match(/account\s+(?:ending|xx|x+|no\.?)\s*(\d{4})/i);
+  const bankName = action.bankName || (bankMatch ? `${bankMatch[1].toUpperCase()} Bank` : undefined);
+
+  return {
+    bankName,
+    accountLast4: action.accountLast4 || accountMatch?.[1] || (debitMatch ? debitMatch[1] : undefined),
+    cardLast4: action.cardLast4 || creditMatch?.[1] || (!debitMatch ? cardEndingMatch?.[1] : undefined),
+    paymentSource:
+      action.paymentSource ||
+      (creditMatch ? "credit_card" : debitMatch ? "debit_card" : accountMatch ? "bank_account" : undefined),
+  };
+}
+
+async function executeAgentAction(userId: string, action: AgentAction, rawMessage = "") {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup });
     return { type: action.type, label: `Added ${exercise.name} to Exercise Library`, id: exercise.id };
@@ -364,29 +425,85 @@ async function executeAgentAction(userId: string, action: AgentAction) {
   }
 
   if (action.type === "create_spend_log") {
-    const card = action.creditCardName
+    const inferred = inferSpendPaymentSource(rawMessage, action);
+    const paymentSource = inferred.paymentSource;
+    const bankName = inferred.bankName;
+    const accountLast4 = inferred.accountLast4;
+    const cardLast4 = inferred.cardLast4;
+    const card = (paymentSource === "credit_card" || action.creditCardName || cardLast4)
       ? await prisma.creditCard.findFirst({
           where: {
             userId,
             active: true,
-            name: { contains: action.creditCardName, mode: "insensitive" },
+            OR: [
+              action.creditCardName ? { name: { contains: action.creditCardName, mode: "insensitive" } } : undefined,
+              bankName ? { bankName: { contains: bankName, mode: "insensitive" } } : undefined,
+              cardLast4 ? { last4: cardLast4 } : undefined,
+            ].filter(Boolean) as any,
           },
         })
       : null;
-    const spend = await prisma.spend.create({
-      data: {
-        userId,
-        merchant: action.merchant,
-        amount: toNumber(action.amount),
-        currency: action.currency || "INR",
-        category: action.category || null,
-        date: action.date ? new Date(action.date) : new Date(),
-        notes: action.notes || "Logged by AI Coach.",
-        source: "manual",
-        creditCardId: card?.id ?? null,
-      },
+    let bankAccount = !card && (paymentSource === "bank_account" || paymentSource === "debit_card" || accountLast4 || bankName || action.accountName)
+      ? await prisma.bankAccount.findFirst({
+          where: {
+            userId,
+            active: true,
+            OR: [
+              action.accountName ? { name: { contains: action.accountName, mode: "insensitive" } } : undefined,
+              bankName ? { bankName: { contains: bankName, mode: "insensitive" } } : undefined,
+              accountLast4 ? { last4: accountLast4 } : undefined,
+            ].filter(Boolean) as any,
+          },
+        })
+      : null;
+    if (!card && !bankAccount && (paymentSource === "bank_account" || paymentSource === "debit_card" || accountLast4) && (bankName || action.accountName || accountLast4)) {
+      const sourceKind = paymentSource === "debit_card" ? "Debit Card" : "Account";
+      const label = action.accountName || `${bankName || "Bank"} ${sourceKind}${accountLast4 ? ` ending ${accountLast4}` : ""}`;
+      bankAccount = await prisma.bankAccount.create({
+        data: {
+          userId,
+          name: label,
+          bankName: bankName || null,
+          accountType: paymentSource === "debit_card" ? "debit_card" : "savings",
+          last4: accountLast4 || null,
+          balance: 0,
+          currency: action.currency || "INR",
+        },
+      });
+    }
+    const amount = toNumber(action.amount);
+    const spend = await prisma.$transaction(async (tx) => {
+      const created = await tx.spend.create({
+        data: {
+          userId,
+          merchant: action.merchant,
+          amount,
+          currency: action.currency || "INR",
+          category: action.category || null,
+          date: action.date ? new Date(action.date) : new Date(),
+          notes: action.notes || "Logged by Dayza Agent.",
+          source: "manual",
+          bankAccountId: bankAccount?.id ?? null,
+          creditCardId: card?.id ?? null,
+          balanceApplied: Boolean(bankAccount?.id || card?.id),
+        },
+      });
+      if (bankAccount?.id) {
+        await tx.bankAccount.update({
+          where: { id: bankAccount.id },
+          data: { balance: { decrement: amount } },
+        });
+      }
+      if (card?.id) {
+        await tx.creditCard.update({
+          where: { id: card.id },
+          data: { currentDue: { increment: amount } },
+        });
+      }
+      return created;
     });
-    return { type: action.type, label: `Logged spend at ${spend.merchant}${card ? ` on ${card.name}` : ""}`, id: spend.id };
+    const sourceLabel = card ? ` on ${card.name}` : bankAccount ? ` from ${bankAccount.name}` : "";
+    return { type: action.type, label: `Logged spend at ${spend.merchant}${sourceLabel}`, id: spend.id };
   }
 
   if (action.type === "update_spend_target") {
@@ -458,7 +575,7 @@ async function executeAgentAction(userId: string, action: AgentAction) {
         amount: toNumber(action.amount),
         currency: action.currency || "INR",
         date: action.date ? new Date(action.date) : new Date(),
-        notes: action.notes || "Logged by AI Coach.",
+        notes: action.notes || "Logged by Dayza Agent.",
       },
     });
     return { type: action.type, label: `${moneyLink.type === "lend" ? "Lent" : "Borrowed"} INR ${moneyLink.amount} ${moneyLink.type === "lend" ? "to" : "from"} ${moneyLink.person}`, id: moneyLink.id };
@@ -564,6 +681,23 @@ async function executeAgentAction(userId: string, action: AgentAction) {
       create: { userId, ...cleanData },
     });
     return { type: action.type, label: "Saved safety and food preferences", id: userId };
+  }
+
+  if (action.type === "update_goal_timeline") {
+    const goalTimelineDays = Math.round(toNumber(action.goalTimelineDays));
+    const goalOutcome = action.goalOutcome?.trim();
+    if (!goalOutcome || goalTimelineDays <= 0) return null;
+    const data = {
+      goalOutcome,
+      goalTimelineDays,
+      goalTargetWeight: action.goalTargetWeight == null ? undefined : toNumber(action.goalTargetWeight),
+    };
+    await prisma.userProfile.upsert({
+      where: { userId },
+      update: data,
+      create: { userId, ...data },
+    });
+    return { type: action.type, label: `Saved ${goalOutcome} timeline for ${goalTimelineDays} days`, id: userId };
   }
 
   if (action.type === "create_workout_template") {
@@ -693,19 +827,34 @@ async function writeSse(controller: ReadableStreamDefaultController, data: unkno
   controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
     const userId = (session.user as any)?.id;
+    const { searchParams } = new URL(req.url);
+    const sessionId = searchParams.get("sessionId");
+    const chatSession = sessionId ? await getOrCreateChatSession(userId, sessionId) : null;
     const messages = await prisma.chatMessage.findMany({
-      where: { userId },
+      where: chatSession ? { userId, sessionId: chatSession.id } : { userId, sessionId: null },
+      include: { attachments: true },
       orderBy: { createdAt: "asc" },
       take: 50,
     });
-    return new Response(JSON.stringify({ messages }), {
+    const messagesWithUrls = await Promise.all(
+      messages.map(async (message) => ({
+        ...message,
+        attachments: await Promise.all(
+          message.attachments.map(async (attachment) => ({
+            ...attachment,
+            url: attachment.cloudStoragePath ? await getFileUrl(attachment.cloudStoragePath, false).catch(() => null) : null,
+          }))
+        ),
+      }))
+    );
+    return new Response(JSON.stringify({ session: chatSession, messages: messagesWithUrls }), {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error: any) {
@@ -721,19 +870,45 @@ export async function POST(req: Request) {
     }
 
     const userId = (session.user as any)?.id;
-    const { message, imageDataUrl } = await req.json();
+    const { message, imageDataUrl, sessionId } = await req.json();
     const hasImage = isDataImageUrl(imageDataUrl);
     if (!message && !hasImage) {
       return new Response(JSON.stringify({ error: "Message or image required" }), { status: 400 });
     }
 
-    await prisma.chatMessage.create({
+    const chatSession = await getOrCreateChatSession(userId, sessionId, message || "Image chat");
+    const userMessage = await prisma.chatMessage.create({
       data: {
         userId,
+        sessionId: chatSession.id,
         role: "user",
         content: hasImage ? `${message || "Analyze this food photo."}\n[Food photo attached]` : message,
       },
     });
+
+    if (hasImage) {
+      const parsedImage = parseDataImageUrl(imageDataUrl);
+      if (parsedImage) {
+        try {
+          const cloudStoragePath = await uploadBuffer(
+            `chat-${chatSession.id}.${parsedImage.extension}`,
+            parsedImage.mimeType,
+            parsedImage.buffer
+          );
+          await prisma.chatAttachment.create({
+            data: {
+              userId,
+              sessionId: chatSession.id,
+              messageId: userMessage.id,
+              mimeType: parsedImage.mimeType,
+              cloudStoragePath,
+            },
+          });
+        } catch (error) {
+          console.error("Chat image upload failed", error);
+        }
+      }
+    }
 
     const today = new Date();
     const startOfDay = new Date(today);
@@ -775,7 +950,7 @@ export async function POST(req: Request) {
         }),
         prisma.spend.findMany({
           where: { userId },
-          include: { creditCard: true },
+          include: { bankAccount: true, creditCard: true },
           orderBy: { date: "desc" },
           take: 20,
         }),
@@ -794,7 +969,7 @@ export async function POST(req: Request) {
           take: 20,
         }),
         prisma.chatMessage.findMany({
-          where: { userId },
+          where: { userId, sessionId: chatSession.id },
           orderBy: { createdAt: "desc" },
           take: 10,
         }),
@@ -803,14 +978,24 @@ export async function POST(req: Request) {
     if (isWorkoutPlanIntent(message) && !hasKnownAnswer(profile?.healthLimitations)) {
       const content =
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
-      await prisma.chatMessage.create({ data: { userId, role: "assistant", content } });
+      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
+      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
       return streamSingleMessage(content);
     }
 
     if (isFoodPlanIntent(message) && !hasKnownAnswer(profile?.foodAllergies)) {
       const content =
         "Before I suggest a food or meal plan, do you have any food allergies, intolerances, or foods you avoid? If none, say “none.”";
-      await prisma.chatMessage.create({ data: { userId, role: "assistant", content } });
+      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
+      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      return streamSingleMessage(content);
+    }
+
+    if ((isWorkoutPlanIntent(message) || isFoodPlanIntent(message)) && !hasTimelineAnswer(profile?.goalTimelineDays) && !messageIncludesTimeline(message)) {
+      const content =
+        "In how many days or weeks do you want to see changes, and what exact result are you aiming for? For example: visible muscle gain in 8 weeks, lose 4 kg in 10 weeks, or improve strength in 12 weeks.";
+      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
+      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
       return streamSingleMessage(content);
     }
 
@@ -830,6 +1015,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - create_sleep_log: save sleep from a sleep screenshot or manual sleep message.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
+- update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight after they answer timeline questions.
 - create_workout_template: create a workout day after the user confirms a draft plan. You may use exerciseName for missing exercises; the app will create them first.
 - remove_exercise_from_template: remove an exercise from an existing workout day/template.
 - add_exercise_to_template: add an exercise to an existing workout day/template. You may use exerciseName for missing exercises.
@@ -838,7 +1024,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - update_diet_plan: edit a saved diet plan when the user asks to modify meals/foods/macros.
 - delete_diet_plan: delete a saved diet plan when clearly requested.
 - When the user sends a food image, identify the food and estimate nutrition from the visible portion.
-- When the user sends a payment/receipt/spend screenshot, extract merchant, amount, currency, category, and date when visible.
+- When the user sends a payment/receipt/spend screenshot, extract merchant, amount, currency, category, date, and payment source when visible.
 - When the user sends a sleep screenshot, read total sleep and stages, then log sleep.
 - When the user sends fitness/activity screenshots, extract visible daily/weekly goals or averages and update relevant targets.
 
@@ -846,14 +1032,29 @@ Rules:
 - Do not create entries unless the user clearly requests logging/saving/recording/tracking.
 - Use the dashboard profile when answering personalized questions. If age, height, weight, gender, activity level, or goal are needed and missing from profile/context, ask for the missing fields instead of guessing.
 - For calorie, macro, BMI, body-weight, recovery, and training-plan questions, explicitly base the answer on available profile fields such as age, height, weight, activityLevel, and goal.
+- Goal timeline flow for workout and diet plans:
+  1. Before drafting a workout or diet plan, make sure the user has a clear goal outcome and timeline. If profile.goalTimelineDays is missing and the current message does not provide a timeline, ask: "In how many days or weeks do you want to see changes?"
+  2. If the user provides a timeline, save it with update_goal_timeline. Convert weeks to days. Save target weight only when the user gives one.
+  3. Evaluate whether the timeline is safe and realistic before making the plan. Do not promise guaranteed results.
+  4. If the request is realistic, say it is possible and give short week-by-week expectations.
+  5. If the request is not safely realistic, say that clearly, give a safer timeline first, then build around the safer timeline.
+  6. If the user asks for fast progress, choose higher-effort but safe plan settings: more consistency, progressive overload, controlled calories, protein, walking/cardio, and recovery. Never recommend crash diets, extreme deficits, daily heavy lifting without recovery, or painful exercises.
+- Timeline safety rules:
+  - Fat loss: safe default is about 0.5% to 1% body weight per week. If the user asks to lose more than roughly 1% body weight per week, call it too aggressive and suggest a safer range.
+  - Muscle gain: visible changes usually need 4-8+ weeks. Avoid promising exact muscle gain. Beginners may see earlier strength and fullness changes.
+  - Strength: early improvements can appear in 2-4 weeks; meaningful strength changes usually need 8-12 weeks.
+  - General fitness: energy and endurance can improve in 2-4 weeks; body composition usually needs 8-12 weeks.
+  - For 30-day plans, give Week 1, Week 2, Week 3, and Week 4 expectations.
+  - For impossible requests like "lose 10kg in 3 weeks", reject the unsafe timeline and suggest a safer timeline based on profile.weight when available.
 - Workout plan safety flow:
   1. If user asks for a workout plan and profile.healthLimitations is missing, first ask whether they have joint pain, previous fractures, surgeries, injuries, or medical restrictions. Do not draft yet.
-  2. When they answer, save it with update_profile_safety. If they answer only the health question, continue to ask plan days/focus in the same response when clear.
-  3. Ask how many days they prefer: 3, 4, 5, or custom.
-  4. Ask whether they want full body or particular muscle focus. If particular muscles, ask which muscles.
-  5. Draft only a short weekly split and ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
-  6. If they request changes, update the draft and ask for confirmation again.
-  7. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
+  2. When they answer, save it with update_profile_safety.
+  3. If goal timeline is missing, ask the timeline question before plan days/focus.
+  4. Ask how many days they prefer: 3, 4, 5, or custom.
+  5. Ask whether they want full body or particular muscle focus. If particular muscles, ask which muscles.
+  6. Draft only a short weekly split with the realistic timeline and ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
+  7. If they request changes, update the draft and ask for confirmation again.
+  8. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
 - Exercise selection rules for workout plans:
   - When drafting a plan with exercises, include at least 2 exercises for each muscle/focus listed on that day.
   - Keep exercises simple, effective, and easy to perform with common gym equipment.
@@ -892,7 +1093,7 @@ ${JSON.stringify({
     "5_day_split": { Monday: ["Aerobic Cardio"], Tuesday: ["Full Body Strength"], Wednesday: ["HIIT", "Core"], Thursday: ["Active Recovery", "Yoga"], Friday: ["Full Body Strength"], Saturday: "Rest", Sunday: "Rest" },
   },
 })}
-- Food safety flow: if user asks for diet/meal/food plan and profile.foodAllergies is missing, first ask whether they have food allergies, intolerances, or avoided foods. Save their answer with update_profile_safety before giving food plans.
+- Food safety flow: if user asks for diet/meal/food plan and profile.foodAllergies is missing, first ask whether they have food allergies, intolerances, or avoided foods. Save their answer with update_profile_safety before giving food plans. After allergies are known, ask or use the saved goal timeline before drafting the diet.
 - Diet plan rules:
   - Diet plans should be structured as Breakfast, Snack, Lunch, Evening Snack, Dinner by default, unless the user asks for different timing.
   - Use the user's profile targets, goal, and foodAllergies. Avoid any allergy or avoided food.
@@ -913,13 +1114,18 @@ ${JSON.stringify({
 - If you log food from an image, mention that calories/macros are estimates from the photo.
 - A payment, receipt, bank, UPI, card, or wallet screenshot counts as a request to log a spend only if merchant/payee and amount are clear.
 - For spend screenshots, use create_spend_log when merchant/payee and amount are clear. Use INR for Indian rupees, USD only when dollars are visible or implied.
-- If the spend screenshot is missing merchant, amount, category, or whether it was a transfer vs purchase, ask one short follow-up question instead of logging.
+- If the merchant/payee is visibly truncated or partial, still log it with the visible partial name instead of asking. Add a note like "Merchant name appears partial from bank SMS." Use category "Other" when category is uncertain.
+- If the text says "debited from account", "account ending 1234", or similar, set paymentSource to "bank_account", include bankName and accountLast4, and attach/create the bank account automatically.
+- If the text says "debit card ending 1234", set paymentSource to "debit_card", include bankName and accountLast4, and attach/create that debit-card source under Bank Accounts.
+- If the text says "credit card", "card ending 1234", or a named saved card, set paymentSource to "credit_card" and include creditCardName or cardLast4.
+- If the spend screenshot is missing amount, source, or whether it was a transfer vs purchase, ask one short follow-up question instead of logging. Do not ask only because merchant or category is imperfect; save the best visible merchant/category and note uncertainty.
 - Choose practical spend categories such as Food, Groceries, Travel, Shopping, Health, Fitness, Bills, Subscriptions, Entertainment, or Other.
 - If the user asks to set/change monthly spending budget/limit/target, use update_spend_target.
 - If the user asks to save current balance or total amount, use update_finance_profile.
 - If the user asks to add a bank account or save a bank balance, use create_bank_account when it is a new account. Ask only if the account name is missing.
 - If the user asks to add a credit card, use create_credit_card. Ask only if the card name is missing.
-- If the user logs a spend and says it was on a saved credit card, include creditCardName so the spend is attached to that card.
+- If the user logs a spend and says it was on a saved credit card, include creditCardName or cardLast4 so the spend is attached to that card.
+- If the user logs a spend from bank SMS text, include bankName/accountLast4 so the spend is attached to that bank account or debit-card source. Create it implicitly when only bank name + last4 are visible.
 - If the user says they lent money to someone or borrowed money from someone, use create_money_link with linkType "lend" or "borrow".
 - If the user asks about spending history, answer from recentSpends and ask them to use the Spends custom date report for exact older ranges when needed.
 - For spend and money questions, summarize balances, card dues/spends, lend/borrow totals, top categories, and patterns using INR when context exists.
@@ -944,6 +1150,9 @@ Available action examples:
 {"type":"create_progress_entry","weight":80.5,"notes":"Felt strong today"}
 {"type":"create_spend_log","merchant":"Swiggy","amount":420,"currency":"INR","category":"Food","notes":"Logged from payment screenshot."}
 {"type":"create_spend_log","merchant":"Amazon","amount":1499,"currency":"INR","category":"Shopping","creditCardName":"HDFC Regalia","notes":"Logged on credit card."}
+{"type":"create_spend_log","merchant":"Zepto Marketplace Private Limited","amount":123,"currency":"INR","category":"Groceries","bankName":"HDFC Bank","accountLast4":"1043","paymentSource":"bank_account","notes":"Dear Customer SMS: debited from HDFC account ending 1043 via UPI."}
+{"type":"create_spend_log","merchant":"SPOTIFY SI","amount":179,"currency":"INR","category":"Subscriptions","bankName":"HDFC Bank","accountLast4":"3144","paymentSource":"debit_card","notes":"Dear Customer SMS: debited from HDFC Bank Debit Card ending 3144."}
+{"type":"create_spend_log","merchant":"BRIGID INSTITUTE OF","amount":300,"currency":"INR","category":"Other","bankName":"Axis Bank","accountLast4":"6339","paymentSource":"bank_account","notes":"Merchant name appears partial from bank SMS. Transaction ref UPI/P2M/613999713593."}
 {"type":"update_spend_target","targetMonthlySpend":25000,"reason":"User asked to set monthly budget."}
 {"type":"update_finance_profile","currentBalance":35000,"totalAmount":120000}
 {"type":"create_bank_account","name":"Salary Account","bankName":"HDFC","accountType":"savings","last4":"4567","balance":35000,"currency":"INR"}
@@ -953,6 +1162,7 @@ Available action examples:
 {"type":"create_sleep_log","date":"2026-05-12","totalMinutes":452,"awakeMinutes":45,"remMinutes":100,"coreMinutes":294,"deepMinutes":58}
 {"type":"update_wellness_targets","targetSleepMinutes":452,"targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
+{"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User wants visible muscle gain in 8 weeks."}
 {"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
 {"type":"remove_exercise_from_template","templateName":"Monday - Chest","exerciseName":"Skull Crushers"}
 {"type":"add_exercise_to_template","templateName":"Monday - Chest","exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}
@@ -1032,7 +1242,7 @@ Available action examples:
     const actions = Array.isArray(agentResult.actions) ? agentResult.actions.slice(0, 20) : [];
     const actionResults = [];
     for (const action of actions) {
-      const result = await executeAgentAction(userId, action);
+      const result = await executeAgentAction(userId, action, message);
       if (result) actionResults.push(result);
     }
 
@@ -1043,8 +1253,9 @@ Available action examples:
     const fullContent = `${agentResult.response ?? "Done."}${actionSummary}`;
 
     await prisma.chatMessage.create({
-      data: { userId, role: "assistant", content: fullContent },
+      data: { userId, sessionId: chatSession.id, role: "assistant", content: fullContent },
     });
+    await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
 
     const stream = new ReadableStream({
       async start(controller) {

@@ -15,7 +15,7 @@ export default function TermsPage() {
         </TermsSection>
 
         <TermsSection title="What Dayza Provides">
-          Dayza provides personal dashboard tools for workouts, nutrition, reminders, medications, spending, bank balance tracking, credit card payable tracking, progress logs, AI coaching, and YouTube video summaries. Features may change over time.
+          Dayza provides personal dashboard tools for workouts, nutrition, reminders, medications, spending, bank balance tracking, credit card payable tracking, progress logs, Dayza Agent, and YouTube video summaries. Features may change over time.
         </TermsSection>
 
         <TermsSection title="Your Account">
@@ -39,7 +39,7 @@ export default function TermsPage() {
         </TermsSection>
 
         <TermsSection title="AI Output">
-          AI-generated summaries, plans, interpretations, and coaching responses may be incomplete, outdated, or inaccurate. You should review important information independently before relying on it. You are responsible for decisions made from AI output.
+          AI-generated summaries, plans, interpretations, and Dayza Agent responses may be incomplete, outdated, or inaccurate. You should review important information independently before relying on it. You are responsible for decisions made from AI output.
         </TermsSection>
 
         <TermsSection title="User Content">

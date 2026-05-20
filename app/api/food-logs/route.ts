@@ -50,8 +50,11 @@ export async function PATCH(req: Request) {
     const data = await req.json();
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
+    const existing = await prisma.foodLog.findFirst({ where: { id: data.id, userId } });
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
     const log = await prisma.foodLog.update({
-      where: { id: data.id },
+      where: { id: existing.id },
       data: {
         foodName: data.foodName,
         mealType: data.mealType,
@@ -64,7 +67,6 @@ export async function PATCH(req: Request) {
         date: data.date ? new Date(data.date) : undefined,
       },
     });
-    if (log.userId !== userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     return NextResponse.json({ log });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
@@ -78,7 +80,9 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
-    await prisma.foodLog.delete({ where: { id } });
+    const existing = await prisma.foodLog.findFirst({ where: { id, userId: (session.user as any)?.id } });
+    if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    await prisma.foodLog.delete({ where: { id: existing.id } });
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

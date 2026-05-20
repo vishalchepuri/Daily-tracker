@@ -23,6 +23,7 @@ const blankForm = {
   category: "",
   date: new Date().toISOString().slice(0, 10),
   notes: "",
+  bankAccountId: "none",
   creditCardId: "none",
 };
 
@@ -97,7 +98,7 @@ export default function SpendsPage() {
   const [periodFilter, setPeriodFilter] = useState("custom");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [cardFilter, setCardFilter] = useState("all");
+  const [paymentFilter, setPaymentFilter] = useState("all");
   const [customStart, setCustomStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
   const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
   const [form, setForm] = useState(blankForm);
@@ -114,20 +115,20 @@ export default function SpendsPage() {
 
   const loadData = async () => {
     try {
-      const [spendsRes, settingsRes, financeRes, bankRes, cardsRes, moneyLinksRes] = await Promise.all([
-        fetch("/api/spends"),
-        fetch("/api/spends/settings"),
-        fetch("/api/finance"),
-        fetch("/api/bank-accounts"),
-        fetch("/api/credit-cards"),
-        fetch("/api/money-links"),
+      const [spendsResult, settingsResult, financeResult, bankResult, cardsResult, moneyLinksResult] = await Promise.allSettled([
+        fetch("/api/spends").then((res) => res.ok ? res.json() : { spends: [] }),
+        fetch("/api/spends/settings").then((res) => res.ok ? res.json() : {}),
+        fetch("/api/finance").then((res) => res.ok ? res.json() : { financeProfile: null }),
+        fetch("/api/bank-accounts").then((res) => res.ok ? res.json() : { bankAccounts: [] }),
+        fetch("/api/credit-cards").then((res) => res.ok ? res.json() : { creditCards: [] }),
+        fetch("/api/money-links").then((res) => res.ok ? res.json() : { moneyLinks: [] }),
       ]);
-      const spendsData = await spendsRes.json();
-      const settingsData = await settingsRes.json();
-      const financeData = await financeRes.json();
-      const bankData = await bankRes.json();
-      const cardsData = await cardsRes.json();
-      const moneyLinksData = await moneyLinksRes.json();
+      const spendsData = spendsResult.status === "fulfilled" ? spendsResult.value : { spends: [] };
+      const settingsData: any = settingsResult.status === "fulfilled" ? settingsResult.value : {};
+      const financeData = financeResult.status === "fulfilled" ? financeResult.value : { financeProfile: null };
+      const bankData = bankResult.status === "fulfilled" ? bankResult.value : { bankAccounts: [] };
+      const cardsData = cardsResult.status === "fulfilled" ? cardsResult.value : { creditCards: [] };
+      const moneyLinksData = moneyLinksResult.status === "fulfilled" ? moneyLinksResult.value : { moneyLinks: [] };
       setSpends(spendsData?.spends ?? []);
       setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
       setTargetEditing(!settingsData?.targetMonthlySpend);
@@ -245,17 +246,23 @@ export default function SpendsPage() {
       const matchesEnd = !filterEndDate || spendDate <= filterEndDate;
       const matchesCategory = categoryFilter === "all" || (spend.category || "Uncategorized") === categoryFilter;
       const matchesSource = sourceFilter === "all" || spend.source === sourceFilter;
-      const matchesCard =
-        cardFilter === "all" ||
-        (cardFilter === "none" ? !spend.creditCardId : spend.creditCardId === cardFilter);
+      const matchesPayment =
+        paymentFilter === "all" ||
+        (paymentFilter === "none"
+          ? !spend.bankAccountId && !spend.creditCardId
+          : paymentFilter.startsWith("bank:")
+            ? spend.bankAccountId === paymentFilter.replace("bank:", "")
+            : paymentFilter.startsWith("card:")
+              ? spend.creditCardId === paymentFilter.replace("card:", "")
+              : true);
       const matchesSearch =
         !query ||
-        [spend.merchant, spend.category, spend.notes, spend.emailSubject, spend.creditCard?.name]
+        [spend.merchant, spend.category, spend.notes, spend.emailSubject, spend.bankAccount?.name, spend.creditCard?.name]
           .filter(Boolean)
           .some((value) => String(value).toLowerCase().includes(query));
-      return matchesPeriod && matchesEnd && matchesCategory && matchesSource && matchesCard && matchesSearch;
+      return matchesPeriod && matchesEnd && matchesCategory && matchesSource && matchesPayment && matchesSearch;
     });
-  }, [cardFilter, categoryFilter, filterEndDate, filterStartDate, search, sourceFilter, spends]);
+  }, [categoryFilter, filterEndDate, filterStartDate, paymentFilter, search, sourceFilter, spends]);
 
   const filteredTotal = useMemo(
     () => filteredSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0),
@@ -336,6 +343,7 @@ export default function SpendsPage() {
       category: spend.category ?? "",
       date: new Date(spend.date ?? Date.now()).toISOString().slice(0, 10),
       notes: spend.notes ?? "",
+      bankAccountId: spend.bankAccountId ?? "none",
       creditCardId: spend.creditCardId ?? "none",
     });
     setDialogOpen(true);
@@ -432,7 +440,7 @@ export default function SpendsPage() {
     setPeriodFilter("custom");
     setCategoryFilter("all");
     setSourceFilter("all");
-    setCardFilter("all");
+    setPaymentFilter("all");
     setCustomStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
     setCustomEnd(new Date().toISOString().slice(0, 10));
   };
@@ -639,7 +647,21 @@ export default function SpendsPage() {
             <p className="text-muted-foreground text-sm mt-1">Track purchases manually or import receipt-like emails from Gmail</p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button variant="outline" onClick={() => signIn("google", { callbackUrl: "/spends" })} className="px-3">
+            <Button
+              variant="outline"
+              onClick={() =>
+                signIn(
+                  "google",
+                  { callbackUrl: "/spends" },
+                  {
+                    scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
+                    access_type: "offline",
+                    prompt: "consent",
+                  }
+                )
+              }
+              className="px-3"
+            >
               <Mail className="w-4 h-4 mr-2" />Connect Gmail
             </Button>
             <Button variant="outline" onClick={importGmail} disabled={importing} className="px-3">
@@ -660,15 +682,27 @@ export default function SpendsPage() {
                     <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1" /></div>
                   </div>
                   <div>
-                    <Label>Credit Card</Label>
-                    <Select value={form.creditCardId} onValueChange={(creditCardId) => setForm({ ...form, creditCardId })}>
+                    <Label>Payment Source</Label>
+                    <Select
+                      value={form.bankAccountId !== "none" ? `bank:${form.bankAccountId}` : form.creditCardId !== "none" ? `card:${form.creditCardId}` : "none"}
+                      onValueChange={(value) => {
+                        if (value.startsWith("bank:")) setForm({ ...form, bankAccountId: value.replace("bank:", ""), creditCardId: "none" });
+                        else if (value.startsWith("card:")) setForm({ ...form, bankAccountId: "none", creditCardId: value.replace("card:", "") });
+                        else setForm({ ...form, bankAccountId: "none", creditCardId: "none" });
+                      }}
+                    >
                       <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Optional card" />
+                        <SelectValue placeholder="Optional bank/card" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="none">No card / cash / UPI</SelectItem>
+                        <SelectItem value="none">No bank/card / cash / UPI</SelectItem>
+                        {bankAccounts.map((account) => (
+                          <SelectItem key={account.id} value={`bank:${account.id}`}>
+                            {account.name}{account.last4 ? ` - ${account.last4}` : ""}
+                          </SelectItem>
+                        ))}
                         {creditCards.map((card) => (
-                          <SelectItem key={card.id} value={card.id}>
+                          <SelectItem key={card.id} value={`card:${card.id}`}>
                             {card.name}{card.last4 ? ` - ${card.last4}` : ""}
                           </SelectItem>
                         ))}
@@ -691,12 +725,12 @@ export default function SpendsPage() {
         </div>
       </FadeIn>
 
-      <Card className="border-primary/30">
+      <Card className="overflow-hidden border-primary/30">
         <CardHeader>
           <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2">
-              <Landmark className="h-5 w-5 text-primary" />
-              Money Hub
+              <Sparkles className="h-5 w-5 text-primary" />
+              Smart Spend Capture
             </CardTitle>
             <div className="grid grid-cols-2 gap-2 sm:flex">
               <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
@@ -751,33 +785,51 @@ export default function SpendsPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-            <SummaryCard title="Bank Balance" value={formatInr(financeTotals.totalBankBalance)} detail={`${bankAccounts.length} accounts`} icon={Landmark} />
-            <SummaryCard title="Current Balance" value={formatInr(financeTotals.currentBalance)} detail="bank/cash now" icon={Banknote} />
-            <SummaryCard title="Total Amount" value={formatInr(financeTotals.totalAmount)} detail="your saved total" icon={WalletCards} />
-            <SummaryCard title="Total Lend" value={formatInr(financeTotals.totalLend)} detail="money to receive" icon={HandCoins} />
-            <SummaryCard title="Total Borrow" value={formatInr(financeTotals.totalBorrow)} detail="money to return" icon={CreditCard} />
-            <SummaryCard title="Card Spend" value={formatInr(totals.creditCardSpend)} detail="this month" icon={CreditCard} />
+          <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <h3 className="font-semibold">Paste or upload a bank SMS, receipt, or payment screenshot</h3>
+                <p className="text-sm text-muted-foreground">
+                  Dayza will detect the merchant, amount, bank account or credit card, then save the spend automatically.
+                </p>
+              </div>
+              <Button type="button" onClick={() => window.location.assign("/chat")} className="shrink-0">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Open Dayza Agent
+              </Button>
+            </div>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <InsightCard
-              title="Net Position"
-              value={formatInr(financeTotals.netBalance)}
-              detail="balance + lent - borrowed - card due"
-              warning={financeTotals.netBalance < 0}
-            />
-            <InsightCard
-              title="Total Card Payable"
-              value={formatInr(financeTotals.currentCardDue)}
-              detail={`${creditCards.length} active cards`}
-            />
-            <InsightCard
-              title="Safe Daily Spend"
-              value={totals.target ? formatInr(totals.safeDailySpend) : "Set target"}
-              detail={totals.target ? `${totals.daysRemaining} days left this month` : "monthly target required"}
-              warning={Boolean(totals.target && totals.safeDailySpend <= 0)}
-            />
+          <div className="grid gap-3 xl:grid-cols-[1.15fr_1fr]">
+            <div className={`rounded-xl border p-4 sm:p-5 ${financeTotals.netBalance < 0 ? "border-destructive/40 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
+              <div className="mb-4 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-muted-foreground">Net Position</p>
+                  <p className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">{formatInr(financeTotals.netBalance)}</p>
+                  <p className="mt-2 text-sm text-muted-foreground">bank balance + lent money - borrowed money - card due</p>
+                </div>
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/15">
+                  <WalletCards className="h-6 w-6 text-primary" />
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                <MoneyMetric label="Bank balance" value={formatInr(financeTotals.totalBankBalance)} detail={`${bankAccounts.length} accounts`} />
+                <MoneyMetric label="Card payable" value={formatInr(financeTotals.currentCardDue)} detail={`${creditCards.length} cards`} />
+                <MoneyMetric
+                  label="Safe daily"
+                  value={totals.target ? formatInr(totals.safeDailySpend) : "Set target"}
+                  detail={totals.target ? `${totals.daysRemaining} days left` : "monthly target"}
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MoneyMetric icon={HandCoins} label="Total Lend" value={formatInr(financeTotals.totalLend)} detail="money to receive" featured />
+              <MoneyMetric icon={CreditCard} label="Total Borrow" value={formatInr(financeTotals.totalBorrow)} detail="money to return" featured />
+              <MoneyMetric icon={WalletCards} label="Saved Total" value={formatInr(financeTotals.totalAmount)} detail="manual total" featured />
+              <MoneyMetric icon={CreditCard} label="Card Spend" value={formatInr(totals.creditCardSpend)} detail="this month" featured />
+            </div>
           </div>
 
           {cardDueAlerts.length > 0 && (
@@ -802,9 +854,15 @@ export default function SpendsPage() {
             </div>
           )}
 
-          <div className="grid gap-3 rounded-lg bg-muted/30 p-3 md:grid-cols-[1fr_auto] md:items-end">
-            <div><Label>Total Amount</Label><Input type="number" value={financeForm.totalAmount} onChange={(e) => setFinanceForm({ ...financeForm, totalAmount: e.target.value })} className="mt-1" /></div>
-            <Button onClick={saveFinance}>Save Total</Button>
+          <div className="rounded-xl border bg-muted/20 p-3">
+            <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+              <div>
+                <Label>Total Amount</Label>
+                <p className="mb-2 text-xs text-muted-foreground">Optional manual total for cash or assets you do not want to add as bank accounts.</p>
+                <Input type="number" value={financeForm.totalAmount} onChange={(e) => setFinanceForm({ ...financeForm, totalAmount: e.target.value })} />
+              </div>
+              <Button onClick={saveFinance}>Save Total</Button>
+            </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-3">
@@ -998,7 +1056,7 @@ export default function SpendsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_160px_180px]">
+          <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_160px_220px]">
             <div>
               <Label>From</Label>
               <Input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
@@ -1030,14 +1088,17 @@ export default function SpendsPage() {
               </Select>
             </div>
             <div>
-              <Label>Card</Label>
-              <Select value={cardFilter} onValueChange={setCardFilter}>
+              <Label>Bank / Card</Label>
+              <Select value={paymentFilter} onValueChange={setPaymentFilter}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All cards</SelectItem>
-                  <SelectItem value="none">No card</SelectItem>
+                  <SelectItem value="all">All banks/cards</SelectItem>
+                  <SelectItem value="none">No bank/card</SelectItem>
+                  {bankAccounts.map((account) => (
+                    <SelectItem key={account.id} value={`bank:${account.id}`}>{account.name}</SelectItem>
+                  ))}
                   {creditCards.map((card) => (
-                    <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>
+                    <SelectItem key={card.id} value={`card:${card.id}`}>{card.name}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1109,7 +1170,7 @@ export default function SpendsPage() {
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="w-5 h-5 text-primary" />Recent Spends</CardTitle></CardHeader>
         <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px_160px_180px]">
+          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px_160px_220px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" placeholder="Search merchant, category, notes..." />
@@ -1147,16 +1208,19 @@ export default function SpendsPage() {
                 <SelectItem value="gmail">Gmail</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={cardFilter} onValueChange={setCardFilter}>
+            <Select value={paymentFilter} onValueChange={setPaymentFilter}>
               <SelectTrigger>
                 <CreditCard className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Card" />
+                <SelectValue placeholder="Bank / Card" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All cards</SelectItem>
-                <SelectItem value="none">No card</SelectItem>
+                <SelectItem value="all">All banks/cards</SelectItem>
+                <SelectItem value="none">No bank/card</SelectItem>
+                {bankAccounts.map((account) => (
+                  <SelectItem key={account.id} value={`bank:${account.id}`}>{account.name}</SelectItem>
+                ))}
                 {creditCards.map((card) => (
-                  <SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>
+                  <SelectItem key={card.id} value={`card:${card.id}`}>{card.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1190,6 +1254,7 @@ export default function SpendsPage() {
                     <div className="flex flex-wrap gap-2">
                       <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>
                       {spend.category && <Badge variant="outline">{spend.category}</Badge>}
+                      {spend.bankAccount && <Badge variant="secondary">{spend.bankAccount.name}</Badge>}
                       {spend.creditCard && <Badge variant="secondary">{spend.creditCard.name}</Badge>}
                     </div>
                   </div>
@@ -1238,6 +1303,25 @@ function InsightCard({ title, value, detail, warning }: any) {
         <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
       </CardContent>
     </Card>
+  );
+}
+
+function MoneyMetric({ label, value, detail, icon: Icon, featured }: any) {
+  return (
+    <div className={`rounded-lg border border-border/80 bg-background/55 p-3 ${featured ? "min-h-28" : ""}`}>
+      <div className="flex items-start gap-3">
+        {Icon && (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+            <Icon className="h-5 w-5 text-primary" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+          <p className="mt-1 break-words font-display text-xl font-bold tracking-tight">{value}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 

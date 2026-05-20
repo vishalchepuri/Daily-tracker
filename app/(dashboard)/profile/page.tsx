@@ -18,7 +18,7 @@ export default function ProfilePage() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [form, setForm] = useState({
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
-    healthLimitations: "", foodAllergies: "",
+    healthLimitations: "", foodAllergies: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "",
   });
 
   useEffect(() => {
@@ -35,6 +35,9 @@ export default function ProfilePage() {
           goal: p?.goal ?? "muscle_gain",
           healthLimitations: p?.healthLimitations ?? "",
           foodAllergies: p?.foodAllergies ?? "",
+          goalOutcome: p?.goalOutcome ?? "",
+          goalTimelineDays: String(p?.goalTimelineDays ?? ""),
+          goalTargetWeight: String(p?.goalTargetWeight ?? ""),
         });
       }
     }).catch(console.error).finally(() => setLoading(false));
@@ -55,12 +58,15 @@ export default function ProfilePage() {
           goal: form.goal,
           healthLimitations: form.healthLimitations || "None",
           foodAllergies: form.foodAllergies || "None",
+          goalOutcome: form.goalOutcome || null,
+          goalTimelineDays: parseInt(form.goalTimelineDays) || null,
+          goalTargetWeight: parseFloat(form.goalTargetWeight) || null,
         }),
       });
       const data = await res.json();
       if (res.ok) {
         setProfile(data?.profile);
-        toast.success("Profile saved!");
+        toast.success("Profile and nutrition targets updated");
       }
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }
@@ -148,6 +154,20 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 gap-4">
               <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
               <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
+            </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <Label>Goal Outcome</Label>
+                <Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." />
+              </div>
+              <div>
+                <Label>Timeline (days)</Label>
+                <Input type="number" min="1" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" placeholder="56" />
+              </div>
+              <div>
+                <Label>Target Weight (kg)</Label>
+                <Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" placeholder="Optional" />
+              </div>
             </div>
             <Button onClick={handleSave} loading={saving}><Save className="w-4 h-4 mr-2" />Save Profile</Button>
           </CardContent>

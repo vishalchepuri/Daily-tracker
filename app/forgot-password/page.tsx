@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Dumbbell, Mail } from "lucide-react";
+import { Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
 
 export default function ForgotPasswordPage() {
@@ -37,12 +38,7 @@ export default function ForgotPasswordPage() {
   return (
     <div className="app-viewport flex items-center justify-center overflow-y-auto bg-gradient-to-br from-background via-background to-secondary/20 p-4 ios-scroll">
       <div className="w-full max-w-md">
-        <div className="mb-8 flex items-center justify-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-            <Dumbbell className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <span className="font-display text-2xl font-bold tracking-tight">Dayza</span>
-        </div>
+        <BrandLogo className="mb-8 justify-center" />
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="font-display text-2xl tracking-tight">Reset Password</CardTitle>

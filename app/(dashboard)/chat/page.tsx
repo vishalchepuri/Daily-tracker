@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -18,6 +18,8 @@ declare global {
 export default function ChatPage() {
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -27,18 +29,55 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  useEffect(() => {
-    fetch("/api/chat").then(r => r.json()).then(d => setMessages(d?.messages ?? [])).catch(console.error);
+  const loadSessions = useCallback(async () => {
+    const res = await fetch("/api/chat/sessions");
+    const data = await res.json();
+    const nextSessions = data?.sessions ?? [];
+    setSessions(nextSessions);
+    if (!activeSessionId && nextSessions[0]?.id) setActiveSessionId(nextSessions[0].id);
+    if (activeSessionId && !nextSessions.some((chat: any) => chat.id === activeSessionId)) {
+      setActiveSessionId(nextSessions[0]?.id ?? null);
+      if (!nextSessions[0]?.id) setMessages([]);
+    }
+  }, [activeSessionId]);
+
+  const loadMessages = useCallback(async (sessionId: string | null) => {
+    const url = sessionId ? `/api/chat?sessionId=${encodeURIComponent(sessionId)}` : "/api/chat";
+    fetch(url).then(r => r.json()).then(d => setMessages(d?.messages ?? [])).catch(console.error);
   }, []);
+
+  useEffect(() => { loadSessions().catch(console.error); }, [loadSessions]);
+  useEffect(() => { loadMessages(activeSessionId).catch(console.error); }, [activeSessionId, loadMessages]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: scrollRef.current?.scrollHeight ?? 0, behavior: "smooth" });
   }, [messages]);
 
+  const createChatSession = useCallback(async (title = "New chat") => {
+    const res = await fetch("/api/chat/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    const data = await res.json();
+    if (data?.session?.id) {
+      setSessions((prev) => [data.session, ...(prev ?? [])]);
+      setActiveSessionId(data.session.id);
+      setMessages([]);
+      return data.session.id as string;
+    }
+    return null;
+  }, []);
+
   const handleSend = useCallback(async () => {
     if ((!input?.trim() && !imageDataUrl) || streaming) return;
     const userMsg = input.trim();
     const attachedImage = imageDataUrl;
+    const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat");
+    if (!targetSessionId) {
+      toast.error("Could not start chat");
+      return;
+    }
     setInput("");
     setImageDataUrl(null);
     setMessages(prev => [...(prev ?? []), {
@@ -54,7 +93,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMsg, imageDataUrl: attachedImage }),
+        body: JSON.stringify({ message: userMsg, imageDataUrl: attachedImage, sessionId: targetSessionId }),
       });
 
       if (!res.ok) { setStreaming(false); return; }
@@ -91,7 +130,28 @@ export default function ChatPage() {
       }
     } catch (err) { console.error(err); }
     setStreaming(false);
-  }, [imageDataUrl, input, streaming]);
+    loadSessions().catch(console.error);
+  }, [activeSessionId, createChatSession, imageDataUrl, input, loadSessions, streaming]);
+
+  const startNewChat = useCallback(async () => {
+    await createChatSession("New chat");
+  }, [createChatSession]);
+
+  const deleteChat = useCallback(async (sessionId: string) => {
+    if (!confirm("Delete this chat and its images permanently?")) return;
+    const res = await fetch(`/api/chat/sessions?sessionId=${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+    if (!res.ok) {
+      toast.error("Could not delete chat");
+      return;
+    }
+    const remaining = sessions.filter((item) => item.id !== sessionId);
+    setSessions(remaining);
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(remaining[0]?.id ?? null);
+      setMessages([]);
+    }
+    toast.success("Chat deleted");
+  }, [activeSessionId, sessions]);
 
   const handleImageSelect = useCallback((file?: File) => {
     if (!file) return;
@@ -158,7 +218,7 @@ export default function ChatPage() {
       <FadeIn>
         <div className="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Coach</h2>
+            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
             <p className="text-muted-foreground text-sm mt-1">Ask about fitness, food, spends, reminders, and progress</p>
           </div>
           <Button
@@ -173,6 +233,41 @@ export default function ChatPage() {
           </Button>
         </div>
       </FadeIn>
+
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[19rem_1fr]">
+        <Card className="flex min-h-[10rem] flex-col overflow-hidden">
+          <CardHeader className="border-b border-border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <MessageSquare className="h-4 w-4 text-primary" />
+                Chat History
+              </CardTitle>
+              <Button type="button" size="sm" onClick={startNewChat} disabled={streaming}>
+                <Plus className="mr-1 h-4 w-4" />
+                New
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="min-h-0 flex-1 overflow-y-auto p-2 ios-scroll">
+            {(sessions ?? []).length === 0 ? (
+              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No chats yet. Tap New or send a message to start fresh.</div>
+            ) : (
+              <div className="space-y-1">
+                {sessions.map((chat) => (
+                  <div key={chat.id} className={`group flex items-center gap-2 rounded-lg p-2 ${activeSessionId === chat.id ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
+                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveSessionId(chat.id)} disabled={streaming}>
+                      <p className="truncate text-sm font-semibold">{chat.title || "New chat"}</p>
+                      <p className="truncate text-xs text-muted-foreground">{chat.messages?.[0]?.content || `${chat._count?.messages ?? 0} messages`}</p>
+                    </button>
+                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 opacity-100 lg:opacity-0 lg:group-hover:opacity-100" onClick={() => deleteChat(chat.id)} disabled={streaming}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-3 sm:p-4">
@@ -201,10 +296,10 @@ export default function ChatPage() {
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted"
               }`}>
-                {msg?.imageDataUrl && (
+                {(msg?.imageDataUrl || msg?.attachments?.[0]?.url) && (
                   <img
-                    src={msg.imageDataUrl}
-                    alt="Food preview"
+                    src={msg.imageDataUrl || msg.attachments[0].url}
+                    alt="Chat attachment"
                     className="mb-2 max-h-48 w-full rounded-md object-cover"
                   />
                 )}
@@ -278,6 +373,7 @@ export default function ChatPage() {
           </form>
         </div>
       </Card>
+      </div>
     </div>
   );
 }

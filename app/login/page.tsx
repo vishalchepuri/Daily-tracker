@@ -1,12 +1,13 @@
 "use client";
 import { useState } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Dumbbell, Mail, Lock, Eye, EyeOff } from "lucide-react";
+import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const router = useRouter();
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -38,21 +40,41 @@ export default function LoginPage() {
     }
   };
 
+  const handleGoogleLogin = async () => {
+    setGoogleLoading(true);
+    await signOut({ redirect: false });
+    await signIn(
+      "google",
+      { callbackUrl: "/dashboard" },
+      { prompt: "select_account", scope: "openid email profile" }
+    );
+  };
+
   return (
     <div className="app-viewport flex items-center justify-center overflow-y-auto bg-gradient-to-br from-background via-background to-secondary/20 p-4 ios-scroll">
       <div className="w-full max-w-md">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <div className="w-10 h-10 rounded-lg bg-primary flex items-center justify-center">
-            <Dumbbell className="w-6 h-6 text-primary-foreground" />
-          </div>
-          <span className="text-2xl font-display font-bold tracking-tight">Dayza</span>
-        </div>
+        <BrandLogo className="mb-8 justify-center" />
         <Card>
           <CardHeader className="text-center">
             <CardTitle className="text-2xl font-display tracking-tight">Welcome Back</CardTitle>
             <CardDescription>Sign in to continue your fitness journey</CardDescription>
           </CardHeader>
           <CardContent>
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-4 w-full"
+              onClick={handleGoogleLogin}
+              disabled={googleLoading}
+            >
+              <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>
+              {googleLoading ? "Opening Google..." : "Continue with Google"}
+            </Button>
+            <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs text-muted-foreground">
+              <div className="h-px bg-border" />
+              <span>or sign in with email</span>
+              <div className="h-px bg-border" />
+            </div>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>

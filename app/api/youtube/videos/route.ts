@@ -4,6 +4,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { youtubeFetch } from "@/lib/youtube";
 
+function parseIsoDurationSeconds(duration?: string) {
+  if (!duration) return 0;
+  const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!match) return 0;
+  return (Number(match[1] ?? 0) * 3600) + (Number(match[2] ?? 0) * 60) + Number(match[3] ?? 0);
+}
+
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -14,10 +21,10 @@ export async function GET(req: Request) {
     if (!channelId) return NextResponse.json({ error: "Channel ID required" }, { status: 400 });
     const result = await youtubeFetch(
       userId,
-      `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channelId)}&maxResults=12&order=date&type=video`
+      `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${encodeURIComponent(channelId)}&maxResults=50&order=date&type=video`
     );
     if (!result.ok) return NextResponse.json(result.data, { status: result.status });
-    const videos = (result.data.items ?? []).map((item: any) => ({
+    const searchVideos = (result.data.items ?? []).map((item: any) => ({
       id: item.id?.videoId,
       title: item.snippet?.title,
       description: item.snippet?.description,
@@ -25,6 +32,38 @@ export async function GET(req: Request) {
       thumbnail: item.snippet?.thumbnails?.medium?.url ?? item.snippet?.thumbnails?.default?.url,
       channelTitle: item.snippet?.channelTitle,
     })).filter((video: any) => video.id);
+
+    const ids = searchVideos.map((video: any) => video.id).join(",");
+    const detailsResult = ids
+      ? await youtubeFetch(
+          userId,
+          `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,statistics&id=${encodeURIComponent(ids)}&maxResults=50`
+        )
+      : null;
+    const detailMap = new Map<string, any>();
+    if (detailsResult?.ok) {
+      for (const item of detailsResult.data.items ?? []) {
+        detailMap.set(item.id, item);
+      }
+    }
+
+    const videos = searchVideos
+      .map((video: any) => {
+        const details = detailMap.get(video.id);
+        const durationSeconds = parseIsoDurationSeconds(details?.contentDetails?.duration);
+        const isShort = durationSeconds > 0 && durationSeconds <= 90;
+        return {
+          ...video,
+          durationSeconds,
+          kind: isShort ? "short" : "video",
+          viewCount: details?.statistics?.viewCount ? Number(details.statistics.viewCount) : null,
+        };
+      })
+      .sort((a: any, b: any) => {
+        if (a.kind !== b.kind) return a.kind === "video" ? -1 : 1;
+        return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+      })
+      .slice(0, 24);
     return NextResponse.json({ videos });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed to load videos" }, { status: 500 });

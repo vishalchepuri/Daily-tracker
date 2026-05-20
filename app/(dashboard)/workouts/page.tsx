@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye } from "lucide-react";
+import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -50,6 +50,7 @@ export default function WorkoutsPage() {
   const [activeSet, setActiveSet] = useState({ weight: "", reps: "" });
   const [activeEntries, setActiveEntries] = useState<any[]>([]);
   const [muscleFilter, setMuscleFilter] = useState("all");
+  const [historyRange, setHistoryRange] = useState("30");
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
   const [exerciseDialogOpen, setExerciseDialogOpen] = useState(false);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
@@ -134,6 +135,96 @@ export default function WorkoutsPage() {
     setLogEntries((prev: any[]) =>
       (prev ?? []).map((e: any, i: number) => (i === idx ? { ...(e ?? {}), [field]: value } : e))
     );
+  };
+
+  const pickAlternativeExercise = (exercise: any, usedIds: string[] = []) => {
+    const currentId = exercise?.id;
+    const muscleGroup = exercise?.muscleGroup;
+    const candidates = (exercises ?? []).filter((item: any) =>
+      item?.id &&
+      item.id !== currentId &&
+      item.muscleGroup === muscleGroup &&
+      !usedIds.includes(item.id)
+    );
+    const fallbackCandidates = (exercises ?? []).filter((item: any) =>
+      item?.id &&
+      item.id !== currentId &&
+      item.muscleGroup === muscleGroup
+    );
+    const pool = candidates.length > 0 ? candidates : fallbackCandidates;
+    if (pool.length === 0) return null;
+    return pool[Math.floor(Math.random() * pool.length)];
+  };
+
+  const shuffleProgramExercise = async (template: any, workoutExercise: any) => {
+    const usedIds = (template?.exercises ?? [])
+      .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
+      .filter(Boolean);
+    const replacement = pickAlternativeExercise(workoutExercise?.exercise, usedIds);
+    if (!replacement) {
+      toast.error(`No alternate ${workoutExercise?.exercise?.muscleGroup ?? ""} exercise found`);
+      return;
+    }
+
+    const nextExercises = (template?.exercises ?? []).map((item: any) => ({
+      exerciseId: item?.id === workoutExercise?.id ? replacement.id : item?.exercise?.id ?? item?.exerciseId,
+      sets: item?.sets ?? 3,
+      reps: item?.reps ?? "8-12",
+      restSeconds: item?.restSeconds ?? 90,
+    }));
+
+    try {
+      const res = await fetch("/api/workout-templates", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: template.id,
+          name: template.name,
+          description: template.description,
+          dayOfWeek: template.dayOfWeek,
+          muscleGroups: template.muscleGroups,
+          difficulty: template.difficulty,
+          exercises: nextExercises,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to shuffle exercise");
+        return;
+      }
+      toast.success(`Replaced with ${replacement.name}`);
+      loadData();
+    } catch {
+      toast.error("Failed to shuffle exercise");
+    }
+  };
+
+  const shuffleActiveExercise = () => {
+    if (!currentExercise?.exercise) return;
+    if (currentExerciseSets.length > 0 && !window.confirm("You already logged sets for this exercise. Swap only the next sets to a different exercise?")) return;
+
+    const usedIds = (activeExercises ?? [])
+      .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
+      .filter(Boolean);
+    const replacement = pickAlternativeExercise(currentExercise.exercise, usedIds);
+    if (!replacement) {
+      toast.error(`No alternate ${currentExercise.exercise.muscleGroup} exercise found`);
+      return;
+    }
+
+    setActiveWorkout((prev: any) => ({
+      ...prev,
+      exercises: (prev?.exercises ?? []).map((item: any, index: number) => (
+        index === activeExerciseIndex
+          ? { ...item, exerciseId: replacement.id, exercise: replacement }
+          : item
+      )),
+    }));
+    setActiveSet({
+      reps: String(parseInt((currentExercise?.reps ?? "10").split("-")?.[0] ?? "10")),
+      weight: "",
+    });
+    toast.success(`Swapped to ${replacement.name}`);
   };
 
   const handleLogWorkout = async () => {
@@ -428,6 +519,53 @@ export default function WorkoutsPage() {
     }, []);
   };
   const selectedHistoryGroups = groupExerciseLogs(selectedHistoryLog?.exerciseLogs ?? []);
+  const filteredWorkoutLogs = useMemo(() => {
+    if (historyRange === "all") return workoutLogs ?? [];
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - Number(historyRange));
+    return (workoutLogs ?? []).filter((log: any) => new Date(log?.date ?? Date.now()) >= cutoff);
+  }, [historyRange, workoutLogs]);
+  const workoutStats = useMemo(() => {
+    const logs = filteredWorkoutLogs ?? [];
+    const totalSets = logs.reduce((sum: number, log: any) => sum + (log?.exerciseLogs ?? []).length, 0);
+    const totalVolume = logs.reduce((sum: number, log: any) => (
+      sum + (log?.exerciseLogs ?? []).reduce((inner: number, entry: any) => inner + ((entry?.weight ?? 0) * (entry?.reps ?? 0)), 0)
+    ), 0);
+    const totalMinutes = logs.reduce((sum: number, log: any) => sum + (log?.duration ?? 0), 0);
+    const prMap = new Map<string, any>();
+    for (const log of logs) {
+      for (const entry of log?.exerciseLogs ?? []) {
+        const current = prMap.get(entry.exerciseId);
+        const volume = (entry?.weight ?? 0) * (entry?.reps ?? 0);
+        if (!current || (entry?.weight ?? 0) > current.weight || ((entry?.weight ?? 0) === current.weight && volume > current.volume)) {
+          prMap.set(entry.exerciseId, {
+            exerciseName: entry?.exercise?.name ?? "Exercise",
+            weight: entry?.weight ?? 0,
+            reps: entry?.reps ?? 0,
+            volume,
+            date: log?.date,
+          });
+        }
+      }
+    }
+    const topPrs = Array.from(prMap.values()).sort((a, b) => b.weight - a.weight).slice(0, 4);
+    return { totalWorkouts: logs.length, totalSets, totalVolume, totalMinutes, topPrs };
+  }, [filteredWorkoutLogs]);
+
+  const repeatWorkout = (log: any) => {
+    const entries = (log?.exerciseLogs ?? []).map((entry: any) => ({
+      exerciseId: entry.exerciseId,
+      exerciseName: entry?.exercise?.name ?? "Exercise",
+      setNumber: entry.setNumber,
+      reps: entry.reps,
+      weight: entry.weight,
+    }));
+    setSelectedTemplate({ name: `${log?.templateName ?? "Workout"} repeat` });
+    setLogEntries(entries);
+    setDuration(log?.duration ? String(log.duration) : "");
+    setNotes("");
+    setLogDialogOpen(true);
+  };
 
   if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}</div>;
 
@@ -483,7 +621,12 @@ export default function WorkoutsPage() {
                       Target: {currentExercise?.sets ?? 3} sets x {currentExercise?.reps ?? "8-12"} reps
                     </p>
                   </div>
-                  <Badge variant="secondary">{currentExerciseSets.length} logged</Badge>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button type="button" variant="outline" size="icon" onClick={shuffleActiveExercise} title="Shuffle this exercise">
+                      <Shuffle className="h-4 w-4" />
+                    </Button>
+                    <Badge variant="secondary">{currentExerciseSets.length} logged</Badge>
+                  </div>
                 </div>
 
                 <div className="mt-4 rounded-md border border-border bg-muted/30 p-3">
@@ -583,6 +726,39 @@ export default function WorkoutsPage() {
         </FadeIn>
       )}
 
+      <FadeIn delay={0.05}>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <WorkoutStatCard icon={Dumbbell} title="Workouts" value={workoutStats.totalWorkouts} detail={historyRange === "all" ? "all time" : `last ${historyRange} days`} />
+          <WorkoutStatCard icon={CheckCircle2} title="Sets" value={workoutStats.totalSets} detail="logged sets" />
+          <WorkoutStatCard icon={BarChart3} title="Volume" value={`${Math.round(workoutStats.totalVolume)} kg`} detail="weight x reps" />
+          <WorkoutStatCard icon={Clock} title="Time" value={`${workoutStats.totalMinutes} min`} detail="training time" />
+        </div>
+      </FadeIn>
+
+      {workoutStats.topPrs.length > 0 && (
+        <FadeIn delay={0.08}>
+          <Card className="border-primary/30 bg-primary/5">
+            <CardHeader className="pb-2">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Trophy className="h-5 w-5 text-primary" />
+                Personal Records
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {workoutStats.topPrs.map((record: any) => (
+                <div key={record.exerciseName} className="rounded-lg border border-primary/20 bg-background/70 p-3">
+                  <p className="truncate text-sm font-semibold">{record.exerciseName}</p>
+                  <p className="mt-1 font-mono text-lg font-bold">{record.weight}kg x {record.reps}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(record.date ?? Date.now()).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  </p>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       <Tabs defaultValue="programs" className="space-y-4">
         <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
           <TabsTrigger value="programs" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Programs</TabsTrigger>
@@ -614,7 +790,10 @@ export default function WorkoutsPage() {
                   <CardContent>
                     <div className="space-y-1 mb-4">
                       {(t?.exercises ?? []).map((we: any) => (
-                        <div key={we?.id} className="grid grid-cols-[1fr_auto] gap-3 py-1 text-sm">
+                        <div key={we?.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-1 text-sm">
+                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => shuffleProgramExercise(t, we)} title="Shuffle exercise">
+                            <Shuffle className="h-3.5 w-3.5" />
+                          </Button>
                           <span className="min-w-0 break-words">{we?.exercise?.name}</span>
                           <span className="text-muted-foreground font-mono">{we?.sets} × {we?.reps}</span>
                         </div>
@@ -694,14 +873,32 @@ export default function WorkoutsPage() {
         </TabsContent>
 
         <TabsContent value="history" className="space-y-4">
-          {(workoutLogs ?? [])?.length === 0 ? (
+          <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Workout History</h3>
+              <p className="text-sm text-muted-foreground">Filter, review, repeat, or delete completed sessions.</p>
+            </div>
+            <Select value={historyRange} onValueChange={setHistoryRange}>
+              <SelectTrigger className="w-full sm:w-44">
+                <CalendarDays className="mr-2 h-4 w-4" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7">Last 7 days</SelectItem>
+                <SelectItem value="30">Last 30 days</SelectItem>
+                <SelectItem value="90">Last 90 days</SelectItem>
+                <SelectItem value="all">All time</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {(filteredWorkoutLogs ?? [])?.length === 0 ? (
             <div className="text-center py-12">
               <Dumbbell className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-muted-foreground">No workouts logged yet</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {(workoutLogs ?? []).map((log: any) => (
+              {(filteredWorkoutLogs ?? []).map((log: any) => (
                 <Card key={log?.id} className="overflow-hidden">
                   <CardContent className="space-y-4 p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -731,10 +928,13 @@ export default function WorkoutsPage() {
                         <p className="text-xs text-muted-foreground">Volume</p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-[1fr_auto] gap-2">
+                    <div className="grid grid-cols-[1fr_auto_auto] gap-2">
                       <Button type="button" variant="outline" className="w-full" onClick={() => setSelectedHistoryLog(log)}>
                         <Eye className="mr-2 h-4 w-4" />
                         View Workout
+                      </Button>
+                      <Button type="button" variant="outline" size="icon" onClick={() => repeatWorkout(log)} title="Repeat workout">
+                        <RotateCcw className="h-4 w-4" />
                       </Button>
                       <Button type="button" variant="outline" size="icon" onClick={() => deleteWorkoutLog(log)} title="Delete workout history">
                         <Trash2 className="h-4 w-4 text-destructive" />
@@ -804,6 +1004,10 @@ export default function WorkoutsPage() {
               <Button type="button" variant="outline" className="w-full hover:text-destructive" onClick={() => deleteWorkoutLog(selectedHistoryLog)}>
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete This Workout
+              </Button>
+              <Button type="button" className="w-full" onClick={() => repeatWorkout(selectedHistoryLog)}>
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Repeat This Workout
               </Button>
             </div>
           )}
@@ -1004,5 +1208,22 @@ export default function WorkoutsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function WorkoutStatCard({ icon: Icon, title, value, detail }: any) {
+  return (
+    <Card>
+      <CardContent className="p-3 sm:p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+            <Icon className="h-5 w-5 text-primary" />
+          </div>
+          <p className="text-sm font-medium">{title}</p>
+        </div>
+        <p className="break-words font-display text-2xl font-bold">{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
+      </CardContent>
+    </Card>
   );
 }

@@ -7,6 +7,7 @@ import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar } from "lu
 import { FadeIn, SlideIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { IssueReportForm } from "@/components/issue-report-form";
 
 interface DashboardData {
   profile: any;
@@ -258,6 +259,10 @@ export default function DashboardPage() {
           </Card>
         </FadeIn>
       </div>
+
+      <FadeIn delay={0.5}>
+        <IssueReportForm compact defaultPage="Dashboard" />
+      </FadeIn>
     </div>
   );
 }

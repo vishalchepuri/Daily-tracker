@@ -128,7 +128,7 @@ export async function processTelegramText(chatId: string, text: string) {
     });
     response = `Created reminder: ${title}.`;
   } else if (lower.includes("food") || lower.includes("ate") || lower.includes("meal")) {
-    response = "For Telegram food logging, use a saved diet meal like: log my diet breakfast. Manual calorie estimation still works best inside AI Coach.";
+    response = "For Telegram food logging, use a saved diet meal like: log my diet breakfast. Manual calorie estimation still works best inside Dayza Agent.";
   } else {
     response = "I can log water, weight, reminders, and saved diet meals from Telegram. Try: log 500ml water, log weight 78kg, remind me to drink water at 6pm, or log my diet breakfast.";
   }
