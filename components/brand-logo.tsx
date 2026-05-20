@@ -19,24 +19,19 @@ export function BrandLogo({ size = "md", showText = true, className }: BrandLogo
     <div className={cn("flex items-center gap-2.5", className)}>
       <div
         className={cn(
-          "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#06101d] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14),0_10px_30px_rgba(34,197,94,0.22)]",
+          "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#06101d] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14),0_10px_30px_rgba(34,197,94,0.2)]",
           currentSize.mark
         )}
         aria-hidden="true"
       >
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_28%_18%,rgba(52,211,153,0.95),transparent_22%),linear-gradient(145deg,#0f172a_0%,#064e3b_52%,#22c55e_100%)]" />
-        <div className="absolute inset-[3px] rounded-[11px] bg-[#06101d]/78" />
-        <svg viewBox="0 0 64 64" className="relative h-[78%] w-[78%]" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M14 42c8.8 8 27.2 8 36 0" stroke="#22c55e" strokeWidth="3.8" strokeLinecap="round" />
-          <path d="M17 23c6.5-9 23.5-9 30 0" stroke="#86efac" strokeWidth="3.8" strokeLinecap="round" />
-          <path d="M18 30c0-7.7 6.3-14 14-14s14 6.3 14 14v10c0 7.7-6.3 14-14 14s-14-6.3-14-14V30Z" fill="#071424" stroke="white" strokeWidth="4.4" strokeLinejoin="round" />
-          <path d="M24 34c3.8-2.8 12.2-2.8 16 0" stroke="#22c55e" strokeWidth="5.2" strokeLinecap="round" />
-          <circle cx="25.5" cy="34" r="1.9" fill="#ecfeff" />
-          <circle cx="38.5" cy="34" r="1.9" fill="#ecfeff" />
-          <path d="M28 43h8" stroke="#86efac" strokeWidth="3.5" strokeLinecap="round" />
-          <circle cx="13" cy="26" r="3.5" fill="#22c55e" />
-          <circle cx="51" cy="26" r="3.5" fill="#22c55e" />
-          <path d="M50 11l1.9 4.1 4.1 1.9-4.1 1.9L50 24l-1.9-4.1L44 18l4.1-1.9L50 11Z" fill="#a7f3d0" />
+        <div className="absolute inset-0 bg-[linear-gradient(145deg,#052e2b_0%,#047857_48%,#22c55e_100%)]" />
+        <div className="absolute inset-[3px] rounded-[11px] bg-[#020817]/18" />
+        <svg viewBox="0 0 64 64" className="relative h-[72%] w-[72%]" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M32 7l5.4 15.6L53 28l-15.6 5.4L32 49l-5.4-15.6L11 28l15.6-5.4L32 7Z" fill="#F8FAFC" />
+          <path d="M32 17l2.9 8.1L43 28l-8.1 2.9L32 39l-2.9-8.1L21 28l8.1-2.9L32 17Z" fill="#22C55E" />
+          <circle cx="15" cy="47" r="4" fill="#BBF7D0" />
+          <circle cx="49" cy="17" r="3.2" fill="#BBF7D0" />
+          <path d="M20 45c8.3 4.8 17.7 4.8 26 0" stroke="#DCFCE7" strokeWidth="4" strokeLinecap="round" />
         </svg>
       </div>
       {showText && <span className={cn("font-display font-bold tracking-tight", currentSize.text)}>Dayza</span>}
