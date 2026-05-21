@@ -40,6 +40,24 @@ function normalizeExercises(exercises: any[] = []) {
     }));
 }
 
+function normalizeRoutineItems(items: any[] = []) {
+  return items
+    .map((item) => {
+      if (typeof item === "string") return { name: item.trim(), duration: "", notes: "" };
+      return {
+        name: String(item?.name ?? "").trim(),
+        duration: String(item?.duration ?? item?.time ?? "").trim(),
+        notes: String(item?.notes ?? item?.description ?? "").trim(),
+      };
+    })
+    .filter((item) => item.name);
+}
+
+function routineJson(items: any[] = []) {
+  const normalized = normalizeRoutineItems(items);
+  return normalized.length ? JSON.stringify(normalized) : null;
+}
+
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
@@ -67,6 +85,8 @@ export async function POST(req: Request) {
         dayOfWeek: data.dayOfWeek || null,
         muscleGroups: data.muscleGroups || null,
         difficulty: data.difficulty || "intermediate",
+        warmupJson: routineJson(data.warmups ?? data.warmup),
+        stretchesJson: routineJson(data.stretches ?? data.cooldown ?? data.cooldowns),
         exercises: { create: normalizeExercises(data.exercises) },
       },
       include: { exercises: { include: { exercise: true }, orderBy: { orderIndex: "asc" } } },
@@ -98,6 +118,8 @@ export async function PATCH(req: Request) {
         dayOfWeek: data.dayOfWeek || null,
         muscleGroups: data.muscleGroups || null,
         difficulty: data.difficulty || "intermediate",
+        warmupJson: routineJson(data.warmups ?? data.warmup),
+        stretchesJson: routineJson(data.stretches ?? data.cooldown ?? data.cooldowns),
         exercises: {
           deleteMany: {},
           create: normalizeExercises(data.exercises),

@@ -148,6 +148,16 @@ type AgentAction =
       dayOfWeek?: string;
       muscleGroups?: string;
       difficulty?: string;
+      warmups?: Array<{
+        name: string;
+        duration?: string;
+        notes?: string;
+      }>;
+      stretches?: Array<{
+        name: string;
+        duration?: string;
+        notes?: string;
+      }>;
       exercises?: Array<{
         exerciseId?: string;
         exerciseName?: string;
@@ -221,6 +231,24 @@ function extractJson(text: string) {
 function toNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeRoutineItems(items: any[] = []) {
+  return items
+    .map((item) => {
+      if (typeof item === "string") return { name: item.trim(), duration: "", notes: "" };
+      return {
+        name: String(item?.name ?? "").trim(),
+        duration: String(item?.duration ?? item?.time ?? "").trim(),
+        notes: String(item?.notes ?? item?.description ?? "").trim(),
+      };
+    })
+    .filter((item) => item.name);
+}
+
+function routineJson(items: any[] = []) {
+  const normalized = normalizeRoutineItems(items);
+  return normalized.length ? JSON.stringify(normalized) : null;
 }
 
 function isDataImageUrl(value: unknown): value is string {
@@ -730,6 +758,8 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
         dayOfWeek: action.dayOfWeek || null,
         muscleGroups: action.muscleGroups || null,
         difficulty: action.difficulty || "intermediate",
+        warmupJson: routineJson(action.warmups),
+        stretchesJson: routineJson(action.stretches),
         exercises: { create: exerciseRows },
       },
     });
@@ -1016,7 +1046,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
 - update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight after they answer timeline questions.
-- create_workout_template: create a workout day after the user confirms a draft plan. You may use exerciseName for missing exercises; the app will create them first.
+- create_workout_template: create a workout day after the user confirms a draft plan. You may use exerciseName for missing exercises; the app will create them first. Include warmups and stretches for every workout day.
 - remove_exercise_from_template: remove an exercise from an existing workout day/template.
 - add_exercise_to_template: add an exercise to an existing workout day/template. You may use exerciseName for missing exercises.
 - delete_workout_template: delete a complete workout day/program when the user clearly asks to delete/remove that program/day.
@@ -1055,6 +1085,12 @@ Rules:
   6. Draft only a short weekly split with the realistic timeline and ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
   7. If they request changes, update the draft and ask for confirmation again.
   8. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
+- Warm-up and stretch rules for workout plans:
+  - Every saved workout template must include warmups and stretches.
+  - Warmups should usually include 5-10 minutes of light cardio plus dynamic mobility for that day's joints/muscles.
+  - Stretches/cooldown should usually include 3-5 minutes easy cooldown plus 30-45 seconds pain-free stretching for the trained muscles.
+  - If the user has joint pain or injury limitations, make warmups specific and gentle, and do not prescribe painful stretches.
+  - Do not count warmups or stretches as the required 2 strength exercises per muscle; they are separate prep/recovery items.
 - Exercise selection rules for workout plans:
   - When drafting a plan with exercises, include at least 2 exercises for each muscle/focus listed on that day.
   - Keep exercises simple, effective, and easy to perform with common gym equipment.
@@ -1163,7 +1199,7 @@ Available action examples:
 {"type":"update_wellness_targets","targetSleepMinutes":452,"targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
 {"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User wants visible muscle gain in 8 weeks."}
-{"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
+{"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","warmups":[{"name":"Light cardio","duration":"5-7 min","notes":"Easy treadmill, bike, or cross-trainer"},{"name":"Shoulder and elbow mobility","duration":"3-5 min","notes":"Arm circles, band pull-aparts, light pushdowns"}],"stretches":[{"name":"Chest doorway stretch","duration":"30-45 sec each side","notes":"Pain-free range only"},{"name":"Triceps and shoulder stretch","duration":"30 sec each","notes":"No elbow pinching"}],"exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
 {"type":"remove_exercise_from_template","templateName":"Monday - Chest","exerciseName":"Skull Crushers"}
 {"type":"add_exercise_to_template","templateName":"Monday - Chest","exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}
 {"type":"delete_workout_template","templateName":"Monday - Chest"}

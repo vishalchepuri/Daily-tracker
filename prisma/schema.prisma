@@ -159,6 +159,8 @@ model WorkoutTemplate {
   dayOfWeek     String?  // Monday, Tuesday, etc
   muscleGroups  String?  // comma-separated
   difficulty    String?  // beginner, intermediate, advanced
+  warmupJson     String?  // JSON array of warm-up items
+  stretchesJson  String?  // JSON array of cooldown/stretch items
   exercises     WorkoutExercise[]
   createdAt     DateTime @default(now())
   @@index([userId])

@@ -13,6 +13,12 @@ import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, Ch
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
+type RoutineItem = {
+  name: string;
+  duration?: string;
+  notes?: string;
+};
+
 const blankExerciseForm = {
   id: "",
   name: "",
@@ -30,8 +36,33 @@ const blankTemplateForm = {
   dayOfWeek: "Monday",
   muscleGroups: "",
   difficulty: "intermediate",
+  warmups: [
+    { name: "Light cardio", duration: "5 min", notes: "Bike, treadmill, or brisk walk" },
+    { name: "Dynamic mobility", duration: "3-5 min", notes: "Move the joints used in today's workout" },
+  ] as RoutineItem[],
+  stretches: [
+    { name: "Easy cooldown walk", duration: "3-5 min", notes: "Bring heart rate down gradually" },
+    { name: "Target muscle stretch", duration: "30-45 sec each", notes: "Pain-free stretch for trained muscles" },
+  ] as RoutineItem[],
   exercises: [] as any[],
 };
+
+function parseRoutineItems(value?: string | null): RoutineItem[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => ({
+        name: String(item?.name ?? "").trim(),
+        duration: String(item?.duration ?? "").trim(),
+        notes: String(item?.notes ?? "").trim(),
+      }))
+      .filter((item) => item.name);
+  } catch {
+    return [];
+  }
+}
 
 export default function WorkoutsPage() {
   const [templates, setTemplates] = useState<any[]>([]);
@@ -397,6 +428,8 @@ export default function WorkoutsPage() {
       dayOfWeek: template.dayOfWeek ?? "Monday",
       muscleGroups: template.muscleGroups ?? "",
       difficulty: template.difficulty ?? "intermediate",
+      warmups: parseRoutineItems(template.warmupJson),
+      stretches: parseRoutineItems(template.stretchesJson),
       exercises: (template.exercises ?? []).map((item: any) => ({
         exerciseId: item.exerciseId ?? item.exercise?.id ?? "",
         sets: item.sets ?? 3,
@@ -425,6 +458,27 @@ export default function WorkoutsPage() {
     setTemplateForm((prev: any) => ({
       ...prev,
       exercises: (prev.exercises ?? []).filter((_: any, i: number) => i !== index),
+    }));
+  };
+
+  const addRoutineItem = (field: "warmups" | "stretches") => {
+    setTemplateForm((prev: any) => ({
+      ...prev,
+      [field]: [...(prev[field] ?? []), { name: "", duration: "", notes: "" }],
+    }));
+  };
+
+  const updateRoutineItem = (field: "warmups" | "stretches", index: number, key: keyof RoutineItem, value: string) => {
+    setTemplateForm((prev: any) => ({
+      ...prev,
+      [field]: (prev[field] ?? []).map((item: RoutineItem, i: number) => i === index ? { ...item, [key]: value } : item),
+    }));
+  };
+
+  const removeRoutineItem = (field: "warmups" | "stretches", index: number) => {
+    setTemplateForm((prev: any) => ({
+      ...prev,
+      [field]: (prev[field] ?? []).filter((_: RoutineItem, i: number) => i !== index),
     }));
   };
 
@@ -612,6 +666,12 @@ export default function WorkoutsPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
+              <RoutineChecklist
+                title="Warm up first"
+                items={parseRoutineItems(activeWorkout.warmupJson)}
+                empty="Start with 5-10 minutes of light cardio and dynamic mobility."
+              />
+
               <div className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -717,6 +777,12 @@ export default function WorkoutsPage() {
                 />
               </div>
 
+              <RoutineChecklist
+                title="Finish with stretches"
+                items={parseRoutineItems(activeWorkout.stretchesJson)}
+                empty="Cool down, then stretch the trained muscles pain-free for 30-45 seconds each."
+              />
+
               <Button type="button" onClick={finishActiveWorkout} className="w-full" disabled={activeEntries.length === 0}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Finish Workout ({duration || elapsedMinutes} min)
@@ -788,6 +854,10 @@ export default function WorkoutsPage() {
                     {t?.dayOfWeek && <Badge variant="outline" className="w-fit">{t.dayOfWeek}</Badge>}
                   </CardHeader>
                   <CardContent>
+                    <div className="mb-4 grid gap-2 sm:grid-cols-2">
+                      <RoutinePreview title="Warm-up" items={parseRoutineItems(t?.warmupJson)} fallback="5-10 min light cardio + mobility" />
+                      <RoutinePreview title="Stretches" items={parseRoutineItems(t?.stretchesJson)} fallback="Cooldown + target muscle stretches" />
+                    </div>
                     <div className="space-y-1 mb-4">
                       {(t?.exercises ?? []).map((we: any) => (
                         <div key={we?.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-1 text-sm">
@@ -1105,6 +1175,24 @@ export default function WorkoutsPage() {
               <Textarea value={templateForm.description} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setTemplateForm({ ...templateForm, description: e.target.value })} className="mt-1" placeholder="Training focus for this day" />
             </div>
 
+            <RoutineEditor
+              title="Warm-up"
+              description="Add 1-3 prep items before lifting."
+              items={templateForm.warmups ?? []}
+              onAdd={() => addRoutineItem("warmups")}
+              onUpdate={(index, key, value) => updateRoutineItem("warmups", index, key, value)}
+              onRemove={(index) => removeRoutineItem("warmups", index)}
+            />
+
+            <RoutineEditor
+              title="Stretches / Cooldown"
+              description="Add recovery work after the workout."
+              items={templateForm.stretches ?? []}
+              onAdd={() => addRoutineItem("stretches")}
+              onUpdate={(index, key, value) => updateRoutineItem("stretches", index, key, value)}
+              onRemove={(index) => removeRoutineItem("stretches", index)}
+            />
+
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Exercises</Label>
@@ -1207,6 +1295,98 @@ export default function WorkoutsPage() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function RoutinePreview({ title, items, fallback }: { title: string; items: RoutineItem[]; fallback: string }) {
+  const displayItems = items.length ? items.slice(0, 2) : [{ name: fallback, duration: "", notes: "" }];
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3">
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+      <div className="space-y-1">
+        {displayItems.map((item, index) => (
+          <p key={`${item.name}-${index}`} className="truncate text-xs">
+            {item.name}{item.duration ? <span className="text-muted-foreground"> - {item.duration}</span> : null}
+          </p>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoutineChecklist({ title, items, empty }: { title: string; items: RoutineItem[]; empty: string }) {
+  const displayItems = items.length ? items : [{ name: empty, duration: "", notes: "" }];
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <p className="mb-3 flex items-center gap-2 font-semibold">
+        <CheckCircle2 className="h-4 w-4 text-primary" />
+        {title}
+      </p>
+      <div className="space-y-2">
+        {displayItems.map((item, index) => (
+          <div key={`${item.name}-${index}`} className="rounded-md bg-muted/40 px-3 py-2 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-medium">{item.name}</span>
+              {item.duration && <Badge variant="outline">{item.duration}</Badge>}
+            </div>
+            {item.notes && <p className="mt-1 text-xs text-muted-foreground">{item.notes}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function RoutineEditor({
+  title,
+  description,
+  items,
+  onAdd,
+  onUpdate,
+  onRemove,
+}: {
+  title: string;
+  description: string;
+  items: RoutineItem[];
+  onAdd: () => void;
+  onUpdate: (index: number, key: keyof RoutineItem, value: string) => void;
+  onRemove: (index: number) => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label>{title}</Label>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        <Button type="button" size="sm" variant="outline" onClick={onAdd}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add
+        </Button>
+      </div>
+      {(items ?? []).length === 0 && (
+        <div className="rounded-lg border border-dashed border-border p-3 text-center text-sm text-muted-foreground">No items added.</div>
+      )}
+      {(items ?? []).map((item, index) => (
+        <div key={index} className="grid gap-2 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_8rem_2rem] sm:items-end">
+          <div>
+            <Label className="text-xs">Name</Label>
+            <Input value={item.name} onChange={(event) => onUpdate(index, "name", event.target.value)} className="mt-1" placeholder="Light cardio" />
+          </div>
+          <div>
+            <Label className="text-xs">Time</Label>
+            <Input value={item.duration ?? ""} onChange={(event) => onUpdate(index, "duration", event.target.value)} className="mt-1" placeholder="5 min" />
+          </div>
+          <Button type="button" variant="ghost" size="icon" onClick={() => onRemove(index)} title="Remove item">
+            <Trash2 className="h-4 w-4" />
+          </Button>
+          <div className="sm:col-span-3">
+            <Label className="text-xs">Notes</Label>
+            <Input value={item.notes ?? ""} onChange={(event) => onUpdate(index, "notes", event.target.value)} className="mt-1" placeholder="Optional cue or instruction" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
