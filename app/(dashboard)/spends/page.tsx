@@ -627,7 +627,7 @@ export default function SpendsPage() {
         toast.error(data?.error ?? "Gmail import failed");
         return;
       }
-      toast.success(`Imported ${data.summary.imported} spends from ${data.summary.scanned} emails`);
+      toast.success(`Imported ${data.summary.imported} spends. Scanned ${data.summary.scanned} emails, read ${data.summary.fullReads}.`);
       loadData();
     } catch {
       toast.error("Gmail import failed");

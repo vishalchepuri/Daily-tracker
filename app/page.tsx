@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
-import { Dumbbell, MessageSquare, Pill, ShieldCheck, Utensils, WalletCards, Youtube } from "lucide-react";
+import { Bot, Clock, Dumbbell, Mail, MessageSquare, Pill, ShieldCheck, Sparkles, Utensils, WalletCards, Youtube } from "lucide-react";
 import { authOptions } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -52,6 +52,11 @@ export default async function Home() {
               <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy Policy</Link>
               <Link href="/terms" className="hover:text-foreground hover:underline">Terms of Service</Link>
             </div>
+            <div className="grid max-w-2xl gap-3 pt-2 sm:grid-cols-3">
+              <MiniStat label="Private by default" value="User-specific records" />
+              <MiniStat label="Manual imports" value="You choose when" />
+              <MiniStat label="Agent help" value="Across daily logs" />
+            </div>
           </div>
 
           <div className="grid gap-3">
@@ -66,14 +71,36 @@ export default async function Home() {
 
         <div className="grid gap-4 pb-12 md:grid-cols-3">
           <InfoCard title="How Google access is used">
-            Google sign-in identifies your account. YouTube read-only access is used to show your subscriptions and recent videos for summaries. Gmail read-only access is used only when you choose to import receipt-like emails into Spends.
+            Google sign-in identifies your account. YouTube read-only access is used to show your subscriptions and recent videos for summaries. Gmail read-only access is used only when you manually run receipt import from Spends.
           </InfoCard>
           <InfoCard title="You stay in control">
-            Dayza does not upload, edit, delete, or manage YouTube content. It does not send, delete, or modify Gmail messages. You can revoke Google access from your Google Account at any time.
+            Dayza does not upload, edit, delete, or manage YouTube content. It does not send, delete, or modify Gmail messages. Gmail import scans up to 40 recent candidate emails per run and ignores duplicates.
           </InfoCard>
           <InfoCard title="Privacy-minded by design">
             Public policy pages explain what is collected, why it is used, how AI processing works, and how account deletion works.
           </InfoCard>
+        </div>
+
+        <div className="grid gap-4 pb-12 lg:grid-cols-[0.9fr_1.1fr]">
+          <Card>
+            <CardContent className="space-y-4 p-6">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-display text-2xl font-bold tracking-tight">What Dayza is built for</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Dayza is a personal command center for the small things people track every day: training, meals, medicine, reminders, money, progress, and learning. The goal is not just storing logs, but turning those logs into useful next steps.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DetailCard icon={Bot} title="Dayza Agent" text="Ask questions, upload screenshots, create workout and diet plans, and let the agent update logs only when you clearly ask." />
+            <DetailCard icon={Mail} title="Gmail spend import" text="Receipt-like emails are filtered by subject and snippet first. Full email content is fetched only for likely spend candidates." />
+            <DetailCard icon={Clock} title="Short retention images" text="Dayza Agent chat images can be stored temporarily and removed after the retention window." />
+            <DetailCard icon={ShieldCheck} title="Account deletion" text="Deleting an account removes user-owned records such as chats, workouts, spends, reminders, medications, and logs." />
+          </div>
         </div>
 
         <div className="pb-12">
@@ -81,6 +108,15 @@ export default async function Home() {
         </div>
       </section>
     </main>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-border bg-card/60 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-semibold">{value}</p>
+    </div>
   );
 }
 
@@ -109,6 +145,20 @@ function InfoCard({ title, children }: { title: string; children: React.ReactNod
         </div>
         <h2 className="font-semibold">{title}</h2>
         <p className="mt-2 text-sm leading-6 text-muted-foreground">{children}</p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function DetailCard({ icon: Icon, title, text }: { icon: any; title: string; text: string }) {
+  return (
+    <Card>
+      <CardContent className="p-5">
+        <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Icon className="h-4 w-4" />
+        </div>
+        <h2 className="font-semibold">{title}</h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{text}</p>
       </CardContent>
     </Card>
   );
