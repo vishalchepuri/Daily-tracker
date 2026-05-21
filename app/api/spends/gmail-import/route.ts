@@ -10,6 +10,7 @@ const MAX_EMAILS_PER_RUN = 40;
 const receiptQuery = 'newer_than:90d (receipt OR invoice OR "order total" OR payment OR paid OR purchase OR debited OR credited OR transaction)';
 const candidatePattern =
   /(receipt|invoice|order|payment|paid|purchase|transaction|debited|credited|spent|charged|upi|card|statement|rs\.?|inr|₹|\$)/i;
+const STORE_GMAIL_METADATA = process.env.STORE_GMAIL_METADATA === "true";
 
 function decodeBase64Url(value?: string) {
   if (!value) return "";
@@ -19,6 +20,16 @@ function decodeBase64Url(value?: string) {
 
 function findHeader(headers: any[] = [], name: string) {
   return headers.find((header) => header.name?.toLowerCase?.() === name.toLowerCase())?.value ?? "";
+}
+
+function sanitizeMerchant(value: string) {
+  return value
+    .replace(/<[^>]+>/g, "")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "")
+    .replace(/\b\d{10,}\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
 }
 
 function bodyText(payload: any): string {
@@ -82,11 +93,10 @@ function parseSpend(text: string, subject: string) {
       : currencySymbol === "£"
         ? "GBP"
         : "USD";
-  const merchant = subject
+  const merchant = sanitizeMerchant(subject
     .replace(/receipt|invoice|payment|paid|order|purchase|confirmation|transaction|debited|credited/gi, "")
     .replace(/[:#|].*$/, "")
-    .trim()
-    .slice(0, 80) || "Gmail Receipt";
+  ) || "Gmail Receipt";
 
   return { merchant, amount, currency };
 }
@@ -153,8 +163,8 @@ export async function POST() {
       if (!metadataRes.ok) continue;
 
       const metadata = await metadataRes.json();
-      const subject = findHeader(metadata.payload?.headers, "subject");
-      const from = findHeader(metadata.payload?.headers, "from");
+      const subject = findHeader(metadata.payload?.headers, "subject").slice(0, 200);
+      const from = findHeader(metadata.payload?.headers, "from").slice(0, 200);
       const quickText = `${subject}\n${from}\n${metadata.snippet ?? ""}`;
       if (!candidatePattern.test(quickText)) {
         filteredOut += 1;
@@ -180,10 +190,10 @@ export async function POST() {
           currency: parsed.currency,
           category: "Imported",
           source: "gmail",
-          emailSubject: subject,
-          emailFrom: from,
+          emailSubject: STORE_GMAIL_METADATA ? subject : null,
+          emailFrom: STORE_GMAIL_METADATA ? from : null,
           gmailMessageId: message.id,
-          notes: "Imported from Gmail receipt scan. Metadata was filtered before full email read.",
+          notes: "Imported from Gmail. Raw email content was not stored.",
           date: new Date(Number(msg.internalDate ?? Date.now())),
         },
       });
