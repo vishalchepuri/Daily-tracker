@@ -406,7 +406,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           </h1>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto ios-scroll p-3 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] lg:p-6 lg:pb-6">
-          <div className="max-w-[1200px] mx-auto">{children}</div>
+          <div className="mx-auto w-full max-w-[1600px]">{children}</div>
         </main>
       </div>
 

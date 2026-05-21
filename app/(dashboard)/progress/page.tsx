@@ -139,11 +139,11 @@ export default function ProgressPage() {
       </FadeIn>
 
       <Tabs defaultValue="weight" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 overflow-visible sm:inline-flex sm:h-10 sm:w-auto">
-          <TabsTrigger value="weight" className="w-full"><Scale className="w-4 h-4 mr-1" />Weight</TabsTrigger>
-          <TabsTrigger value="measurements" className="w-full"><Ruler className="w-4 h-4 mr-1" />Measurements</TabsTrigger>
-          <TabsTrigger value="strength" className="w-full"><Dumbbell className="w-4 h-4 mr-1" />Strength</TabsTrigger>
-          <TabsTrigger value="photos" className="w-full"><Camera className="w-4 h-4 mr-1" />Photos</TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-1 p-1 sm:grid-cols-4 lg:w-fit">
+          <TabsTrigger value="weight" className="min-w-0 gap-1"><Scale className="h-4 w-4 shrink-0" />Weight</TabsTrigger>
+          <TabsTrigger value="measurements" className="min-w-0 gap-1"><Ruler className="h-4 w-4 shrink-0" />Measurements</TabsTrigger>
+          <TabsTrigger value="strength" className="min-w-0 gap-1"><Dumbbell className="h-4 w-4 shrink-0" />Strength</TabsTrigger>
+          <TabsTrigger value="photos" className="min-w-0 gap-1"><Camera className="h-4 w-4 shrink-0" />Photos</TabsTrigger>
         </TabsList>
 
         <TabsContent value="weight">
