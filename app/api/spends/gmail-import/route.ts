@@ -10,6 +10,8 @@ const MAX_EMAILS_PER_RUN = 40;
 const receiptQuery = 'newer_than:90d (receipt OR invoice OR "order total" OR payment OR paid OR purchase OR debited OR credited OR transaction)';
 const candidatePattern =
   /(receipt|invoice|order|payment|paid|purchase|transaction|debited|credited|spent|charged|upi|card|statement|rs\.?|inr|₹|\$)/i;
+const sensitiveCodePattern =
+  /\b(otp|one[-\s]?time password|verification code|security code|login code|auth code|2fa|two[-\s]?factor|password reset|reset password|passcode)\b/i;
 const STORE_GMAIL_METADATA = process.env.STORE_GMAIL_METADATA === "true";
 
 function decodeBase64Url(value?: string) {
@@ -166,6 +168,10 @@ export async function POST() {
       const subject = findHeader(metadata.payload?.headers, "subject").slice(0, 200);
       const from = findHeader(metadata.payload?.headers, "from").slice(0, 200);
       const quickText = `${subject}\n${from}\n${metadata.snippet ?? ""}`;
+      if (sensitiveCodePattern.test(quickText)) {
+        filteredOut += 1;
+        continue;
+      }
       if (!candidatePattern.test(quickText)) {
         filteredOut += 1;
         continue;
