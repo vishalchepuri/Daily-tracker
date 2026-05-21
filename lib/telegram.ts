@@ -26,6 +26,14 @@ function parseAmount(text: string, unit: string) {
   return match ? Number(match[1]) : null;
 }
 
+function extractJsonObject(text: string) {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) throw new Error("No JSON object found");
+  return JSON.parse(cleaned.slice(start, end + 1));
+}
+
 function parseMoney(text: string) {
   const match = text.match(/(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)/i) ?? text.match(/([\d,]+(?:\.\d+)?)\s*(?:rs\.?|inr|₹)/i);
   return match ? Number(match[1].replace(/,/g, "")) : null;
@@ -150,6 +158,129 @@ async function saveTelegramChat(userId: string, role: "user" | "assistant", cont
     });
   }
   await prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
+}
+
+async function telegramPhotoDataUrl(fileId: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) throw new Error("TELEGRAM_BOT_TOKEN is not configured");
+
+  const fileResponse = await fetch(`https://api.telegram.org/bot${token}/getFile?file_id=${encodeURIComponent(fileId)}`);
+  const fileData = await fileResponse.json();
+  const filePath = fileData?.result?.file_path;
+  if (!fileData?.ok || !filePath) throw new Error("Could not download Telegram photo");
+
+  const imageResponse = await fetch(`https://api.telegram.org/file/bot${token}/${filePath}`);
+  if (!imageResponse.ok) throw new Error("Telegram photo download failed");
+  const bytes = Buffer.from(await imageResponse.arrayBuffer());
+  const mimeType = filePath.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+  return `data:${mimeType};base64,${bytes.toString("base64")}`;
+}
+
+async function logWorkoutFromVision(userId: string, details: any, caption: string) {
+  const exerciseName = String(details?.exerciseName ?? "").trim();
+  const sets = Math.max(1, Math.min(12, Number(details?.sets) || 0));
+  const reps = Math.max(1, Math.min(100, Number(details?.reps) || 0));
+  const weight = Math.max(0, Math.min(500, Number(details?.weightKg) || 0));
+  const muscleGroup = String(details?.muscleGroup ?? "chest").toLowerCase().trim() || "chest";
+
+  if (!exerciseName || !sets || !reps) return null;
+
+  const existingExercise = await prisma.exercise.findFirst({
+    where: { name: { equals: exerciseName, mode: "insensitive" } },
+  });
+  const exercise = existingExercise
+    ? await prisma.exercise.update({
+        where: { id: existingExercise.id },
+        data: {
+          muscleGroup,
+          equipment: details?.equipment ? String(details.equipment).toLowerCase() : existingExercise.equipment,
+        },
+      })
+    : await prisma.exercise.create({
+      data: {
+      name: exerciseName,
+      muscleGroup,
+      equipment: details?.equipment ? String(details.equipment).toLowerCase() : "machine",
+      category: "compound",
+      description: "Detected from Telegram workout photo.",
+      },
+    });
+
+  const log = await prisma.workoutLog.create({
+    data: {
+      userId,
+      templateName: "Telegram workout",
+      notes: `Logged from Telegram photo. ${caption}`.slice(0, 500),
+      exerciseLogs: {
+        create: Array.from({ length: sets }, (_, index) => ({
+          exerciseId: exercise.id,
+          setNumber: index + 1,
+          reps,
+          weight,
+        })),
+      },
+    },
+  });
+
+  return { log, exercise, sets, reps, weight };
+}
+
+async function analyzeTelegramWorkoutPhoto(userId: string, caption: string, photoFileId: string) {
+  if (!process.env.ABACUSAI_API_KEY) {
+    return "I received the workout photo, but AI vision is not configured. Reply with exercise name, sets, reps, and weight.";
+  }
+
+  const imageDataUrl = await telegramPhotoDataUrl(photoFileId);
+  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-5.4-mini",
+      stream: false,
+      max_tokens: 500,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You analyze Telegram workout photos for Dayza. Return only JSON with keys: isWorkoutPhoto boolean, exerciseName string, muscleGroup string, equipment string, sets number|null, reps number|null, weightKg number|null, confidence number from 0 to 1, question string. Use the caption for sets/reps/weight. If exercise is unclear, set confidence below 0.75 and ask one short confirmation question.",
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: `Caption: ${caption || "(no caption)"}` },
+            { type: "image_url", image_url: { url: imageDataUrl } },
+          ],
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Workout vision failed: ${errorText}`);
+  }
+
+  const data = await response.json();
+  const raw = data?.choices?.[0]?.message?.content ?? "{}";
+  const details = extractJsonObject(raw);
+
+  if (!details?.isWorkoutPhoto) {
+    return "I received the photo, but it does not look like a workout log. Add a caption like: Machine Chest Press, 3 sets, 12 reps, 18kg.";
+  }
+
+  if (Number(details.confidence ?? 0) < 0.75 || !details.exerciseName) {
+    return details.question || "Which exercise is this? Reply with exercise name, sets, reps, and weight.";
+  }
+
+  const logged = await logWorkoutFromVision(userId, details, caption);
+  if (!logged) {
+    return `I think this is ${details.exerciseName}, but I still need sets, reps, and weight. Example: ${details.exerciseName}, 3 sets, 12 reps, 18kg.`;
+  }
+
+  return `Logged ${logged.sets} sets of ${logged.exercise.name}: ${logged.reps} reps each at ${logged.weight}kg.`;
 }
 
 async function logSpendFromTelegram(userId: string, text: string) {
@@ -401,9 +532,9 @@ export async function processTelegramMessage(chatId: string, text: string, optio
   let response = "I saved that to your account.";
 
   if (options?.photoFileId && !trimmed) {
-    response = "I received your photo. Add a short caption like: logged Machine Chest Press 3 sets 10 reps 25kg, food: 2 idli, or spend: INR 250 at Zepto.";
-  } else if (options?.photoFileId && /(done|did|completed|sets?|workout|exercise|gym)/i.test(trimmed) && !/(bench|press|curl|row|squat|deadlift|pulldown|raise|extension|pushdown|leg|plank|kg|reps?)/i.test(trimmed)) {
-    response = "I can see you uploaded a workout photo, but I need the exercise details to log it accurately. Reply like: Machine Chest Press, 3 sets, 10 reps, 25kg.";
+    response = await analyzeTelegramWorkoutPhoto(userId, trimmed, options.photoFileId);
+  } else if (options?.photoFileId && /(done|did|completed|sets?|workout|exercise|gym|reps?|kg)/i.test(trimmed)) {
+    response = await analyzeTelegramWorkoutPhoto(userId, trimmed, options.photoFileId);
   } else if (lower === "/whoami" || lower.includes("chat id")) {
     response = `This Telegram chat is linked to Dayza. Chat ID: ${chatId}.`;
   } else if (/(workout|exercise|training|gym|plan|routine)/i.test(trimmed) && /(what|show|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|have)/i.test(trimmed)) {
