@@ -52,7 +52,7 @@ export async function DELETE(req: Request) {
   if (!chat) return NextResponse.json({ error: "Chat not found" }, { status: 404 });
 
   for (const attachment of chat.attachments) {
-    if (attachment.cloudStoragePath) {
+    if (attachment.cloudStoragePath && attachment.kind !== "telegram_photo") {
       await deleteFile(attachment.cloudStoragePath).catch((error) => {
         console.error("Failed to delete chat attachment", attachment.cloudStoragePath, error);
       });

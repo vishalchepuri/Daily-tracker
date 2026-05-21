@@ -2,7 +2,9 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { deleteFile, getFileUrl, uploadBuffer } from "@/lib/s3";
+
+const CHAT_IMAGE_RETENTION_DAYS = 7;
+const MAX_CHAT_IMAGE_BYTES = 2 * 1024 * 1024;
 
 type WorkoutExerciseWithExercise = {
   id: string;
@@ -261,6 +263,21 @@ function parseDataImageUrl(value: string) {
   const mimeType = match[1].toLowerCase();
   const extension = mimeType.includes("png") ? "png" : mimeType.includes("webp") ? "webp" : "jpg";
   return { mimeType, extension, buffer: Buffer.from(match[2], "base64") };
+}
+
+function chatImageExpiry() {
+  return new Date(Date.now() + CHAT_IMAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
+function attachmentUrl(attachment: any, now: Date) {
+  if (attachment.deletedAt || (attachment.expiresAt && new Date(attachment.expiresAt) <= now)) {
+    return { url: null, deleted: true, deletedReason: "Image deleted from database" };
+  }
+  if (attachment.imageData && attachment.mimeType) {
+    const bytes = Buffer.isBuffer(attachment.imageData) ? attachment.imageData : Buffer.from(attachment.imageData);
+    return { url: `data:${attachment.mimeType};base64,${bytes.toString("base64")}`, deleted: false, deletedReason: null };
+  }
+  return { url: null, deleted: false, deletedReason: null };
 }
 
 async function getOrCreateChatSession(userId: string, sessionId?: string | null, titleSeed?: string) {
@@ -867,6 +884,11 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get("sessionId");
     const chatSession = sessionId ? await getOrCreateChatSession(userId, sessionId) : null;
+    const now = new Date();
+    await prisma.chatAttachment.updateMany({
+      where: { userId, deletedAt: null, expiresAt: { lte: now }, imageData: { not: null } },
+      data: { imageData: null, deletedAt: now },
+    });
     const messages = await prisma.chatMessage.findMany({
       where: chatSession ? { userId, sessionId: chatSession.id } : { userId, sessionId: null },
       include: { attachments: true },
@@ -877,10 +899,16 @@ export async function GET(req: Request) {
       messages.map(async (message) => ({
         ...message,
         attachments: await Promise.all(
-          message.attachments.map(async (attachment) => ({
-            ...attachment,
-            url: attachment.cloudStoragePath ? await getFileUrl(attachment.cloudStoragePath, false).catch(() => null) : null,
-          }))
+          message.attachments.map(async (attachment) => {
+            const rendered = attachmentUrl(attachment, now);
+            return {
+              ...attachment,
+              imageData: undefined,
+              url: rendered.url,
+              deleted: rendered.deleted,
+              deletedReason: rendered.deletedReason,
+            };
+          })
         ),
       }))
     );
@@ -920,18 +948,17 @@ export async function POST(req: Request) {
       const parsedImage = parseDataImageUrl(imageDataUrl);
       if (parsedImage) {
         try {
-          const cloudStoragePath = await uploadBuffer(
-            `chat-${chatSession.id}.${parsedImage.extension}`,
-            parsedImage.mimeType,
-            parsedImage.buffer
-          );
+          if (parsedImage.buffer.byteLength > MAX_CHAT_IMAGE_BYTES) {
+            throw new Error("Image is too large. Please upload an image under 2 MB.");
+          }
           await prisma.chatAttachment.create({
             data: {
               userId,
               sessionId: chatSession.id,
               messageId: userMessage.id,
               mimeType: parsedImage.mimeType,
-              cloudStoragePath,
+              imageData: parsedImage.buffer,
+              expiresAt: chatImageExpiry(),
             },
           });
         } catch (error) {

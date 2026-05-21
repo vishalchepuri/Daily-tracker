@@ -325,6 +325,11 @@ export default function ChatPage() {
                     className="mb-2 max-h-48 w-full rounded-md object-cover"
                   />
                 )}
+                {!msg?.imageDataUrl && msg?.attachments?.[0]?.deleted && (
+                  <div className="mb-2 rounded-md border border-dashed border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                    {msg.attachments[0].deletedReason || "Image deleted from database"}
+                  </div>
+                )}
                 {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
               </div>
               {msg?.role === "user" && (

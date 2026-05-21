@@ -309,8 +309,12 @@ model ChatAttachment {
   kind      String   @default("image")
   mimeType  String?
   cloudStoragePath String?
+  imageData Bytes?
+  expiresAt DateTime?
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   @@index([userId, sessionId])
+  @@index([expiresAt])
 }
 
 model HealthMetric {
