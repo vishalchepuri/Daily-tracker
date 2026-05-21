@@ -20,6 +20,18 @@ function mergeScopes(...scopes: Array<string | null | undefined>) {
   return Array.from(new Set(scopes.flatMap((scope) => scope?.split(/\s+/).filter(Boolean) ?? []))).join(" ");
 }
 
+export async function requireCurrentUser() {
+  const { getServerSession } = await import("next-auth");
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as any)?.id as string | undefined;
+  if (!userId) return null;
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, email: true, name: true, image: true },
+  });
+  return user;
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: {
     ...adapter,

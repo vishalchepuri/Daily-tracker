@@ -180,6 +180,11 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
         }),
       });
       const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        toast.error("Your account session is no longer valid. Please sign in again.");
+        await signOut({ callbackUrl: "/login" });
+        return;
+      }
       if (!res.ok) {
         const message = data?.error ?? "Could not save profile. Please try again.";
         setProfileError(message);
