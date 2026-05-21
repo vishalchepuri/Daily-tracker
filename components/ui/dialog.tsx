@@ -32,27 +32,38 @@ DialogOverlay.displayName = DialogPrimitive.Overlay.displayName;
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & { hideClose?: boolean }
->(({ className, children, hideClose, ...props }, ref) => (
-  <DialogPortal>
-    <DialogOverlay />
-    <DialogPrimitive.Content
-      ref={ref}
-      className={cn(
-        'fixed inset-x-2 bottom-[calc(env(safe-area-inset-bottom)_+_0.5rem)] top-auto z-50 grid max-h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-w-lg translate-x-0 translate-y-0 gap-4 overflow-y-auto rounded-lg border bg-background p-4 shadow-lg duration-200 ios-scroll data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 sm:left-[50%] sm:right-auto sm:top-[50%] sm:bottom-auto sm:w-full sm:translate-x-[-50%] sm:translate-y-[-50%] sm:p-6',
-        className
-      )}
-      {...props}
-    >
-      {children}
-      {!hideClose && (
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
-          <X className="h-4 w-4" />
-          <span className="sr-only">Close</span>
-        </DialogPrimitive.Close>
-      )}
-    </DialogPrimitive.Content>
-  </DialogPortal>
-));
+>(({ className, children, hideClose, ...props }, ref) => {
+  const fallbackDescriptionId = React.useId();
+  const describedBy = props['aria-describedby'] ?? fallbackDescriptionId;
+
+  return (
+    <DialogPortal>
+      <DialogOverlay />
+      <DialogPrimitive.Content
+        {...props}
+        ref={ref}
+        aria-describedby={describedBy}
+        className={cn(
+          'fixed inset-x-2 bottom-[calc(env(safe-area-inset-bottom)_+_0.5rem)] top-auto z-50 grid max-h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-w-lg translate-x-0 translate-y-0 gap-4 overflow-y-auto rounded-lg border bg-background p-4 shadow-lg duration-200 ios-scroll data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 sm:left-[50%] sm:right-auto sm:top-[50%] sm:bottom-auto sm:w-full sm:translate-x-[-50%] sm:translate-y-[-50%] sm:p-6',
+          className
+        )}
+      >
+        {!props['aria-describedby'] && (
+          <DialogPrimitive.Description id={fallbackDescriptionId} className="sr-only">
+            Dialog content
+          </DialogPrimitive.Description>
+        )}
+        {children}
+        {!hideClose && (
+          <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </DialogPrimitive.Close>
+        )}
+      </DialogPrimitive.Content>
+    </DialogPortal>
+  );
+});
 DialogContent.displayName = DialogPrimitive.Content.displayName;
 
 const DialogHeader = ({

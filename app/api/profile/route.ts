@@ -4,6 +4,25 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
+function profileErrorResponse(error: any, fallback: string) {
+  const message = error?.message ?? fallback;
+  const isDbConnectionIssue =
+    message.includes("Can't reach database server") ||
+    message.includes("Can't reach database") ||
+    message.includes("connect ECONNREFUSED") ||
+    message.includes("ENOTFOUND") ||
+    message.includes("P1001");
+
+  return NextResponse.json(
+    {
+      error: isDbConnectionIssue
+        ? "Database is currently unreachable. Please check Neon status, internet/VPN/firewall, or try again in a minute."
+        : message,
+    },
+    { status: isDbConnectionIssue ? 503 : 500 }
+  );
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -12,7 +31,7 @@ export async function GET() {
     const profile = await prisma.userProfile.findUnique({ where: { userId } });
     return NextResponse.json({ profile });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to fetch profile" }, { status: 500 });
+    return profileErrorResponse(error, "Failed to fetch profile");
   }
 }
 
@@ -63,6 +82,6 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ profile });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to save profile" }, { status: 500 });
+    return profileErrorResponse(error, "Failed to save profile");
   }
 }

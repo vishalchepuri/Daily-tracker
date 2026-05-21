@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
+import { toast } from "sonner";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -136,6 +137,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
   const [coachOpen, setCoachOpen] = useState(false);
   const [profileComplete, setProfileComplete] = useState(isProfileComplete(initialProfile));
   const [savingProfile, setSavingProfile] = useState(false);
+  const [profileError, setProfileError] = useState("");
   const [profileForm, setProfileForm] = useState({
     age: initialProfile?.age ? String(initialProfile.age) : "",
     weight: initialProfile?.weight ? String(initialProfile.weight) : "",
@@ -154,14 +156,6 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
   const [isRoutePending, startRouteTransition] = useTransition();
   const currentFeature = getFeatureHelp(pathname);
 
-  useEffect(() => {
-    const routeWarmup = window.setTimeout(() => {
-      navItems.forEach((item) => router.prefetch(item.href));
-      router.prefetch("/chat");
-    }, 250);
-    return () => window.clearTimeout(routeWarmup);
-  }, [router]);
-
   const goToFeature = (href: string) => {
     setSidebarOpen(false);
     router.prefetch(href);
@@ -171,6 +165,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
   const saveProfile = async () => {
     if (!profileForm.age || !profileForm.weight || !profileForm.height) return;
     setSavingProfile(true);
+    setProfileError("");
     try {
       const res = await fetch("/api/profile", {
         method: "POST",
@@ -189,7 +184,19 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           goalTargetWeight: parseFloat(profileForm.goalTargetWeight) || null,
         }),
       });
-      if (res.ok) setProfileComplete(true);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = data?.error ?? "Could not save profile. Please try again.";
+        setProfileError(message);
+        toast.error(message);
+        return;
+      }
+      setProfileComplete(true);
+      toast.success("Profile saved");
+    } catch {
+      const message = "Could not reach the app server. Please check your connection and try again.";
+      setProfileError(message);
+      toast.error(message);
     } finally {
       setSavingProfile(false);
     }
@@ -206,6 +213,11 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
             <p className="text-sm text-muted-foreground">
               These details help calculate accurate calories, macros, and coaching answers.
             </p>
+            {profileError && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {profileError}
+              </div>
+            )}
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
                 <Label>Age</Label>

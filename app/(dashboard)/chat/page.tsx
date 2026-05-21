@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -20,6 +21,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -135,6 +137,7 @@ export default function ChatPage() {
 
   const startNewChat = useCallback(async () => {
     await createChatSession("New chat");
+    setHistoryOpen(false);
   }, [createChatSession]);
 
   const deleteChat = useCallback(async (sessionId: string) => {
@@ -214,63 +217,82 @@ export default function ChatPage() {
   }, [router]);
 
   return (
-    <div className="flex h-[calc(100svh_-_11.25rem_-_env(safe-area-inset-bottom))] min-h-[28rem] flex-col sm:h-[calc(100dvh-8rem)]">
+    <div className="flex h-[calc(100svh_-_9.25rem_-_env(safe-area-inset-bottom))] min-h-[30rem] flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
-        <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="mb-2 flex items-start justify-between gap-2 sm:mb-3">
           <div>
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
-            <p className="text-muted-foreground text-sm mt-1">Ask about fitness, food, spends, reminders, and progress</p>
+            <p className="mt-1 hidden text-sm text-muted-foreground min-[390px]:block">Ask about fitness, food, spends, reminders, and progress</p>
           </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={closeChat}
-            aria-label="Close AI coach"
-            title="Close AI coach"
-          >
-            <X className="h-5 w-5" />
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+              <DialogTrigger asChild>
+                <Button type="button" variant="ghost" size="icon" aria-label="Open chat history" title="Chat history">
+                  <History className="h-5 w-5" />
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-h-[82svh] max-w-md overflow-hidden p-0">
+                <DialogHeader className="border-b border-border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <DialogTitle className="flex items-center gap-2">
+                      <MessageSquare className="h-5 w-5 text-primary" />
+                      Chat History
+                    </DialogTitle>
+                    <Button type="button" size="sm" onClick={startNewChat} disabled={streaming}>
+                      <Plus className="mr-1 h-4 w-4" />
+                      New
+                    </Button>
+                  </div>
+                </DialogHeader>
+                <div className="max-h-[64svh] overflow-y-auto p-3 ios-scroll">
+                  {(sessions ?? []).length === 0 ? (
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No chats yet. Tap New or send a message to start fresh.</div>
+                  ) : (
+                    <div className="space-y-2">
+                      {sessions.map((chat) => (
+                        <div key={chat.id} className={`group flex items-center gap-2 rounded-lg p-2 ${activeSessionId === chat.id ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => {
+                              setActiveSessionId(chat.id);
+                              setHistoryOpen(false);
+                            }}
+                            disabled={streaming}
+                          >
+                            <p className="truncate text-sm font-semibold">{chat.title || "New chat"}</p>
+                            <p className="truncate text-xs text-muted-foreground">{chat.messages?.[0]?.content || `${chat._count?.messages ?? 0} messages`}</p>
+                          </button>
+                          <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => deleteChat(chat.id)} disabled={streaming}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Button type="button" variant="ghost" size="icon" onClick={startNewChat} disabled={streaming} aria-label="New chat" title="New chat">
+              <Plus className="h-5 w-5" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={closeChat}
+              aria-label="Close Dayza Agent"
+              title="Close Dayza Agent"
+            >
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
       </FadeIn>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[19rem_1fr]">
-        <Card className="flex min-h-[10rem] flex-col overflow-hidden">
-          <CardHeader className="border-b border-border p-3">
-            <div className="flex items-center justify-between gap-2">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <MessageSquare className="h-4 w-4 text-primary" />
-                Chat History
-              </CardTitle>
-              <Button type="button" size="sm" onClick={startNewChat} disabled={streaming}>
-                <Plus className="mr-1 h-4 w-4" />
-                New
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="min-h-0 flex-1 overflow-y-auto p-2 ios-scroll">
-            {(sessions ?? []).length === 0 ? (
-              <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No chats yet. Tap New or send a message to start fresh.</div>
-            ) : (
-              <div className="space-y-1">
-                {sessions.map((chat) => (
-                  <div key={chat.id} className={`group flex items-center gap-2 rounded-lg p-2 ${activeSessionId === chat.id ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
-                    <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setActiveSessionId(chat.id)} disabled={streaming}>
-                      <p className="truncate text-sm font-semibold">{chat.title || "New chat"}</p>
-                      <p className="truncate text-xs text-muted-foreground">{chat.messages?.[0]?.content || `${chat._count?.messages ?? 0} messages`}</p>
-                    </button>
-                    <Button type="button" variant="ghost" size="icon" className="h-8 w-8 opacity-100 lg:opacity-0 lg:group-hover:opacity-100" onClick={() => deleteChat(chat.id)} disabled={streaming}>
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
+      <div className="flex min-h-0 flex-1">
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-3 sm:p-4">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 sm:space-y-4 sm:p-4">
           {(messages ?? [])?.length === 0 && (
             <div className="text-center py-12">
               <Bot className="w-12 h-12 text-primary/30 mx-auto mb-3" />
@@ -291,7 +313,7 @@ export default function ChatPage() {
                   <Bot className="w-4 h-4 text-primary" />
                 </div>
               )}
-              <div className={`max-w-[88%] overflow-hidden break-words rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap sm:max-w-[80%] sm:px-4 ${
+              <div className={`max-w-[86%] overflow-hidden break-words rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap sm:max-w-[80%] sm:px-4 ${
                 msg?.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted"
@@ -314,7 +336,7 @@ export default function ChatPage() {
           ))}
         </div>
 
-        <div className="border-t border-border bg-card p-3 sm:p-4">
+        <div className="border-t border-border bg-card p-2.5 sm:p-4">
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
@@ -327,7 +349,7 @@ export default function ChatPage() {
               </Button>
             </div>
           )}
-          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[auto_auto_1fr_auto] gap-2">
+          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[2.5rem_2.5rem_minmax(0,1fr)_2.5rem] gap-1.5 sm:grid-cols-[auto_auto_1fr_auto] sm:gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -345,7 +367,7 @@ export default function ChatPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={streaming}
               title="Attach food photo"
-              className="h-11 w-11 shrink-0"
+              className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
             >
               <ImagePlus className="w-4 h-4" />
             </Button>
@@ -356,7 +378,7 @@ export default function ChatPage() {
               onClick={toggleVoiceInput}
               disabled={streaming}
               title={listening ? "Stop listening" : "Speak message"}
-              className="h-11 w-11 shrink-0"
+              className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
             >
               {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </Button>
@@ -365,9 +387,9 @@ export default function ChatPage() {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
               placeholder={listening ? "Listening..." : "Ask, log food/spends, attach image..."}
               disabled={streaming}
-              className="h-11 min-w-0"
+              className="h-10 min-w-0 px-3 text-sm sm:h-11"
             />
-            <Button type="submit" disabled={streaming || (!input?.trim() && !imageDataUrl)} className="h-11 w-11 shrink-0 px-0">
+            <Button type="submit" disabled={streaming || (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 px-0 sm:h-11 sm:w-11">
               {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
             </Button>
           </form>

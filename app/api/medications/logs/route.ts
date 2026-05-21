@@ -54,3 +54,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = (session.user as any)?.id;
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "Log ID is required" }, { status: 400 });
+
+    const existing = await prisma.medicationLog.findUnique({ where: { id } });
+    if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    await prisma.medicationLog.delete({ where: { id } });
+    return NextResponse.json({ ok: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+  }
+}

@@ -38,3 +38,11 @@ export async function ensureStarterExerciseLibrary() {
     });
   }
 }
+
+export async function ensureStarterExerciseLibrarySafe() {
+  try {
+    await ensureStarterExerciseLibrary();
+  } catch (error) {
+    console.warn("Could not ensure starter exercise library", error);
+  }
+}

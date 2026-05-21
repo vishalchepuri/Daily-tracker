@@ -1,11 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { ensureStarterExerciseLibrary } from "@/lib/exercise-library";
+import { ensureStarterExerciseLibrarySafe } from "@/lib/exercise-library";
 
 export async function GET(req: Request) {
   try {
-    await ensureStarterExerciseLibrary();
+    await ensureStarterExerciseLibrarySafe();
     const { searchParams } = new URL(req.url);
     const muscleGroup = searchParams.get("muscleGroup");
     const where = muscleGroup ? { muscleGroup } : {};
