@@ -129,6 +129,7 @@ function getFeatureHelp(pathname: string | null) {
 }
 
 function isProfileComplete(profile: any) {
+  if (profile === undefined) return true;
   return Boolean(profile?.age && profile?.weight && profile?.height);
 }
 
@@ -147,9 +148,6 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
     goal: initialProfile?.goal ?? "muscle_gain",
     healthLimitations: initialProfile?.healthLimitations ?? "",
     foodAllergies: initialProfile?.foodAllergies ?? "",
-    goalOutcome: initialProfile?.goalOutcome ?? "",
-    goalTimelineDays: initialProfile?.goalTimelineDays ? String(initialProfile.goalTimelineDays) : "",
-    goalTargetWeight: initialProfile?.goalTargetWeight ? String(initialProfile.goalTargetWeight) : "",
   });
   const pathname = usePathname();
   const router = useRouter();
@@ -179,9 +177,6 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
           goal: profileForm.goal,
           healthLimitations: profileForm.healthLimitations || "None",
           foodAllergies: profileForm.foodAllergies || "None",
-          goalOutcome: profileForm.goalOutcome || null,
-          goalTimelineDays: parseInt(profileForm.goalTimelineDays) || null,
-          goalTargetWeight: parseFloat(profileForm.goalTargetWeight) || null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -306,40 +301,6 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
                   onChange={(e) => setProfileForm({ ...profileForm, foodAllergies: e.target.value })}
                   className="mt-1"
                   placeholder="None, peanuts, lactose..."
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <Label>Goal outcome</Label>
-                <Input
-                  value={profileForm.goalOutcome}
-                  onChange={(e) => setProfileForm({ ...profileForm, goalOutcome: e.target.value })}
-                  className="mt-1"
-                  placeholder="Fat loss, muscle gain..."
-                />
-              </div>
-              <div>
-                <Label>Timeline days</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={profileForm.goalTimelineDays}
-                  onChange={(e) => setProfileForm({ ...profileForm, goalTimelineDays: e.target.value })}
-                  className="mt-1"
-                  placeholder="56"
-                />
-              </div>
-              <div>
-                <Label>Target weight</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  step="0.1"
-                  value={profileForm.goalTargetWeight}
-                  onChange={(e) => setProfileForm({ ...profileForm, goalTargetWeight: e.target.value })}
-                  className="mt-1"
-                  placeholder="Optional"
                 />
               </div>
             </div>

@@ -26,6 +26,48 @@ function parseAmount(text: string, unit: string) {
   return match ? Number(match[1]) : null;
 }
 
+function parseMoney(text: string) {
+  const match = text.match(/(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)/i) ?? text.match(/([\d,]+(?:\.\d+)?)\s*(?:rs\.?|inr|₹)/i);
+  return match ? Number(match[1].replace(/,/g, "")) : null;
+}
+
+function detectCategory(text: string) {
+  const lower = text.toLowerCase();
+  if (/(zepto|blinkit|bigbasket|grocery|supermarket|mart)/.test(lower)) return "Groceries";
+  if (/(swiggy|zomato|restaurant|food|cafe|coffee|tea)/.test(lower)) return "Food";
+  if (/(spotify|netflix|prime|subscription|youtube)/.test(lower)) return "Subscriptions";
+  if (/(uber|ola|metro|fuel|petrol|diesel|travel|flight|train)/.test(lower)) return "Travel";
+  if (/(medical|pharmacy|hospital|doctor|medicine)/.test(lower)) return "Health";
+  if (/(gym|fitness|protein|sports)/.test(lower)) return "Fitness";
+  if (/(amazon|flipkart|myntra|shopping)/.test(lower)) return "Shopping";
+  return "Other";
+}
+
+function extractMerchant(text: string) {
+  const patterns = [
+    /towards\s+(.+?)(?:\s+on\s+\d|\s+for\s+rs|\s+for\s+inr|\.|$)/i,
+    /at\s+(.+?)(?:\s+on\s+\d|\s+for\s+rs|\s+for\s+inr|\.|$)/i,
+    /to\s+(.+?)(?:\s+on\s+\d|\s+ref|\.|$)/i,
+    /info:\s*(.+?)(?:\s+if\s+|\.|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const merchant = match?.[1]?.replace(/\s+/g, " ").trim();
+    if (merchant && merchant.length > 2 && !/your|account|card|upi/i.test(merchant)) return merchant.slice(0, 80);
+  }
+  return "Telegram Spend";
+}
+
+function extractLast4(text: string) {
+  return text.match(/(?:ending|a\/c no\.?|account number|account ending|card ending)\s*(?:xx|x+)?(\d{4})/i)?.[1] ?? null;
+}
+
+function extractBankName(text: string) {
+  const known = ["HDFC Bank", "Axis Bank", "SBI", "ICICI Bank", "Kotak Bank", "IDFC Bank"];
+  const lower = text.toLowerCase();
+  return known.find((bank) => lower.includes(bank.toLowerCase())) ?? null;
+}
+
 function parseDateTime(text: string) {
   const lower = text.toLowerCase();
   const now = new Date();
@@ -84,21 +126,144 @@ async function logDietMeal(userId: string, text: string) {
   return "I could not find that meal in your saved diet. Add a diet plan in Nutrition first, or say which diet meal to use.";
 }
 
+async function getTelegramSession(userId: string) {
+  const existing = await prisma.chatSession.findFirst({
+    where: { userId, title: "Telegram Bot" },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (existing) return existing;
+  return prisma.chatSession.create({ data: { userId, title: "Telegram Bot" } });
+}
+
+async function saveTelegramChat(userId: string, role: "user" | "assistant", content: string) {
+  const session = await getTelegramSession(userId);
+  await prisma.chatMessage.create({ data: { userId, sessionId: session.id, role, content: `[Telegram] ${content}` } });
+  await prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
+}
+
+async function logSpendFromTelegram(userId: string, text: string) {
+  const amount = parseMoney(text);
+  if (!amount) return "How much should I log? Example: spent ₹250 at Zepto.";
+
+  const bankName = extractBankName(text);
+  const last4 = extractLast4(text);
+  const isCredit = /credit card/i.test(text);
+  const isBankOrDebit = /debited|debit card|account|a\/c/i.test(text) && !isCredit;
+
+  const merchant = extractMerchant(text);
+  const category = detectCategory(text);
+
+  const result = await prisma.$transaction(async (tx) => {
+    let bankAccountId: string | null = null;
+    let creditCardId: string | null = null;
+
+    if (isCredit && (last4 || bankName)) {
+      const card = await tx.creditCard.upsert({
+        where: { id: `telegram-card-${userId}-${last4 ?? bankName ?? "unknown"}` },
+        update: { currentDue: { increment: amount }, bankName: bankName ?? undefined, last4: last4 ?? undefined },
+        create: {
+          id: `telegram-card-${userId}-${last4 ?? bankName ?? "unknown"}`,
+          userId,
+          name: `${bankName ?? "Credit"} Card${last4 ? ` ending ${last4}` : ""}`,
+          bankName,
+          last4,
+          currentDue: amount,
+        },
+      });
+      creditCardId = card.id;
+    } else if (isBankOrDebit && (last4 || bankName)) {
+      const account = await tx.bankAccount.upsert({
+        where: { id: `telegram-bank-${userId}-${last4 ?? bankName ?? "unknown"}` },
+        update: { balance: { decrement: amount }, bankName: bankName ?? undefined, last4: last4 ?? undefined },
+        create: {
+          id: `telegram-bank-${userId}-${last4 ?? bankName ?? "unknown"}`,
+          userId,
+          name: `${bankName ?? "Bank"} Account${last4 ? ` ending ${last4}` : ""}`,
+          bankName,
+          last4,
+          balance: 0 - amount,
+        },
+      });
+      bankAccountId = account.id;
+    }
+
+    return tx.spend.create({
+      data: {
+        userId,
+        merchant,
+        amount,
+        currency: "INR",
+        category,
+        source: "telegram",
+        bankAccountId,
+        creditCardId,
+        balanceApplied: Boolean(bankAccountId || creditCardId),
+        notes: text.slice(0, 500),
+      },
+    });
+  });
+
+  return `Logged ₹${Math.round(result.amount)} spend at ${result.merchant} as ${result.category ?? "Other"}.`;
+}
+
+async function logMedicationFromTelegram(userId: string, text: string) {
+  const lower = text.toLowerCase();
+  const medications = await prisma.medication.findMany({ where: { userId, active: true }, orderBy: { timeOfDay: "asc" } });
+  const medication = medications.find((item) => lower.includes(item.name.toLowerCase()));
+  if (!medication) {
+    if (medications.length === 0) return "You do not have active medications saved yet. Add them in Dayza > Medications first.";
+    return `Which medication should I mark? Active meds: ${medications.map((item) => item.name).join(", ")}.`;
+  }
+  const status = lower.includes("skip") || lower.includes("miss") ? "skipped" : "taken";
+  const [hour, minute] = medication.timeOfDay.split(":").map(Number);
+  const scheduledFor = new Date();
+  scheduledFor.setHours(hour || 0, minute || 0, 0, 0);
+  await prisma.medicationLog.create({
+    data: { userId, medicationId: medication.id, scheduledFor, status, notes: "Logged from Telegram" },
+  });
+  return `Marked ${medication.name} as ${status}.`;
+}
+
+function helpText(chatId: string) {
+  return [
+    "Dayza Telegram Agent is ready.",
+    "",
+    `Your chat ID: ${chatId}`,
+    "",
+    "Try:",
+    "• spent ₹179 at Spotify",
+    "• paste a bank/card SMS",
+    "• log 500ml water",
+    "• log weight 78kg",
+    "• remind me to take medicine at 8pm",
+    "• taken Vitamin D",
+    "• log my diet breakfast",
+    "",
+    "Link this chat in Dayza > Reminders > Telegram if it is not connected yet.",
+  ].join("\n");
+}
+
 export async function processTelegramText(chatId: string, text: string) {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === "/start" || lower === "/help" || lower === "help") return helpText(chatId);
+
   const profile = await prisma.userProfile.findFirst({
     where: { telegramChatId: chatId, telegramEnabled: true },
   });
-  if (!profile) return "This Telegram chat is not linked to an account. Add this chat ID in Reminders > Telegram first.";
+  if (!profile) return `This Telegram chat is not linked to a Dayza account yet.\n\nYour chat ID: ${chatId}\n\nOpen Dayza > Reminders > Telegram, paste this chat ID, and enable Telegram.`;
 
   const userId = profile.userId;
-  const trimmed = text.trim();
-  const lower = trimmed.toLowerCase();
-  await prisma.chatMessage.create({ data: { userId, role: "user", content: `[Telegram] ${trimmed}` } });
+  await saveTelegramChat(userId, "user", trimmed);
 
   let response = "I saved that to your account.";
 
-  if (lower.includes("diet") && (lower.includes("breakfast") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("snack"))) {
+  if (lower === "/whoami" || lower.includes("chat id")) {
+    response = `This Telegram chat is linked to Dayza. Chat ID: ${chatId}.`;
+  } else if (lower.includes("diet") && (lower.includes("breakfast") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("snack"))) {
     response = await logDietMeal(userId, lower);
+  } else if (/(spent|spend|debited|credited|upi|card|rs\.?|inr|₹)/i.test(trimmed) && parseMoney(trimmed)) {
+    response = await logSpendFromTelegram(userId, trimmed);
   } else if (lower.includes("water")) {
     const amount = parseAmount(lower, "ml") ?? parseAmount(lower, "l");
     if (!amount) {
@@ -127,12 +292,14 @@ export async function processTelegramText(chatId: string, text: string) {
       },
     });
     response = `Created reminder: ${title}.`;
+  } else if (lower.includes("taken") || lower.includes("took") || lower.includes("medicine") || lower.includes("medication") || lower.includes("skip")) {
+    response = await logMedicationFromTelegram(userId, trimmed);
   } else if (lower.includes("food") || lower.includes("ate") || lower.includes("meal")) {
     response = "For Telegram food logging, use a saved diet meal like: log my diet breakfast. Manual calorie estimation still works best inside Dayza Agent.";
   } else {
-    response = "I can log water, weight, reminders, and saved diet meals from Telegram. Try: log 500ml water, log weight 78kg, remind me to drink water at 6pm, or log my diet breakfast.";
+    response = "I can log spends, bank/card SMS, water, weight, medication doses, reminders, and saved diet meals from Telegram. Try: spent ₹250 at Zepto, log 500ml water, taken Vitamin D, or remind me to drink water at 6pm.";
   }
 
-  await prisma.chatMessage.create({ data: { userId, role: "assistant", content: `[Telegram] ${response}` } });
+  await saveTelegramChat(userId, "assistant", response);
   return response;
 }

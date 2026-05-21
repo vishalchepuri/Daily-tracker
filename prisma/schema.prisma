@@ -133,6 +133,7 @@ model UserProfile {
   goalTargetWeight Float?
   telegramChatId String?
   telegramEnabled Boolean @default(false)
+  linkedinUrl String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

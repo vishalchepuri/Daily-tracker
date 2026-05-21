@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, Calculator, Save, Trash2 } from "lucide-react";
+import { UserCircle, Calculator, Save, Trash2, Linkedin, ExternalLink, X, Send, MessageCircle, RefreshCw } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { signOut } from "next-auth/react";
@@ -14,11 +14,14 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingTelegram, setSavingTelegram] = useState(false);
+  const [checkingTelegram, setCheckingTelegram] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
   const [form, setForm] = useState({
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
-    healthLimitations: "", foodAllergies: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "",
+    healthLimitations: "", foodAllergies: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
   });
 
   useEffect(() => {
@@ -38,9 +41,17 @@ export default function ProfilePage() {
           goalOutcome: p?.goalOutcome ?? "",
           goalTimelineDays: String(p?.goalTimelineDays ?? ""),
           goalTargetWeight: String(p?.goalTargetWeight ?? ""),
+          linkedinUrl: p?.linkedinUrl ?? "",
         });
       }
     }).catch(console.error).finally(() => setLoading(false));
+    fetch("/api/telegram-settings").then(r => r.json()).then(d => {
+      setTelegramForm({
+        telegramChatId: d?.telegramChatId ?? "",
+        telegramEnabled: Boolean(d?.telegramEnabled),
+        botConfigured: Boolean(d?.botConfigured),
+      });
+    }).catch(console.error);
   }, []);
 
   const handleSave = async () => {
@@ -61,6 +72,7 @@ export default function ProfilePage() {
           goalOutcome: form.goalOutcome || null,
           goalTimelineDays: parseInt(form.goalTimelineDays) || null,
           goalTargetWeight: parseFloat(form.goalTargetWeight) || null,
+          linkedinUrl: form.linkedinUrl || null,
         }),
       });
       const data = await res.json();
@@ -89,6 +101,66 @@ export default function ProfilePage() {
       await signOut({ callbackUrl: "/signup" });
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const saveTelegram = async () => {
+    setSavingTelegram(true);
+    try {
+      const res = await fetch("/api/telegram-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(telegramForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save Telegram settings");
+        return;
+      }
+      setTelegramForm({
+        telegramChatId: data?.telegramChatId ?? "",
+        telegramEnabled: Boolean(data?.telegramEnabled),
+        botConfigured: Boolean(data?.botConfigured),
+      });
+      toast.success("Telegram connected");
+    } catch {
+      toast.error("Failed to save Telegram settings");
+    } finally {
+      setSavingTelegram(false);
+    }
+  };
+
+  const sendDueTelegram = async () => {
+    setCheckingTelegram(true);
+    try {
+      const res = await fetch("/api/reminders/telegram-dispatch", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send Telegram reminders");
+        return;
+      }
+      toast.success(data?.sent ? `Sent ${data.sent} reminder(s)` : "No due reminders to send");
+    } catch {
+      toast.error("Failed to send Telegram reminders");
+    } finally {
+      setCheckingTelegram(false);
+    }
+  };
+
+  const checkTelegramMessages = async () => {
+    setCheckingTelegram(true);
+    try {
+      const res = await fetch("/api/telegram/poll", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to check Telegram messages");
+        return;
+      }
+      toast.success(data?.processed ? `Processed ${data.processed} message(s)` : "No new bot messages");
+    } catch {
+      toast.error("Failed to check Telegram messages");
+    } finally {
+      setCheckingTelegram(false);
     }
   };
 
@@ -170,6 +242,100 @@ export default function ProfilePage() {
               </div>
             </div>
             <Button onClick={handleSave} loading={saving}><Save className="w-4 h-4 mr-2" />Save Profile</Button>
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      <FadeIn delay={0.15}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Linkedin className="h-5 w-5 text-primary" />
+              LinkedIn
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">Connect your LinkedIn profile URL so Dayza can keep your professional link in your account.</p>
+            <div>
+              <Label>LinkedIn profile URL</Label>
+              <Input
+                value={form.linkedinUrl}
+                onChange={(e) => setForm({ ...form, linkedinUrl: e.target.value })}
+                className="mt-1"
+                placeholder="https://www.linkedin.com/in/your-name"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={handleSave} loading={saving}>
+                <Save className="mr-2 h-4 w-4" />
+                Save LinkedIn
+              </Button>
+              {form.linkedinUrl && (
+                <>
+                  <Button type="button" variant="outline" asChild>
+                    <a href={form.linkedinUrl.startsWith("http") ? form.linkedinUrl : `https://${form.linkedinUrl}`} target="_blank" rel="noreferrer">
+                      <ExternalLink className="mr-2 h-4 w-4" />
+                      Open
+                    </a>
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setForm({ ...form, linkedinUrl: "" })}>
+                    <X className="mr-2 h-4 w-4" />
+                    Clear
+                  </Button>
+                </>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      <FadeIn delay={0.18}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-primary" />
+              Telegram Bot
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+              Message your Dayza Telegram bot once, send <span className="font-mono text-foreground">/start</span>, then paste the chat ID here. Once connected, Telegram can receive reminders and log spends, water, weight, medications, reminders, and saved diet meals.
+            </div>
+            {!telegramForm.botConfigured && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Bot token is not configured. Add <span className="font-mono">TELEGRAM_BOT_TOKEN</span> and restart the app.
+              </div>
+            )}
+            <div>
+              <Label>Telegram Chat ID</Label>
+              <Input
+                value={telegramForm.telegramChatId}
+                onChange={(e) => setTelegramForm({ ...telegramForm, telegramChatId: e.target.value })}
+                className="mt-1"
+                placeholder="123456789"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={telegramForm.telegramEnabled ? "default" : "outline"}
+                onClick={() => setTelegramForm({ ...telegramForm, telegramEnabled: !telegramForm.telegramEnabled })}
+              >
+                {telegramForm.telegramEnabled ? "Telegram Enabled" : "Enable Telegram"}
+              </Button>
+              <Button type="button" onClick={saveTelegram} loading={savingTelegram}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Telegram
+              </Button>
+              <Button type="button" variant="outline" onClick={sendDueTelegram} loading={checkingTelegram}>
+                <Send className="mr-2 h-4 w-4" />
+                Send Due
+              </Button>
+              <Button type="button" variant="outline" onClick={checkTelegramMessages} loading={checkingTelegram}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Check Bot
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </FadeIn>

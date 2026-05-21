@@ -45,15 +45,27 @@ export async function POST(req: Request) {
     // Calculate TDEE and macros
     let tdee = 0;
     const { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies } = data;
-    const goalOutcome = typeof data.goalOutcome === "string" && data.goalOutcome.trim()
-      ? data.goalOutcome.trim()
-      : goal === "fat_loss" ? "fat loss" : goal === "muscle_gain" ? "muscle gain" : goal === "maintain" ? "maintenance" : null;
-    const goalTimelineDays = Number.isFinite(Number(data.goalTimelineDays)) && Number(data.goalTimelineDays) > 0
-      ? Math.round(Number(data.goalTimelineDays))
-      : null;
-    const goalTargetWeight = Number.isFinite(Number(data.goalTargetWeight)) && Number(data.goalTargetWeight) > 0
-      ? Number(data.goalTargetWeight)
-      : null;
+    const timelineData: Record<string, string | number | null> = {};
+    if ("goalOutcome" in data) {
+      timelineData.goalOutcome = typeof data.goalOutcome === "string" && data.goalOutcome.trim() ? data.goalOutcome.trim() : null;
+    }
+    if ("goalTimelineDays" in data) {
+      timelineData.goalTimelineDays = Number.isFinite(Number(data.goalTimelineDays)) && Number(data.goalTimelineDays) > 0
+        ? Math.round(Number(data.goalTimelineDays))
+        : null;
+    }
+    if ("goalTargetWeight" in data) {
+      timelineData.goalTargetWeight = Number.isFinite(Number(data.goalTargetWeight)) && Number(data.goalTargetWeight) > 0
+        ? Number(data.goalTargetWeight)
+        : null;
+    }
+    const connectionData: Record<string, string | null> = {};
+    if ("linkedinUrl" in data) {
+      const rawLinkedIn = String(data.linkedinUrl ?? "").trim();
+      connectionData.linkedinUrl = rawLinkedIn
+        ? rawLinkedIn.startsWith("http") ? rawLinkedIn : `https://${rawLinkedIn}`
+        : null;
+    }
     if (weight && height && age && gender) {
       // Mifflin-St Jeor
       const bmr = gender === 'male'
@@ -77,8 +89,8 @@ export async function POST(req: Request) {
 
     const profile = await prisma.userProfile.upsert({
       where: { userId },
-      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, goalOutcome, goalTimelineDays, goalTargetWeight, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
-      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, goalOutcome, goalTimelineDays, goalTargetWeight, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
     });
     return NextResponse.json({ profile });
   } catch (error: any) {
