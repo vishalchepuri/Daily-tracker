@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, CalendarDays, TrendingUp } from "lucide-react";
+import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -447,14 +447,14 @@ export default function NutritionPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Nutrition Tracker</h2>
             <p className="mt-1 max-w-[18rem] text-sm text-muted-foreground sm:max-w-none">Log meals and track daily macros for muscle gain</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-          <div className="relative col-span-2 sm:col-span-1">
-            <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
+          <div className="col-span-2 sm:col-span-1">
             <Input
               type="date"
+              aria-label="Nutrition date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="h-10 pl-9 sm:w-40"
+              className="h-10 min-w-0 sm:w-44"
             />
           </div>
           <Dialog open={targetsDialogOpen} onOpenChange={setTargetsDialogOpen}>

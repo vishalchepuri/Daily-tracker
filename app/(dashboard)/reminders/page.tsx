@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, Circle, Flag, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +48,16 @@ function buildDueDate(dateValue: string, timeValue: string) {
   return `${dateValue}T${time}`;
 }
 
+function dateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
 export default function RemindersPage() {
   const [reminders, setReminders] = useState<any[]>([]);
   const [lists, setLists] = useState<any[]>([]);
@@ -91,9 +101,16 @@ export default function RemindersPage() {
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart);
     todayEnd.setHours(23, 59, 59, 999);
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const tomorrowEnd = new Date(tomorrowStart);
+    tomorrowEnd.setHours(23, 59, 59, 999);
+    const now = new Date();
     return {
       all: reminders.filter((item) => !item.completed).length,
+      overdue: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) < now).length,
       today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd).length,
+      tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd).length,
       scheduled: reminders.filter((item) => !item.completed && item.dueDate).length,
       flagged: reminders.filter((item) => !item.completed && item.flagged).length,
       completed: reminders.filter((item) => item.completed).length,
@@ -105,9 +122,16 @@ export default function RemindersPage() {
     todayStart.setHours(0, 0, 0, 0);
     const todayEnd = new Date(todayStart);
     todayEnd.setHours(23, 59, 59, 999);
+    const tomorrowStart = new Date(todayStart);
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+    const tomorrowEnd = new Date(tomorrowStart);
+    tomorrowEnd.setHours(23, 59, 59, 999);
+    const now = new Date();
     return reminders.filter((item) => {
       if (filter === "all") return !item.completed;
+      if (filter === "overdue") return !item.completed && item.dueDate && new Date(item.dueDate) < now;
       if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd;
+      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd;
       if (filter === "scheduled") return !item.completed && item.dueDate;
       if (filter === "flagged") return !item.completed && item.flagged;
       if (filter === "completed") return item.completed;
@@ -117,6 +141,19 @@ export default function RemindersPage() {
 
   const openAddReminder = () => {
     setReminderForm({ ...blankReminder, listId: lists[0]?.id ?? "" });
+    setReminderOpen(true);
+  };
+
+  const openQuickReminder = (preset: "water" | "meds" | "workout" | "meal") => {
+    const today = new Date();
+    const tomorrow = addDays(today, 1);
+    const presets = {
+      water: { title: "Drink water", notes: "Hydration check", dueDate: dateInputValue(today), dueTime: "18:00", recurrence: "daily", priority: "medium" },
+      meds: { title: "Take medication", notes: "Confirm dose in Medications", dueDate: dateInputValue(today), dueTime: "21:00", recurrence: "daily", priority: "high" },
+      workout: { title: "Workout session", notes: "Warm up first, then follow today's plan", dueDate: dateInputValue(tomorrow), dueTime: "07:00", recurrence: "none", priority: "medium" },
+      meal: { title: "Meal prep", notes: "Prepare next planned meal", dueDate: dateInputValue(today), dueTime: "20:00", recurrence: "none", priority: "low" },
+    } as const;
+    setReminderForm({ ...blankReminder, ...presets[preset], listId: lists[0]?.id ?? "" });
     setReminderOpen(true);
   };
 
@@ -236,6 +273,15 @@ export default function RemindersPage() {
     loadData();
   };
 
+  const upcomingReminders = useMemo(() => {
+    const now = new Date();
+    const weekEnd = addDays(now, 7);
+    return reminders
+      .filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= now && new Date(item.dueDate) <= weekEnd)
+      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+      .slice(0, 5);
+  }, [reminders]);
+
   if (loading) return <div className="space-y-4">{[1,2,3].map((i) => <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
@@ -309,8 +355,45 @@ export default function RemindersPage() {
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 md:grid-cols-5">
+      <div className="grid gap-3 md:grid-cols-[1fr_22rem]">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Plus className="h-4 w-4 text-primary" />
+              Quick Add
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("water")} className="justify-start">Water</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("meds")} className="justify-start">Medication</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("workout")} className="justify-start">Workout</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("meal")} className="justify-start">Meal prep</Button>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock3 className="h-4 w-4 text-primary" />
+              Next 7 Days
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {upcomingReminders.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No upcoming reminders.</p>
+            ) : upcomingReminders.map((item) => (
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+                <span className="min-w-0 truncate">{item.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+        <SmartButton active={filter === "overdue"} icon={AlertTriangle} label="Overdue" count={smartCounts.overdue} onClick={() => setFilter("overdue")} />
         <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
+        <SmartButton active={filter === "tomorrow"} icon={CalendarDays} label="Tomorrow" count={smartCounts.tomorrow} onClick={() => setFilter("tomorrow")} />
         <SmartButton active={filter === "scheduled"} icon={CalendarDays} label="Scheduled" count={smartCounts.scheduled} onClick={() => setFilter("scheduled")} />
         <SmartButton active={filter === "all"} icon={Inbox} label="All" count={smartCounts.all} onClick={() => setFilter("all")} />
         <SmartButton active={filter === "flagged"} icon={Flag} label="Flagged" count={smartCounts.flagged} onClick={() => setFilter("flagged")} />
@@ -472,6 +555,6 @@ function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
 }
 
 function viewTitle(filter: string, lists: any[]) {
-  const smart: Record<string, string> = { today: "Today", scheduled: "Scheduled", all: "All", flagged: "Flagged", completed: "Completed" };
+  const smart: Record<string, string> = { overdue: "Overdue", today: "Today", tomorrow: "Tomorrow", scheduled: "Scheduled", all: "All", flagged: "Flagged", completed: "Completed" };
   return smart[filter] ?? lists.find((list) => list.id === filter)?.name ?? "Reminders";
 }
