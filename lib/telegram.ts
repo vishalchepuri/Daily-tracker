@@ -269,6 +269,70 @@ async function summarizeSpendsFromTelegram(userId: string, text: string) {
   ].filter(Boolean).join("\n");
 }
 
+function weekdayFromText(text: string) {
+  const weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  const lower = text.toLowerCase();
+  const found = weekdays.find((day) => lower.includes(day));
+  if (found) return found[0].toUpperCase() + found.slice(1);
+  if (lower.includes("today")) {
+    return new Date().toLocaleDateString("en-US", { weekday: "long" });
+  }
+  return null;
+}
+
+function parseRoutineJson(value?: string | null) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function routineLine(item: any) {
+  const name = String(item?.name ?? item?.title ?? "").trim();
+  const duration = String(item?.duration ?? "").trim();
+  const notes = String(item?.notes ?? "").trim();
+  return [name, duration, notes].filter(Boolean).join(" - ");
+}
+
+async function summarizeWorkoutPlanFromTelegram(userId: string, text: string) {
+  const day = weekdayFromText(text);
+  const templates = await prisma.workoutTemplate.findMany({
+    where: {
+      userId,
+      ...(day ? { dayOfWeek: { equals: day, mode: "insensitive" as const } } : {}),
+    },
+    include: { exercises: { include: { exercise: true }, orderBy: { orderIndex: "asc" } } },
+    orderBy: [{ dayOfWeek: "asc" }, { createdAt: "asc" }],
+    take: day ? 3 : 7,
+  });
+
+  if (templates.length === 0) {
+    return day
+      ? `I could not find a saved workout plan for ${day}. Open Dayza > Workouts or ask Dayza Agent to create one.`
+      : "I could not find any saved workout plans yet. Open Dayza > Workouts or ask Dayza Agent to create one.";
+  }
+
+  return templates.map((template) => {
+    const warmups = parseRoutineJson(template.warmupJson).map(routineLine).filter(Boolean).slice(0, 3);
+    const stretches = parseRoutineJson(template.stretchesJson).map(routineLine).filter(Boolean).slice(0, 3);
+    const exercises = template.exercises.map((item, index) => {
+      const exercise = item.exercise;
+      return `${index + 1}. ${exercise.name} - ${item.sets} x ${item.reps}`;
+    });
+
+    return [
+      `${template.dayOfWeek ? `${template.dayOfWeek} - ` : ""}${template.name}`,
+      template.muscleGroups ? `Focus: ${template.muscleGroups}` : "",
+      warmups.length ? `Warm-up: ${warmups.join("; ")}` : "Warm-up: 5-10 min light cardio + mobility.",
+      exercises.length ? `Exercises:\n${exercises.join("\n")}` : "No exercises saved in this plan yet.",
+      stretches.length ? `Stretches: ${stretches.join("; ")}` : "Stretches: 3-5 min cooldown + target muscle stretches.",
+    ].filter(Boolean).join("\n");
+  }).join("\n\n");
+}
+
 async function logMedicationFromTelegram(userId: string, text: string) {
   const lower = text.toLowerCase();
   const medications = await prisma.medication.findMany({ where: { userId, active: true }, orderBy: { timeOfDay: "asc" } });
@@ -323,6 +387,8 @@ export async function processTelegramText(chatId: string, text: string) {
 
   if (lower === "/whoami" || lower.includes("chat id")) {
     response = `This Telegram chat is linked to Dayza. Chat ID: ${chatId}.`;
+  } else if (/(workout|exercise|training|gym|plan|routine)/i.test(trimmed) && /(what|show|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|have)/i.test(trimmed)) {
+    response = await summarizeWorkoutPlanFromTelegram(userId, trimmed);
   } else if (/how much|total|summary|spent today|spend today|spent this|spend this|expenses?|transactions?/i.test(trimmed) && /(spend|spent|expense|transaction|money)/i.test(trimmed)) {
     response = await summarizeSpendsFromTelegram(userId, trimmed);
   } else if (lower.includes("diet") && (lower.includes("breakfast") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("snack"))) {
