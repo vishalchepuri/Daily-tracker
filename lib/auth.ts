@@ -25,11 +25,16 @@ export async function requireCurrentUser() {
   const session = await getServerSession(authOptions);
   const userId = (session?.user as any)?.id as string | undefined;
   if (!userId) return null;
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, email: true, name: true, image: true },
-  });
-  return user;
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, image: true },
+    });
+    return user;
+  } catch (error) {
+    console.warn("Could not verify current user", error);
+    return null;
+  }
 }
 
 export function isAdminEmail(email?: string | null) {
