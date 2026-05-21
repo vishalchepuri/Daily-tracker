@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, Calculator, Save, Trash2, Linkedin, ExternalLink, X, Send, MessageCircle, RefreshCw } from "lucide-react";
+import { UserCircle, Calculator, Save, Trash2, Send, MessageCircle, RefreshCw } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { signOut } from "next-auth/react";
@@ -247,49 +247,6 @@ export default function ProfilePage() {
               </div>
             </div>
             <Button onClick={handleSave} loading={saving}><Save className="w-4 h-4 mr-2" />Save Profile</Button>
-          </CardContent>
-        </Card>
-      </FadeIn>
-
-      <FadeIn delay={0.15}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Linkedin className="h-5 w-5 text-primary" />
-              LinkedIn
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">Connect your LinkedIn profile URL so Dayza can keep your professional link in your account.</p>
-            <div>
-              <Label>LinkedIn profile URL</Label>
-              <Input
-                value={form.linkedinUrl}
-                onChange={(e) => setForm({ ...form, linkedinUrl: e.target.value })}
-                className="mt-1"
-                placeholder="https://www.linkedin.com/in/your-name"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={handleSave} loading={saving}>
-                <Save className="mr-2 h-4 w-4" />
-                Save LinkedIn
-              </Button>
-              {form.linkedinUrl && (
-                <>
-                  <Button type="button" variant="outline" asChild>
-                    <a href={form.linkedinUrl.startsWith("http") ? form.linkedinUrl : `https://${form.linkedinUrl}`} target="_blank" rel="noreferrer">
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Open
-                    </a>
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setForm({ ...form, linkedinUrl: "" })}>
-                    <X className="mr-2 h-4 w-4" />
-                    Clear
-                  </Button>
-                </>
-              )}
-            </div>
           </CardContent>
         </Card>
       </FadeIn>
