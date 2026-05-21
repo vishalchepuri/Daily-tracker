@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
@@ -107,11 +108,18 @@ async function gmailFetch(account: any, url: string) {
   return fetch(url, { headers: { Authorization: `Bearer ${account.access_token}` } });
 }
 
-export async function POST() {
+export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
+    const limited = rateLimit(req, "gmail-import", { limit: 6, windowMs: 60 * 60 * 1000, userId });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many Gmail imports. Please try again later." },
+        { status: 429, headers: rateLimitHeaders(limited) }
+      );
+    }
 
     let account = await prisma.account.findFirst({
       where: { userId, provider: "google" },

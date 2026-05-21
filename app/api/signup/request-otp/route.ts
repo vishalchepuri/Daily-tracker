@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import crypto from "crypto";
 
 function normalizeEmail(email: unknown) {
@@ -43,6 +44,14 @@ async function sendOtpEmail(email: string, otp: string) {
 
 export async function POST(req: Request) {
   try {
+    const limited = rateLimit(req, "signup-otp", { limit: 5, windowMs: 60 * 60 * 1000 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many verification code requests. Please try again later." },
+        { status: 429, headers: rateLimitHeaders(limited) }
+      );
+    }
+
     const { email } = await req.json();
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail) {

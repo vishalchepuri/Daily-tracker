@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 import { signIn } from "next-auth/react";
-import { PlayCircle, RefreshCw, Sparkles, Youtube } from "lucide-react";
+import { PlayCircle, RefreshCw, Sparkles, TrendingUp, Youtube } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +20,20 @@ function formatDuration(seconds?: number) {
     return `${hours}:${String(mins).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`;
   }
   return `${minutes}:${String(remaining).padStart(2, "0")}`;
+}
+
+function formatViews(value?: number | null) {
+  if (!value) return "";
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M views`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K views`;
+  return `${value} views`;
+}
+
+function priorityLabel(score?: number) {
+  if ((score ?? 0) >= 55) return "Must watch";
+  if ((score ?? 0) >= 35) return "High priority";
+  if ((score ?? 0) >= 18) return "Useful";
+  return "Low signal";
 }
 
 export default function YtSummaryPage() {
@@ -160,7 +174,7 @@ export default function YtSummaryPage() {
         <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Pick a subscribed channel, choose a recent video, and get a quick summary.</p>
+            <p className="mt-1 text-sm text-muted-foreground">AI and tech videos are prioritized first, with short descriptions and focused summaries.</p>
           </div>
           <Button variant="outline" onClick={loadSubscriptions} disabled={loadingSubscriptions}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
@@ -228,6 +242,7 @@ export default function YtSummaryPage() {
                   <div className="flex gap-2 text-xs text-muted-foreground">
                     <Badge variant="secondary">{videos.filter((video) => video.kind === "video").length} videos</Badge>
                     <Badge variant="outline">{videos.filter((video) => video.kind === "short").length} shorts</Badge>
+                    <Badge variant="outline">Sorted by AI/tech signal</Badge>
                   </div>
                 )}
               </div>
@@ -245,10 +260,26 @@ export default function YtSummaryPage() {
                     <button key={video.id} type="button" onClick={() => summarizeVideo(video)} className={`overflow-hidden rounded-lg border bg-muted/30 text-left transition hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}>
                       {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}
                       <div className="space-y-2 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <Badge variant={(video.priorityScore ?? 0) >= 35 ? "default" : "secondary"} className="gap-1">
+                            <TrendingUp className="h-3 w-3" />
+                            {priorityLabel(video.priorityScore)}
+                          </Badge>
+                          <span className="text-xs text-muted-foreground">Score {video.priorityScore ?? 0}</span>
+                        </div>
                         <p className="line-clamp-2 text-sm font-semibold">{video.title}</p>
+                        {video.description && <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{video.description}</p>}
+                        {video.matchedTopics?.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {video.matchedTopics.slice(0, 3).map((topic: string) => (
+                              <Badge key={topic} variant="outline" className="text-[10px] capitalize">{topic}</Badge>
+                            ))}
+                          </div>
+                        )}
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline">{new Date(video.publishedAt).toLocaleDateString()}</Badge>
                           {video.durationSeconds > 0 && <Badge variant="outline">{formatDuration(video.durationSeconds)}</Badge>}
+                          {video.viewCount > 0 && <Badge variant="outline">{formatViews(video.viewCount)}</Badge>}
                           <Badge variant={video.kind === "video" ? "default" : "outline"}>{video.kind === "video" ? "Video" : "Short"}</Badge>
                           <Badge variant="secondary">Summarize</Badge>
                         </div>

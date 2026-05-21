@@ -32,6 +32,20 @@ export async function requireCurrentUser() {
   return user;
 }
 
+export function isAdminEmail(email?: string | null) {
+  const admins = (process.env.ADMIN_EMAILS ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return Boolean(email && admins.includes(email.toLowerCase()));
+}
+
+export async function requireAdminUser() {
+  const user = await requireCurrentUser();
+  if (!user || !isAdminEmail(user.email)) return null;
+  return user;
+}
+
 export const authOptions: NextAuthOptions = {
   adapter: {
     ...adapter,

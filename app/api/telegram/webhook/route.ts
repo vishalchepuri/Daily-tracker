@@ -5,6 +5,9 @@ import { processTelegramMessage, sendTelegramMessage } from "@/lib/telegram";
 export async function POST(req: Request) {
   try {
     const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+    if (process.env.NODE_ENV === "production" && !expectedSecret) {
+      return NextResponse.json({ ok: false, error: "Telegram webhook secret is not configured" }, { status: 503 });
+    }
     if (expectedSecret && req.headers.get("x-telegram-bot-api-secret-token") !== expectedSecret) {
       return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
     }

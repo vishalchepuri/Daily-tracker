@@ -2,13 +2,32 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { getPublicTranscript, youtubeFetch } from "@/lib/youtube";
+
+function cleanSummaryText(value: string) {
+  return value
+    .replace(/^#{1,6}\s*/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/\*(.*?)\*/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "- ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
 
 export async function POST(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
+    const limited = rateLimit(req, "youtube-summary", { limit: 20, windowMs: 60 * 60 * 1000, userId });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many YouTube summaries. Please try again later." },
+        { status: 429, headers: rateLimitHeaders(limited) }
+      );
+    }
+
     const { videoId } = await req.json();
     if (!videoId) return NextResponse.json({ error: "Video ID required" }, { status: 400 });
 
@@ -37,7 +56,8 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: "You summarize YouTube videos clearly. Return concise markdown with: Short summary, Key points, Useful takeaways, and Who should watch. If only metadata is available, say the summary is based on title/description.",
+            content:
+              "You summarize AI and technology YouTube videos for a busy builder. Return clean plain text only, with no markdown symbols, no ## headings, no asterisks, and no tables. Keep it simple and useful. Use this exact structure with short labels: Verdict, Short summary, Important points, What you can use, Watch or skip. Important points should capture the most valuable technical ideas, tools, models, product updates, risks, numbers, and action items. If only metadata is available, say the summary is based on title and description.",
           },
           {
             role: "user",
@@ -60,7 +80,7 @@ export async function POST(req: Request) {
         thumbnail: video.snippet?.thumbnails?.medium?.url ?? video.snippet?.thumbnails?.default?.url,
       },
       source: sourceLabel,
-      summary: data?.choices?.[0]?.message?.content ?? "No summary generated.",
+      summary: cleanSummaryText(data?.choices?.[0]?.message?.content ?? "No summary generated."),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed to summarize video" }, { status: 500 });

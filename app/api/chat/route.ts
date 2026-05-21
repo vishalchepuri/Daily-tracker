@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const CHAT_IMAGE_RETENTION_DAYS = 7;
 const MAX_CHAT_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -928,6 +929,14 @@ export async function POST(req: Request) {
     }
 
     const userId = (session.user as any)?.id;
+    const limited = rateLimit(req, "dayza-agent", { limit: 60, windowMs: 60 * 60 * 1000, userId });
+    if (!limited.ok) {
+      return new Response(JSON.stringify({ error: "Too many Dayza Agent messages. Please try again later." }), {
+        status: 429,
+        headers: { "Content-Type": "application/json", ...rateLimitHeaders(limited) },
+      });
+    }
+
     const { message, imageDataUrl, sessionId } = await req.json();
     const hasImage = isDataImageUrl(imageDataUrl);
     if (!message && !hasImage) {
