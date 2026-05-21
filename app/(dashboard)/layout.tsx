@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { DashboardShell } from "./_components/dashboard-shell";
 import { prisma } from "@/lib/db";
-import { requireCurrentUser } from "@/lib/auth";
+import { isAdminEmail, requireCurrentUser } from "@/lib/auth";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await requireCurrentUser();
@@ -12,5 +12,5 @@ export default async function DashboardLayout({ children }: { children: React.Re
       console.warn("Could not load user profile", error);
       return undefined;
     });
-  return <DashboardShell user={user} initialProfile={profile}>{children}</DashboardShell>;
+  return <DashboardShell user={user} initialProfile={profile} isAdmin={isAdminEmail(user.email)}>{children}</DashboardShell>;
 }

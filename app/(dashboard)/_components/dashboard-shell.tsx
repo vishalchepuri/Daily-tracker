@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
-  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube
+  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,8 @@ const navItems = [
   { label: "Progress", href: "/progress", icon: TrendingUp },
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
+
+const adminNavItem = { label: "Admin", href: "/admin", icon: Shield };
 
 const mobileNavItems = navItems.filter((item) =>
   ["/dashboard", "/reminders", "/medications", "/nutrition", "/workouts"].includes(item.href)
@@ -113,6 +115,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Translate preferences into a coaching plan.",
     ],
   },
+  "/admin": {
+    label: "Admin",
+    suggestions: [
+      "Review registered users and account activity.",
+      "Check whether production data is growing normally.",
+      "Spot users who may need support.",
+    ],
+  },
   "/chat": {
     label: "Dayza Agent",
     suggestions: [
@@ -133,7 +143,7 @@ function isProfileComplete(profile: any) {
   return Boolean(profile?.age && profile?.weight && profile?.height);
 }
 
-export function DashboardShell({ children, user, initialProfile }: { children: React.ReactNode; user: any; initialProfile?: any }) {
+export function DashboardShell({ children, user, initialProfile, isAdmin = false }: { children: React.ReactNode; user: any; initialProfile?: any; isAdmin?: boolean }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
   const [profileComplete, setProfileComplete] = useState(isProfileComplete(initialProfile));
@@ -153,6 +163,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
   const router = useRouter();
   const [isRoutePending, startRouteTransition] = useTransition();
   const currentFeature = getFeatureHelp(pathname);
+  const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
 
   const goToFeature = (href: string) => {
     setSidebarOpen(false);
@@ -339,7 +350,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
         </div>
 
         <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto ios-scroll">
-          {(navItems ?? []).map((item: any) => {
+          {(visibleNavItems ?? []).map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
             return (
               <button
@@ -391,7 +402,7 @@ export function DashboardShell({ children, user, initialProfile }: { children: R
             <Menu className="w-6 h-6" />
           </button>
           <h1 className="font-display font-semibold text-lg tracking-tight">
-            {(navItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
+            {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto ios-scroll p-3 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] lg:p-6 lg:pb-6">
