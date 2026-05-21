@@ -105,12 +105,17 @@ export default function ProfilePage() {
   };
 
   const saveTelegram = async () => {
+    const telegramChatId = telegramForm.telegramChatId.trim();
+    if (!telegramChatId) {
+      toast.error("Paste your Telegram chat ID first");
+      return;
+    }
     setSavingTelegram(true);
     try {
       const res = await fetch("/api/telegram-settings", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(telegramForm),
+        body: JSON.stringify({ ...telegramForm, telegramChatId, telegramEnabled: true }),
       });
       const data = await res.json();
       if (!res.ok) {
