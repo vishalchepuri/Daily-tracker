@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ensureStarterExerciseLibrarySafe } from "@/lib/exercise-library";
 
@@ -26,6 +28,8 @@ function slugify(value: string) {
 
 export async function POST(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const data = await req.json();
     if (!data?.name || !data?.muscleGroup) {
       return NextResponse.json({ error: "Name and muscle group are required" }, { status: 400 });
@@ -58,6 +62,8 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const data = await req.json();
     if (!data?.id || !data?.name || !data?.muscleGroup) {
       return NextResponse.json({ error: "ID, name, and muscle group are required" }, { status: 400 });
@@ -82,6 +88,8 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const data = await req.json();
     if (!data?.id) {
       return NextResponse.json({ error: "Exercise ID is required" }, { status: 400 });
