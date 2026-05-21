@@ -16,6 +16,13 @@ function scopeHas(scope: string | null | undefined, value: string) {
   return Boolean(scope?.split(/\s+/).includes(value));
 }
 
+const YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
+const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+
+function hasFeatureScope(scope: string | null | undefined) {
+  return scopeHas(scope, YOUTUBE_READONLY_SCOPE) || scopeHas(scope, GMAIL_READONLY_SCOPE);
+}
+
 function mergeScopes(...scopes: Array<string | null | undefined>) {
   return Array.from(new Set(scopes.flatMap((scope) => scope?.split(/\s+/).filter(Boolean) ?? []))).join(" ");
 }
@@ -177,16 +184,16 @@ export const authOptions: NextAuthOptions = {
 
       const incomingScope = account.scope ?? "";
       const existingScope = existingAccount?.scope ?? "";
-      const incomingHasYouTube = scopeHas(incomingScope, "https://www.googleapis.com/auth/youtube.readonly");
-      const existingHasYouTube = scopeHas(existingScope, "https://www.googleapis.com/auth/youtube.readonly");
+      const incomingHasFeatureScope = hasFeatureScope(incomingScope);
+      const existingHasFeatureScope = hasFeatureScope(existingScope);
 
       if (existingAccount) {
         await prisma.account.update({
           where: { id: existingAccount.id },
           data: {
             refresh_token: account.refresh_token ?? existingAccount.refresh_token,
-            access_token: incomingHasYouTube || !existingHasYouTube ? account.access_token ?? existingAccount.access_token : existingAccount.access_token,
-            expires_at: incomingHasYouTube || !existingHasYouTube ? account.expires_at : undefined,
+            access_token: incomingHasFeatureScope || !existingHasFeatureScope ? account.access_token ?? existingAccount.access_token : existingAccount.access_token,
+            expires_at: incomingHasFeatureScope || !existingHasFeatureScope ? account.expires_at : undefined,
             token_type: account.token_type,
             scope: mergeScopes(existingScope, incomingScope),
             id_token: account.id_token,

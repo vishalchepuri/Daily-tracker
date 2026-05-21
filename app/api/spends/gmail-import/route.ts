@@ -145,7 +145,15 @@ export async function POST(req: Request) {
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(receiptQuery)}&maxResults=${MAX_EMAILS_PER_RUN}`
     );
     if (!listRes.ok) {
-      return NextResponse.json({ error: "Could not read Gmail. Please reconnect Google." }, { status: 400 });
+      const data = await listRes.json().catch(() => ({}));
+      const message = data?.error?.message || "Could not read Gmail. Please reconnect Google and approve Gmail read-only access.";
+      return NextResponse.json(
+        {
+          error: message,
+          needsConnection: listRes.status === 401 || listRes.status === 403,
+        },
+        { status: 400 }
+      );
     }
 
     const listData = await listRes.json();
