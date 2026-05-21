@@ -206,6 +206,69 @@ async function logSpendFromTelegram(userId: string, text: string) {
   return `Logged ₹${Math.round(result.amount)} spend at ${result.merchant} as ${result.category ?? "Other"}.`;
 }
 
+function spendRangeFromText(text: string) {
+  const lower = text.toLowerCase();
+  const now = new Date();
+  const start = new Date(now);
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  if (lower.includes("week")) {
+    const day = start.getDay();
+    const diff = day === 0 ? 6 : day - 1;
+    start.setDate(start.getDate() - diff);
+    start.setHours(0, 0, 0, 0);
+    return { label: "this week", start, end };
+  }
+
+  if (lower.includes("month")) {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    return { label: "this month", start, end };
+  }
+
+  if (lower.includes("yesterday")) {
+    start.setDate(start.getDate() - 1);
+    start.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() - 1);
+    return { label: "yesterday", start, end };
+  }
+
+  start.setHours(0, 0, 0, 0);
+  return { label: "today", start, end };
+}
+
+async function summarizeSpendsFromTelegram(userId: string, text: string) {
+  const range = spendRangeFromText(text);
+  const spends = await prisma.spend.findMany({
+    where: { userId, date: { gte: range.start, lte: range.end } },
+    orderBy: { date: "desc" },
+    take: 50,
+  });
+
+  const total = spends.reduce((sum, item) => sum + item.amount, 0);
+  if (spends.length === 0) return `No spends logged ${range.label}.`;
+
+  const categoryTotals = new Map<string, number>();
+  for (const spend of spends) {
+    const category = spend.category || "Other";
+    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + spend.amount);
+  }
+  const topCategories = Array.from(categoryTotals.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([category, amount]) => `${category}: INR ${Math.round(amount)}`)
+    .join(", ");
+  const latest = spends.slice(0, 3).map((item) => `${item.merchant}: INR ${Math.round(item.amount)}`).join("; ");
+
+  return [
+    `You spent INR ${Math.round(total)} ${range.label}.`,
+    `Transactions: ${spends.length}.`,
+    topCategories ? `Top categories: ${topCategories}.` : "",
+    latest ? `Latest: ${latest}.` : "",
+  ].filter(Boolean).join("\n");
+}
+
 async function logMedicationFromTelegram(userId: string, text: string) {
   const lower = text.toLowerCase();
   const medications = await prisma.medication.findMany({ where: { userId, active: true }, orderBy: { timeOfDay: "asc" } });
@@ -260,6 +323,8 @@ export async function processTelegramText(chatId: string, text: string) {
 
   if (lower === "/whoami" || lower.includes("chat id")) {
     response = `This Telegram chat is linked to Dayza. Chat ID: ${chatId}.`;
+  } else if (/how much|total|summary|spent today|spend today|spent this|spend this|expenses?|transactions?/i.test(trimmed) && /(spend|spent|expense|transaction|money)/i.test(trimmed)) {
+    response = await summarizeSpendsFromTelegram(userId, trimmed);
   } else if (lower.includes("diet") && (lower.includes("breakfast") || lower.includes("lunch") || lower.includes("dinner") || lower.includes("snack"))) {
     response = await logDietMeal(userId, lower);
   } else if (/(spent|spend|debited|credited|upi|card|rs\.?|inr|₹)/i.test(trimmed) && parseMoney(trimmed)) {
