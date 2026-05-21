@@ -113,6 +113,7 @@ export async function POST(req: Request) {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
+    const email = session.user.email?.trim().toLowerCase();
     const limited = rateLimit(req, "gmail-import", { limit: 6, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json(
@@ -121,8 +122,28 @@ export async function POST(req: Request) {
       );
     }
 
+    const currentUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          ...(userId ? [{ id: userId }] : []),
+          ...(email ? [{ email }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+
+    if (!currentUser) {
+      return NextResponse.json({ error: "Your session is no longer valid. Please sign in again." }, { status: 401 });
+    }
+
     let account = await prisma.account.findFirst({
-      where: { userId, provider: "google" },
+      where: {
+        provider: "google",
+        OR: [
+          { userId: currentUser.id },
+          ...(email ? [{ user: { email } }] : []),
+        ],
+      },
       orderBy: { id: "desc" },
     });
 
@@ -167,7 +188,7 @@ export async function POST(req: Request) {
     for (const message of messages) {
       scanned += 1;
       const existing = await prisma.spend.findUnique({
-        where: { userId_gmailMessageId: { userId, gmailMessageId: message.id } },
+        where: { userId_gmailMessageId: { userId: currentUser.id, gmailMessageId: message.id } },
       });
       if (existing) {
         skippedDuplicates += 1;
@@ -206,7 +227,7 @@ export async function POST(req: Request) {
 
       await prisma.spend.create({
         data: {
-          userId,
+          userId: currentUser.id,
           merchant: parsed.merchant,
           amount: parsed.amount,
           currency: parsed.currency,
