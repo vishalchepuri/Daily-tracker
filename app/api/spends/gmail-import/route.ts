@@ -8,11 +8,15 @@ import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
-const receiptQuery = 'newer_than:90d (receipt OR invoice OR "order total" OR payment OR paid OR purchase OR debited OR credited OR transaction)';
+const receiptQuery = 'newer_than:90d ("payment successful" OR "payment received" OR "amount debited" OR "amount credited" OR "debited from" OR "credited to" OR "transaction successful" OR "card charged" OR receipt)';
 const candidatePattern =
   /(receipt|invoice|order|payment|paid|purchase|transaction|debited|credited|spent|charged|upi|card|statement|rs\.?|inr|₹|\$)/i;
 const sensitiveCodePattern =
   /\b(otp|one[-\s]?time password|verification code|security code|login code|auth code|2fa|two[-\s]?factor|password reset|reset password|passcode)\b/i;
+const strictTransactionPattern =
+  /(payment successful|payment received|paid|debited|credited|charged|spent|transaction successful|receipt|upi transaction|card transaction)/i;
+const nonTransactionPattern =
+  /(out for delivery|delivered|picked up|shipped|arriving|track your order|last day to pay|pay your bill|bill due|e-?bill|statement|summary|subscription has ended|subscription ended|renew now|offer|sale|discount|elevate your|experience|marketing|newsletter|verification|otp|password|jioairfiber|fixedvoice)/i;
 const STORE_GMAIL_METADATA = process.env.STORE_GMAIL_METADATA === "true";
 
 function decodeBase64Url(value?: string) {
@@ -77,13 +81,20 @@ async function refreshGoogleAccessToken(account: any) {
 
 function parseSpend(text: string, subject: string) {
   const haystack = `${subject}\n${text}`.replace(/\s+/g, " ");
+  if (nonTransactionPattern.test(haystack)) return null;
+  if (!strictTransactionPattern.test(haystack)) return null;
+  const strictAmountMatch =
+    haystack.match(/(?:paid|charged|payment(?:\s+of)?|amount(?:\s+of)?|debited|credited|spent|transaction(?:\s+of)?)[^\d$]{0,50}([$]?\s?\d{1,8}(?:[,.]\d{2})?)/i) ??
+    haystack.match(/(?:paid|charged|payment(?:\s+of)?|amount(?:\s+of)?|debited|credited|spent|transaction(?:\s+of)?)[^\d]{0,50}(?:rs\.?|inr)\s?(\d{1,8}(?:[,.]\d{2})?)/i) ??
+    haystack.match(/(?:rs\.?|inr)\s?(\d{1,8}(?:[,.]\d{2})?)[^\w]{0,50}(?:paid|charged|debited|credited|spent|payment|transaction successful)/i);
+  if (!strictAmountMatch) return null;
   const amountMatch =
     haystack.match(/(?:total|amount|paid|charged|payment|order total|debited|credited|spent)[^\d$₹€£]{0,40}([$₹€£]?\s?\d{1,8}(?:[,.]\d{2})?)/i) ??
     haystack.match(/([$₹€£]\s?\d{1,8}(?:[,.]\d{2})?)/) ??
     haystack.match(/(?:rs\.?|inr)\s?(\d{1,8}(?:[,.]\d{2})?)/i);
   if (!amountMatch) return null;
 
-  const amountToken = amountMatch[1];
+  const amountToken = strictAmountMatch[1];
   const rawAmount = amountToken.replace(/[^\d.,]/g, "").replace(/,/g, "");
   const amount = Number(rawAmount);
   if (!Number.isFinite(amount) || amount <= 0) return null;
@@ -122,35 +133,30 @@ export async function POST(req: Request) {
       );
     }
 
-    const currentUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          ...(userId ? [{ id: userId }] : []),
-          ...(email ? [{ email }] : []),
-        ],
-      },
-      select: { id: true },
-    });
+    const currentUser = email
+      ? await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      : userId
+        ? await prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
+        : null;
 
     if (!currentUser) {
       return NextResponse.json({ error: "Your session is no longer valid. Please sign in again." }, { status: 401 });
     }
 
-    let account = await prisma.account.findFirst({
-      where: {
-        provider: "google",
-        OR: [
-          { userId: currentUser.id },
-          ...(email ? [{ user: { email } }] : []),
-        ],
-      },
-      orderBy: { id: "desc" },
-    });
+    let account = email
+      ? await prisma.account.findFirst({
+          where: { provider: "google", user: { email } },
+          orderBy: { id: "desc" },
+        })
+      : await prisma.account.findFirst({
+          where: { userId: currentUser.id, provider: "google" },
+          orderBy: { id: "desc" },
+        });
 
     if (!account?.access_token || !hasScope(account.scope)) {
       return NextResponse.json(
         {
-          error: "Gmail is not connected. Click Connect Gmail, approve Gmail read-only access, then import again.",
+          error: `Gmail is not connected for ${email ?? "this account"}. Click Connect Gmail, approve Gmail read-only access, then import again.`,
           needsConnection: true,
         },
         { status: 400 }
@@ -209,7 +215,7 @@ export async function POST(req: Request) {
         filteredOut += 1;
         continue;
       }
-      if (!candidatePattern.test(quickText)) {
+      if (nonTransactionPattern.test(quickText) || !strictTransactionPattern.test(quickText)) {
         filteredOut += 1;
         continue;
       }

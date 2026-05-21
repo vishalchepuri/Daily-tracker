@@ -621,7 +621,7 @@ export default function SpendsPage() {
       const data = await res.json();
       if (!res.ok) {
         if (data?.needsConnection) {
-          toast.error("Connect Gmail first");
+          toast.error(data?.error ?? "Connect Gmail first");
           return;
         }
         toast.error(data?.error ?? "Gmail import failed");
