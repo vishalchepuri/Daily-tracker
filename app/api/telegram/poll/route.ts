@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { processTelegramText, sendTelegramMessage } from "@/lib/telegram";
+import { processTelegramMessage, sendTelegramMessage } from "@/lib/telegram";
 
 export async function POST() {
   try {
@@ -28,9 +28,11 @@ export async function POST() {
       nextOffset = Math.max(nextOffset, Number(update.update_id) + 1);
       const message = update?.message ?? update?.edited_message;
       const chatId = message?.chat?.id == null ? "" : String(message.chat.id);
-      const text = message?.text;
-      if (!chatId || !text) continue;
-      const botResponse = await processTelegramText(chatId, text);
+      const text = message?.text ?? message?.caption ?? "";
+      const photo = Array.isArray(message?.photo) ? message.photo.at(-1) : null;
+      const photoFileId = photo?.file_id ? String(photo.file_id) : null;
+      if (!chatId || (!text && !photoFileId)) continue;
+      const botResponse = await processTelegramMessage(chatId, text, { photoFileId });
       await sendTelegramMessage(chatId, botResponse);
       processed += 1;
     }

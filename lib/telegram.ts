@@ -135,9 +135,20 @@ async function getTelegramSession(userId: string) {
   return prisma.chatSession.create({ data: { userId, title: "Telegram Bot" } });
 }
 
-async function saveTelegramChat(userId: string, role: "user" | "assistant", content: string) {
+async function saveTelegramChat(userId: string, role: "user" | "assistant", content: string, attachmentFileId?: string | null) {
   const session = await getTelegramSession(userId);
-  await prisma.chatMessage.create({ data: { userId, sessionId: session.id, role, content: `[Telegram] ${content}` } });
+  const message = await prisma.chatMessage.create({ data: { userId, sessionId: session.id, role, content: `[Telegram] ${content}` } });
+  if (attachmentFileId) {
+    await prisma.chatAttachment.create({
+      data: {
+        userId,
+        sessionId: session.id,
+        messageId: message.id,
+        kind: "telegram_photo",
+        cloudStoragePath: attachmentFileId,
+      },
+    });
+  }
   await prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
 }
 
@@ -371,6 +382,10 @@ function helpText(chatId: string) {
 }
 
 export async function processTelegramText(chatId: string, text: string) {
+  return processTelegramMessage(chatId, text);
+}
+
+export async function processTelegramMessage(chatId: string, text: string, options?: { photoFileId?: string | null }) {
   const trimmed = text.trim();
   const lower = trimmed.toLowerCase();
   if (lower === "/start" || lower === "/help" || lower === "help") return helpText(chatId);
@@ -381,11 +396,15 @@ export async function processTelegramText(chatId: string, text: string) {
   if (!profile) return `This Telegram chat is not linked to a Dayza account yet.\n\nYour chat ID: ${chatId}\n\nOpen Dayza > Reminders > Telegram, paste this chat ID, and enable Telegram.`;
 
   const userId = profile.userId;
-  await saveTelegramChat(userId, "user", trimmed);
+  await saveTelegramChat(userId, "user", options?.photoFileId ? `${trimmed || "Photo uploaded"}\n[Photo: ${options.photoFileId}]` : trimmed, options?.photoFileId);
 
   let response = "I saved that to your account.";
 
-  if (lower === "/whoami" || lower.includes("chat id")) {
+  if (options?.photoFileId && !trimmed) {
+    response = "I received your photo. Add a short caption like: logged Machine Chest Press 3 sets 10 reps 25kg, food: 2 idli, or spend: INR 250 at Zepto.";
+  } else if (options?.photoFileId && /(done|did|completed|sets?|workout|exercise|gym)/i.test(trimmed) && !/(bench|press|curl|row|squat|deadlift|pulldown|raise|extension|pushdown|leg|plank|kg|reps?)/i.test(trimmed)) {
+    response = "I can see you uploaded a workout photo, but I need the exercise details to log it accurately. Reply like: Machine Chest Press, 3 sets, 10 reps, 25kg.";
+  } else if (lower === "/whoami" || lower.includes("chat id")) {
     response = `This Telegram chat is linked to Dayza. Chat ID: ${chatId}.`;
   } else if (/(workout|exercise|training|gym|plan|routine)/i.test(trimmed) && /(what|show|today|monday|tuesday|wednesday|thursday|friday|saturday|sunday|have)/i.test(trimmed)) {
     response = await summarizeWorkoutPlanFromTelegram(userId, trimmed);
