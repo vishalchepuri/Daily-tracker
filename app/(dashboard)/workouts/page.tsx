@@ -20,6 +20,9 @@ import {
 import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
+import dynamic from "next/dynamic";
+
+const PersonalRecordsTab = dynamic(() => import('./_components/personal-records').then(m => ({ default: m.PersonalRecordsTab })), { ssr: false, loading: () => <div className="h-48 bg-muted animate-pulse rounded-lg" /> });
 
 type RoutineItem = {
   name: string;
@@ -859,10 +862,11 @@ export default function WorkoutsPage() {
       )}
 
       <Tabs defaultValue="programs" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
+        <TabsList className="grid h-auto w-full grid-cols-4 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
           <TabsTrigger value="programs" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Programs</TabsTrigger>
           <TabsTrigger value="exercises" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Library</TabsTrigger>
           <TabsTrigger value="history" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">History</TabsTrigger>
+          <TabsTrigger value="prs" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-yellow-500/30 data-[state=active]:!bg-yellow-500/15 data-[state=active]:!text-yellow-600 sm:h-10"><Trophy className="w-4 h-4 mr-1" />PRs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="programs" className="space-y-4">
@@ -1077,6 +1081,10 @@ export default function WorkoutsPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="prs" className="space-y-4">
+          <PersonalRecordsTab />
         </TabsContent>
       </Tabs>
 

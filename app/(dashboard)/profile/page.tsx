@@ -5,13 +5,33 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UserCircle, Calculator, Save, Trash2, Send, MessageCircle, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import {
+  Activity,
+  Banknote,
+  Bot,
+  Calculator,
+  CalendarCheck,
+  Dumbbell,
+  Pill,
+  Save,
+  Send,
+  MessageCircle,
+  RefreshCw,
+  Trash2,
+  TrendingUp,
+  UserCircle,
+  Utensils,
+  WalletCards,
+} from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { signOut } from "next-auth/react";
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
+  const [activityItems, setActivityItems] = useState<any[]>([]);
+  const [activityCounts, setActivityCounts] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingTelegram, setSavingTelegram] = useState(false);
@@ -51,6 +71,10 @@ export default function ProfilePage() {
         telegramEnabled: Boolean(d?.telegramEnabled),
         botConfigured: Boolean(d?.botConfigured),
       });
+    }).catch(console.error);
+    fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
+      setActivityItems(d?.items ?? []);
+      setActivityCounts(d?.counts ?? {});
     }).catch(console.error);
   }, []);
 
@@ -172,7 +196,7 @@ export default function ProfilePage() {
   if (loading) return <div className="h-64 bg-muted animate-pulse rounded-lg" />;
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6">
       <FadeIn>
         <h2 className="text-2xl font-display font-bold tracking-tight">Profile & Goals</h2>
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
@@ -337,6 +361,62 @@ export default function ProfilePage() {
         </FadeIn>
       )}
 
+      <FadeIn delay={0.25}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="h-5 w-5 text-primary" />
+              Recent Activity
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">Shows activity from the last 30 days.</p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <ActivityMetric label="Total events" value={activityItems.length} />
+              <ActivityMetric label="Money events" value={(activityCounts.spend ?? 0) + (activityCounts.money ?? 0)} />
+              <ActivityMetric label="Fitness events" value={(activityCounts.workout ?? 0) + (activityCounts.progress ?? 0)} />
+              <ActivityMetric label="Plan events" value={(activityCounts.reminder ?? 0) + (activityCounts.medication ?? 0)} />
+            </div>
+            {activityItems.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                No activity yet.
+              </div>
+            ) : (
+              <div className="relative max-h-[32rem] space-y-3 overflow-y-auto pr-1 before:absolute before:left-4 before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border ios-scroll">
+                {activityItems.map((item) => {
+                  const meta = activityMeta(item.type);
+                  const Icon = meta.icon;
+                  return (
+                    <a
+                      key={item.id}
+                      href={item.href}
+                      className="relative grid grid-cols-[2rem_1fr] gap-3 rounded-lg p-2 transition hover:bg-muted/40"
+                    >
+                      <div className={`z-10 flex h-8 w-8 items-center justify-center rounded-full border ${meta.className}`}>
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 rounded-lg border border-border bg-card p-3">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="break-words text-sm font-semibold">{item.title}</p>
+                              <Badge variant="secondary">{meta.label}</Badge>
+                            </div>
+                            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{formatActivityDetail(item.detail)}</p>
+                          </div>
+                          {item.amount && <span className="whitespace-nowrap font-mono text-sm font-semibold">{item.amount}</span>}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">{formatActivityDate(item.at)}</p>
+                      </div>
+                    </a>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
       <FadeIn delay={0.3}>
         <Card className="border-destructive/30">
           <CardHeader>
@@ -360,6 +440,39 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
+    </div>
+  );
+}
+
+function formatActivityDate(value?: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function formatActivityDetail(value?: string) {
+  if (!value) return "";
+  return value.replace(/\s-\s/g, " - ");
+}
+
+function activityMeta(type: string) {
+  const map: Record<string, { label: string; icon: any; className: string }> = {
+    spend: { label: "Spend", icon: WalletCards, className: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
+    money: { label: "Lend/Borrow", icon: Banknote, className: "bg-cyan-500/10 text-cyan-400 border-cyan-500/30" },
+    workout: { label: "Workout", icon: Dumbbell, className: "bg-blue-500/10 text-blue-400 border-blue-500/30" },
+    food: { label: "Food", icon: Utensils, className: "bg-orange-500/10 text-orange-400 border-orange-500/30" },
+    progress: { label: "Progress", icon: TrendingUp, className: "bg-purple-500/10 text-purple-400 border-purple-500/30" },
+    reminder: { label: "Reminder", icon: CalendarCheck, className: "bg-yellow-500/10 text-yellow-400 border-yellow-500/30" },
+    medication: { label: "Medication", icon: Pill, className: "bg-pink-500/10 text-pink-400 border-pink-500/30" },
+    agent: { label: "Agent", icon: Bot, className: "bg-primary/10 text-primary border-primary/30" },
+  };
+  return map[type] ?? { label: "Activity", icon: Activity, className: "bg-muted text-muted-foreground border-border" };
+}
+
+function ActivityMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-border bg-muted/25 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 font-mono text-xl font-bold">{value}</p>
     </div>
   );
 }

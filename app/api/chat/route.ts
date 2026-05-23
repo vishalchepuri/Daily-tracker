@@ -115,20 +115,10 @@ type AgentAction =
       }>;
     }
   | {
-      type: "create_sleep_log";
-      date?: string;
-      totalMinutes: number;
-      awakeMinutes?: number;
-      remMinutes?: number;
-      coreMinutes?: number;
-      deepMinutes?: number;
-    }
-  | {
       type: "update_wellness_targets";
       targetSteps?: number;
       targetActiveEnergy?: number;
       targetExerciseMinutes?: number;
-      targetSleepMinutes?: number;
       targetWorkoutSessions?: number;
       targetTrainingMinutes?: number;
       targetLiftVolume?: number;
@@ -830,50 +820,11 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
     return { type: action.type, label: "Logged workout", id: log.id };
   }
 
-  if (action.type === "create_sleep_log") {
-    const baseDate = action.date ? new Date(action.date) : new Date();
-    const startDate = new Date(baseDate);
-    startDate.setHours(0, 0, 0, 0);
-    const externalBase = `ai-sleep:${userId}:${startDate.toISOString()}`;
-    const rows = [
-      { type: "sleep_minutes", value: toNumber(action.totalMinutes), unit: "min", source: "AI Sleep Screenshot", suffix: "total" },
-      { type: "sleep_awake_minutes", value: toNumber(action.awakeMinutes), unit: "min", source: "AI Sleep Screenshot Awake", suffix: "awake" },
-      { type: "sleep_rem_minutes", value: toNumber(action.remMinutes), unit: "min", source: "AI Sleep Screenshot REM", suffix: "rem" },
-      { type: "sleep_core_minutes", value: toNumber(action.coreMinutes), unit: "min", source: "AI Sleep Screenshot Core", suffix: "core" },
-      { type: "sleep_deep_minutes", value: toNumber(action.deepMinutes), unit: "min", source: "AI Sleep Screenshot Deep", suffix: "deep" },
-    ].filter((row) => row.value > 0);
-
-    for (const row of rows) {
-      await prisma.healthMetric.upsert({
-        where: { userId_externalId: { userId, externalId: `${externalBase}:${row.suffix}` } },
-        update: {
-          value: row.value,
-          unit: row.unit,
-          source: row.source,
-          startDate,
-          endDate: null,
-        },
-        create: {
-          userId,
-          type: row.type,
-          value: row.value,
-          unit: row.unit,
-          source: row.source,
-          startDate,
-          endDate: null,
-          externalId: `${externalBase}:${row.suffix}`,
-        },
-      });
-    }
-    return { type: action.type, label: `Logged ${Math.floor(toNumber(action.totalMinutes) / 60)}h ${toNumber(action.totalMinutes) % 60}m sleep`, id: externalBase };
-  }
-
   if (action.type === "update_wellness_targets") {
     const data = {
       targetSteps: action.targetSteps == null ? undefined : Math.round(toNumber(action.targetSteps)),
       targetActiveEnergy: action.targetActiveEnergy == null ? undefined : Math.round(toNumber(action.targetActiveEnergy)),
       targetExerciseMinutes: action.targetExerciseMinutes == null ? undefined : Math.round(toNumber(action.targetExerciseMinutes)),
-      targetSleepMinutes: action.targetSleepMinutes == null ? undefined : Math.round(toNumber(action.targetSleepMinutes)),
       targetWorkoutSessions: action.targetWorkoutSessions == null ? undefined : Math.round(toNumber(action.targetWorkoutSessions)),
       targetTrainingMinutes: action.targetTrainingMinutes == null ? undefined : Math.round(toNumber(action.targetTrainingMinutes)),
       targetLiftVolume: action.targetLiftVolume == null ? undefined : Math.round(toNumber(action.targetLiftVolume)),
@@ -1258,7 +1209,6 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - create_credit_card: add a credit card with optional bank, current payable amount, and due day.
 - create_money_link: track money lent to someone or borrowed from someone.
 - create_workout_log: save a completed workout. Only use exercise IDs that appear in context.
-- create_sleep_log: save sleep from a sleep screenshot or manual sleep message.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
 - update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight after they answer timeline questions.
@@ -1271,7 +1221,6 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - delete_diet_plan: delete a saved diet plan when clearly requested.
 - When the user sends a food image, identify the food and estimate nutrition from the visible portion.
 - When the user sends a payment/receipt/spend screenshot, extract merchant, amount, currency, category, date, and payment source when visible.
-- When the user sends a sleep screenshot, read total sleep and stages, then log sleep.
 - When the user sends fitness/activity screenshots, extract visible daily/weekly goals or averages and update relevant targets.
 
 Rules:
@@ -1383,9 +1332,6 @@ ${JSON.stringify({
 - If the user says they lent money to someone or borrowed money from someone, use create_money_link with linkType "lend" or "borrow".
 - If the user asks about spending history, answer from recentSpends and ask them to use the Spends custom date report for exact older ranges when needed.
 - For spend and money questions, summarize balances, card dues/spends, lend/borrow totals, top categories, and patterns using INR when context exists.
-- For sleep screenshots, extract date, total sleep, Awake, REM, Core, and Deep when visible. Convert hours/minutes to minutes.
-- If a sleep screenshot has total sleep visible, use create_sleep_log. If stages are not visible, log total only.
-- For sleep screenshots, also use update_wellness_targets with targetSleepMinutes when the screenshot shows a sleep goal or a reliable typical sleep duration.
 - For fitness/activity screenshots, use update_wellness_targets for visible goals or reliable recent averages: targetSteps, targetActiveEnergy, targetExerciseMinutes, targetWorkoutSessions, targetTrainingMinutes, targetLiftVolume, targetWeeklyActiveEnergy.
 - Do not change targets from a single unusual day unless the screenshot explicitly shows a goal/target or trend/average.
 - If required details are missing, ask a short follow-up question instead of inventing data.
@@ -1413,8 +1359,7 @@ Available action examples:
 {"type":"create_credit_card","name":"HDFC Regalia","bankName":"HDFC","last4":"1234","currentDue":12000,"dueDay":5}
 {"type":"create_money_link","person":"Rahul","linkType":"lend","amount":2000,"currency":"INR","notes":"To return next week."}
 {"type":"create_workout_log","templateName":"Push Day","duration":60,"notes":"Good session","exercises":[{"exerciseId":"barbell-bench-press","setNumber":1,"reps":8,"weight":70}]}
-{"type":"create_sleep_log","date":"2026-05-12","totalMinutes":452,"awakeMinutes":45,"remMinutes":100,"coreMinutes":294,"deepMinutes":58}
-{"type":"update_wellness_targets","targetSleepMinutes":452,"targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
+{"type":"update_wellness_targets","targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetLiftVolume":25000,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
 {"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User wants visible muscle gain in 8 weeks."}
 {"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","warmups":[{"name":"Light cardio","duration":"5-7 min","notes":"Easy treadmill, bike, or cross-trainer"},{"name":"Shoulder and elbow mobility","duration":"3-5 min","notes":"Arm circles, band pull-aparts, light pushdowns"}],"stretches":[{"name":"Chest doorway stretch","duration":"30-45 sec each side","notes":"Pain-free range only"},{"name":"Triceps and shoulder stretch","duration":"30 sec each","notes":"No elbow pinching"}],"exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
@@ -1447,7 +1392,7 @@ Available action examples:
             type: "text",
             text:
               message ||
-              "Analyze this image. If it is a food photo, identify and log the food when confident. If it is a payment or receipt screenshot, log the spend when merchant and amount are clear. If it is a sleep or fitness screenshot, extract visible totals/goals, log the activity or sleep, and update personalized targets when the screenshot clearly supports them.",
+              "Analyze this image. If it is a food photo, identify and log the food when confident. If it is a payment or receipt screenshot, log the spend when merchant and amount are clear. If it is a fitness screenshot, extract visible totals or targets and update personalized targets when the screenshot clearly supports them.",
           },
           {
             type: "image_url",

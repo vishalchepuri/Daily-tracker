@@ -27,7 +27,7 @@ export default function TermsPage() {
         </TermsSection>
 
         <TermsSection title="Health and Fitness Disclaimer">
-          Dayza is not medical advice. Workout, nutrition, medication, sleep, recovery, and wellness suggestions are informational only. Always consult a qualified medical professional before making health decisions, changing medication routines, training around injuries, or starting a new diet or exercise program.
+          Dayza is not medical advice. Workout, nutrition, medication, recovery, and wellness suggestions are informational only. Always consult a qualified medical professional before making health decisions, changing medication routines, training around injuries, or starting a new diet or exercise program.
         </TermsSection>
 
         <TermsSection title="Medication Disclaimer">

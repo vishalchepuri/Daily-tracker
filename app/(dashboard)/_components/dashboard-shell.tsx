@@ -6,7 +6,8 @@ import { signOut } from "next-auth/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
-  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield
+  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
+  ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ const navItems = [
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
+  { label: "Report", href: "/report", icon: ClipboardList },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
   { label: "Progress", href: "/progress", icon: TrendingUp },
@@ -98,14 +100,6 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Explain your progress trends in plain language.",
       "Identify plateaus or momentum shifts.",
       "Recommend what to change next week.",
-    ],
-  },
-  "/integrations": {
-    label: "Integrations",
-    suggestions: [
-      "Explain what data imports can unlock.",
-      "Help interpret Apple Health or connected app data.",
-      "Suggest which metrics to track for your goals.",
     ],
   },
   "/profile": {

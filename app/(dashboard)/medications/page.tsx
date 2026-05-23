@@ -425,7 +425,7 @@ export default function MedicationsPage() {
 
                 <div>
                   <Label>Instructions</Label>
-                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1" placeholder="After food, before sleep, avoid with milk..." />
+                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1" placeholder="After food, before bed, avoid with milk..." />
                 </div>
 
                 <Button onClick={saveMedication} className="w-full">{form.id ? "Update Medication" : "Save Medication"}</Button>

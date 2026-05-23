@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const blankForm = {
   id: "",
@@ -1442,6 +1442,43 @@ export default function SpendsPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Category Breakdown Pie Chart */}
+      {categoryTotals.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Banknote className="w-5 h-5 text-primary" />
+              Spending by Category
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col items-center gap-6 sm:flex-row">
+              <div className="w-[220px] h-[220px] shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={categoryTotals} dataKey="amount" nameKey="category" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} strokeWidth={0}>
+                      {categoryTotals.map((_: any, i: number) => <Cell key={i} fill={["#10b981", "#3b82f6", "#f97316", "#8b5cf6", "#ec4899", "#f59e0b", "#14b8a6", "#ef4444"][i % 8]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 13 }} formatter={(v: any) => [formatInr(v), "Amount"]} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex-1 space-y-2 w-full">
+                {categoryTotals.map((item: any, i: number) => (
+                  <div key={item.category} className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-sm" style={{ background: ["#10b981", "#3b82f6", "#f97316", "#8b5cf6", "#ec4899", "#f59e0b", "#14b8a6", "#ef4444"][i % 8] }} />
+                      <span className="text-muted-foreground">{item.category}</span>
+                    </div>
+                    <span className="font-mono font-medium">{formatInr(item.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

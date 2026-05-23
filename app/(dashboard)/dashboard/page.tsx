@@ -13,6 +13,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 
 interface DashboardData {
@@ -23,6 +25,7 @@ interface DashboardData {
   workoutCount: number;
   streak: number;
   todayFoodLogs: any[];
+  weeklyTrends?: { date: string; fullDate: string; calories: number; protein: number; water: number }[];
 }
 
 export default function DashboardPage() {
@@ -681,7 +684,63 @@ export default function DashboardPage() {
         </Card>
       </FadeIn>
 
-      <FadeIn delay={0.55}>
+      {/* Weekly Trends */}
+      {(data?.weeklyTrends ?? []).length > 0 && (
+        <FadeIn delay={0.55}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <TrendingUp className="w-5 h-5 text-primary" />
+                Weekly Trends
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="calories">
+                <TabsList className="mb-4 w-full sm:w-auto">
+                  <TabsTrigger value="calories">Calories</TabsTrigger>
+                  <TabsTrigger value="protein">Protein</TabsTrigger>
+                  <TabsTrigger value="water">Water</TabsTrigger>
+                </TabsList>
+                <TabsContent value="calories">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={data?.weeklyTrends ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 13 }} formatter={(v: any) => [`${v} kcal`, "Calories"]} />
+                      <Line type="monotone" dataKey="calories" stroke="#f97316" strokeWidth={2} dot={{ fill: "#f97316", r: 4 }} activeDot={{ r: 6 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </TabsContent>
+                <TabsContent value="protein">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={data?.weeklyTrends ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 13 }} formatter={(v: any) => [`${v}g`, "Protein"]} />
+                      <Line type="monotone" dataKey="protein" stroke="#3b82f6" strokeWidth={2} dot={{ fill: "#3b82f6", r: 4 }} activeDot={{ r: 6 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </TabsContent>
+                <TabsContent value="water">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <LineChart data={data?.weeklyTrends ?? []}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                      <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                      <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 13 }} formatter={(v: any) => [`${v} ml`, "Water"]} />
+                      <Line type="monotone" dataKey="water" stroke="#60a5fa" strokeWidth={2} dot={{ fill: "#60a5fa", r: 4 }} activeDot={{ r: 6 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </TabsContent>
+              </Tabs>
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
+      <FadeIn delay={0.6}>
         <IssueReportForm compact defaultPage="Dashboard" />
       </FadeIn>
 

@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp } from "lucide-react";
+import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -278,6 +278,25 @@ export default function NutritionPage() {
       loadData();
     } catch {
       toast.error("Failed to delete diet");
+    }
+  };
+
+  const handleApplyDiet = async (plan: any) => {
+    try {
+      const res = await fetch("/api/diet-plans/apply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId: plan.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to apply diet");
+        return;
+      }
+      toast.success(`Applied ${data.count} food entries for today!`);
+      loadData();
+    } catch {
+      toast.error("Failed to apply diet");
     }
   };
 
@@ -820,6 +839,10 @@ export default function NutritionPage() {
                           {plan.goal && <p className="text-sm text-muted-foreground capitalize">{plan.goal.replace(/_/g, " ")}</p>}
                         </div>
                         <div className="flex gap-1">
+                          <Button variant="outline" size="sm" onClick={() => handleApplyDiet(plan)} className="gap-1 text-xs">
+                            <CalendarCheck className="w-3.5 h-3.5" />
+                            Apply Today
+                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => openDietDialog(plan)} title="Edit diet">
                             <Pencil className="w-4 h-4" />
                           </Button>

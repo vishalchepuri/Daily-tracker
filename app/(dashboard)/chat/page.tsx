@@ -434,7 +434,7 @@ export default function ChatPage() {
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
               <div className="min-w-0 flex-1 text-sm">
                 <p className="font-medium">Image selected</p>
-                <p className="text-muted-foreground">Send food photos or sleep screenshots for logging.</p>
+                <p className="text-muted-foreground">Send food photos or payment screenshots for logging.</p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={() => setImageDataUrl(null)} disabled={streaming}>
                 <X className="h-4 w-4" />
