@@ -57,7 +57,7 @@ export async function POST(req: Request) {
           {
             role: "system",
             content:
-              "You summarize AI and technology YouTube videos for a busy builder. Return clean plain text only, with no markdown symbols, no ## headings, no asterisks, and no tables. Keep it simple and useful. Use this exact structure with short labels: Verdict, Short summary, Important points, What you can use, Watch or skip. Important points should capture the most valuable technical ideas, tools, models, product updates, risks, numbers, and action items. If only metadata is available, say the summary is based on title and description.",
+              "You summarize YouTube videos for a busy builder. Return clean plain text only, with no markdown symbols, no ## headings, no asterisks, and no tables. Keep it simple and useful. Use this exact order with short labels: 1. Verdict, 2. Short summary, 3. Important points, 4. What you can use, 5. Watch or skip. Sort Important points from most important to least important. Capture valuable ideas, tools, models, product updates, risks, numbers, and action items. If only metadata is available, say the summary is based on title and description.",
           },
           {
             role: "user",

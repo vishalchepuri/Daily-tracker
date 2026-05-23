@@ -55,6 +55,11 @@ const blankMoneyLinkForm = {
   notes: "",
 };
 
+const blankFriendSpendForm = {
+  person: "",
+  notes: "",
+};
+
 const spendCategories = ["Food", "Groceries", "Travel", "Shopping", "Health", "Fitness", "Bills", "Subscriptions", "Entertainment", "Other"];
 
 function formatInr(value: number) {
@@ -88,6 +93,8 @@ function formatPeriodLabel(key: string, mode: "daily" | "weekly" | "monthly") {
 
 export default function SpendsPage() {
   const [spends, setSpends] = useState<any[]>([]);
+  const [spendsNextOffset, setSpendsNextOffset] = useState(0);
+  const [spendsHasMore, setSpendsHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -106,22 +113,28 @@ export default function SpendsPage() {
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [creditCards, setCreditCards] = useState<any[]>([]);
   const [moneyLinks, setMoneyLinks] = useState<any[]>([]);
+  const [moneyLinksNextOffset, setMoneyLinksNextOffset] = useState(0);
+  const [moneyLinksHasMore, setMoneyLinksHasMore] = useState(false);
   const [financeForm, setFinanceForm] = useState({ currentBalance: "", totalAmount: "" });
   const [cardDialogOpen, setCardDialogOpen] = useState(false);
   const [cardForm, setCardForm] = useState(blankCardForm);
   const [bankDialogOpen, setBankDialogOpen] = useState(false);
   const [bankForm, setBankForm] = useState(blankBankForm);
   const [moneyLinkForm, setMoneyLinkForm] = useState(blankMoneyLinkForm);
+  const [moneyLinkPersonFilter, setMoneyLinkPersonFilter] = useState("all");
+  const [friendSpendDialogOpen, setFriendSpendDialogOpen] = useState(false);
+  const [friendSpendForm, setFriendSpendForm] = useState(blankFriendSpendForm);
+  const [pendingFriendSpend, setPendingFriendSpend] = useState<any>(null);
 
   const loadData = async () => {
     try {
       const [spendsResult, settingsResult, financeResult, bankResult, cardsResult, moneyLinksResult] = await Promise.allSettled([
-        fetch("/api/spends").then((res) => res.ok ? res.json() : { spends: [] }),
+        fetch("/api/spends?offset=0&limit=50").then((res) => res.ok ? res.json() : { spends: [] }),
         fetch("/api/spends/settings").then((res) => res.ok ? res.json() : {}),
         fetch("/api/finance").then((res) => res.ok ? res.json() : { financeProfile: null }),
         fetch("/api/bank-accounts").then((res) => res.ok ? res.json() : { bankAccounts: [] }),
         fetch("/api/credit-cards").then((res) => res.ok ? res.json() : { creditCards: [] }),
-        fetch("/api/money-links").then((res) => res.ok ? res.json() : { moneyLinks: [] }),
+        fetch("/api/money-links?offset=0&limit=50").then((res) => res.ok ? res.json() : { moneyLinks: [] }),
       ]);
       const spendsData = spendsResult.status === "fulfilled" ? spendsResult.value : { spends: [] };
       const settingsData: any = settingsResult.status === "fulfilled" ? settingsResult.value : {};
@@ -130,6 +143,8 @@ export default function SpendsPage() {
       const cardsData = cardsResult.status === "fulfilled" ? cardsResult.value : { creditCards: [] };
       const moneyLinksData = moneyLinksResult.status === "fulfilled" ? moneyLinksResult.value : { moneyLinks: [] };
       setSpends(spendsData?.spends ?? []);
+      setSpendsNextOffset(spendsData?.nextOffset ?? (spendsData?.spends ?? []).length);
+      setSpendsHasMore(Boolean(spendsData?.hasMore));
       setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
       setTargetEditing(!settingsData?.targetMonthlySpend);
       setFinanceProfile(financeData?.financeProfile ?? null);
@@ -140,6 +155,8 @@ export default function SpendsPage() {
       setBankAccounts(bankData?.bankAccounts ?? []);
       setCreditCards(cardsData?.creditCards ?? []);
       setMoneyLinks(moneyLinksData?.moneyLinks ?? []);
+      setMoneyLinksNextOffset(moneyLinksData?.nextOffset ?? (moneyLinksData?.moneyLinks ?? []).length);
+      setMoneyLinksHasMore(Boolean(moneyLinksData?.hasMore));
     } catch (error) {
       console.error(error);
     } finally {
@@ -148,6 +165,38 @@ export default function SpendsPage() {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  const loadMoreSpends = async () => {
+    try {
+      const res = await fetch(`/api/spends?offset=${spendsNextOffset}&limit=50`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to load more spends");
+        return;
+      }
+      setSpends((prev) => [...prev, ...(data?.spends ?? [])]);
+      setSpendsNextOffset(data?.nextOffset ?? spendsNextOffset + (data?.spends ?? []).length);
+      setSpendsHasMore(Boolean(data?.hasMore));
+    } catch {
+      toast.error("Failed to load more spends");
+    }
+  };
+
+  const loadMoreMoneyLinks = async () => {
+    try {
+      const res = await fetch(`/api/money-links?offset=${moneyLinksNextOffset}&limit=50`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to load more lend/borrow");
+        return;
+      }
+      setMoneyLinks((prev) => [...prev, ...(data?.moneyLinks ?? [])]);
+      setMoneyLinksNextOffset(data?.nextOffset ?? moneyLinksNextOffset + (data?.moneyLinks ?? []).length);
+      setMoneyLinksHasMore(Boolean(data?.hasMore));
+    } catch {
+      toast.error("Failed to load more lend/borrow");
+    }
+  };
 
   const totals = useMemo(() => {
     const now = new Date();
@@ -277,6 +326,115 @@ export default function SpendsPage() {
 
   const topCategory = categoryTotals[0];
 
+  const friendSpendLinks = useMemo(() => {
+    const links = new Map<string, any>();
+    moneyLinks.forEach((link) => {
+      const match = String(link.notes ?? "").match(/Spend ID:\s*([A-Za-z0-9_-]+)/);
+      if (match?.[1]) links.set(match[1], link);
+    });
+    return links;
+  }, [moneyLinks]);
+
+  const creditCardOwnership = useMemo(() => {
+    const now = new Date();
+    const legacyAgentCardLinks = moneyLinks.filter((link) => {
+      const notes = String(link.notes ?? "");
+      return (
+        !link.settled &&
+        link.type === "lend" &&
+        (link.amount ?? 0) >= 10000 &&
+        notes.includes("Parsed from Dayza Agent message") &&
+        !notes.includes("Card ID:") &&
+        !/cash\s+lend/i.test(notes)
+      );
+    });
+    const bestLegacyCardId = (link: any) => {
+      const amount = link.amount ?? 0;
+      const candidates = creditCards
+        .filter((card) => (card.currentDue ?? 0) >= amount)
+        .map((card) => ({ id: card.id, remainder: (card.currentDue ?? 0) - amount }))
+        .sort((a, b) => a.remainder - b.remainder);
+      return candidates[0]?.id ?? null;
+    };
+    return creditCards.reduce((acc: Record<string, { total: number; mine: number; friends: number; friendNames: string[] }>, card) => {
+      const cardFriendLinks = moneyLinks.filter((link) => {
+        const notes = String(link.notes ?? "");
+        const normalizedNotes = notes.toLowerCase();
+        const normalizedCardName = String(card.name ?? "").toLowerCase();
+        return (
+          !link.settled &&
+          link.type === "lend" &&
+          (notes.includes(`Card ID: ${card.id}`) ||
+            notes.includes(`Card: ${card.name}`) ||
+            (normalizedCardName && normalizedNotes.includes(normalizedCardName)))
+        );
+      });
+      const legacyCardFriendLinks = legacyAgentCardLinks.filter((link) => bestLegacyCardId(link) === card.id);
+      const cardSpends = spends.filter((spend) => {
+        const date = new Date(spend.date);
+        return spend.creditCardId === card.id && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+      });
+      const friendNames = new Set<string>();
+      const totals = cardSpends.reduce(
+        (sum, spend) => {
+          const link = friendSpendLinks.get(spend.id);
+          if (link && !link.settled) {
+            friendNames.add(link.person);
+            return { ...sum, friends: sum.friends + (spend.amount ?? 0) };
+          }
+          return { ...sum, mine: sum.mine + (spend.amount ?? 0) };
+        },
+        { mine: 0, friends: 0 }
+      );
+      const cardLinkFriends = cardFriendLinks.reduce((sum, link) => {
+        friendNames.add(link.person);
+        return sum + (link.amount ?? 0);
+      }, 0);
+      const legacyLinkFriends = legacyCardFriendLinks.reduce((sum, link) => {
+        friendNames.add(link.person);
+        return sum + (link.amount ?? 0);
+      }, 0);
+      totals.friends += cardLinkFriends + legacyLinkFriends;
+      totals.mine = Math.max(0, totals.mine - cardLinkFriends - legacyLinkFriends);
+      const spendTotal = totals.mine + totals.friends;
+      const billTotal = Math.max(spendTotal, card.currentDue ?? 0);
+      acc[card.id] = {
+        total: billTotal,
+        mine: Math.max(0, billTotal - totals.friends),
+        friends: totals.friends,
+        friendNames: Array.from(friendNames),
+      };
+      return acc;
+    }, {});
+  }, [creditCards, friendSpendLinks, moneyLinks, spends]);
+
+  const moneyLinkPeople = useMemo(() => {
+    const people = new Set<string>();
+    moneyLinks.forEach((link) => {
+      if (link.person) people.add(link.person);
+    });
+    return Array.from(people).sort((a, b) => a.localeCompare(b));
+  }, [moneyLinks]);
+
+  const filteredMoneyLinks = useMemo(() => {
+    if (moneyLinkPersonFilter === "all") return moneyLinks;
+    return moneyLinks.filter((link) => link.person === moneyLinkPersonFilter);
+  }, [moneyLinkPersonFilter, moneyLinks]);
+
+  const moneyLinkFilterTotals = useMemo(() => {
+    const openLinks = filteredMoneyLinks.filter((link) => !link.settled);
+    const totalLend = openLinks.filter((link) => link.type === "lend").reduce((sum, link) => sum + (link.amount ?? 0), 0);
+    const totalBorrow = openLinks.filter((link) => link.type === "borrow").reduce((sum, link) => sum + (link.amount ?? 0), 0);
+    const settled = filteredMoneyLinks.filter((link) => link.settled).length;
+    return {
+      totalLend,
+      totalBorrow,
+      net: totalLend - totalBorrow,
+      openCount: openLinks.length,
+      settledCount: settled,
+    };
+  }, [filteredMoneyLinks]);
+
   const filteredReport = useMemo(() => {
     const groupedDays = filteredSpends.reduce((acc: Record<string, any>, spend) => {
       const key = dateKey(new Date(spend.date));
@@ -365,11 +523,61 @@ export default function SpendsPage() {
         toast.error(data?.error ?? "Failed to save spend");
         return;
       }
+      const data = await res.json();
       toast.success(form.id ? "Spend updated" : "Spend added");
       setDialogOpen(false);
+      if (!form.id && form.creditCardId !== "none" && data?.spend) {
+        setPendingFriendSpend(data.spend);
+        setFriendSpendForm(blankFriendSpendForm);
+        setFriendSpendDialogOpen(true);
+      }
       loadData();
     } catch {
       toast.error("Failed to save spend");
+    }
+  };
+
+  const saveFriendSpendLink = async () => {
+    if (!pendingFriendSpend) {
+      setFriendSpendDialogOpen(false);
+      return;
+    }
+    if (!friendSpendForm.person.trim()) {
+      setFriendSpendDialogOpen(false);
+      setPendingFriendSpend(null);
+      setFriendSpendForm(blankFriendSpendForm);
+      return;
+    }
+
+    const cardName = pendingFriendSpend.creditCard?.name ? ` on ${pendingFriendSpend.creditCard.name}` : "";
+    const baseNote = `${pendingFriendSpend.merchant}${cardName}. Spend ID: ${pendingFriendSpend.id}`;
+    const notes = [baseNote, friendSpendForm.notes.trim()].filter(Boolean).join(" - ");
+
+    try {
+      const res = await fetch("/api/money-links", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          person: friendSpendForm.person.trim(),
+          type: "lend",
+          amount: pendingFriendSpend.amount,
+          currency: pendingFriendSpend.currency || "INR",
+          date: new Date(pendingFriendSpend.date ?? Date.now()).toISOString().slice(0, 10),
+          notes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to add lend entry");
+        return;
+      }
+      toast.success(`Added lend entry for ${friendSpendForm.person.trim()}`);
+      setFriendSpendDialogOpen(false);
+      setPendingFriendSpend(null);
+      setFriendSpendForm(blankFriendSpendForm);
+      loadData();
+    } catch {
+      toast.error("Failed to add lend entry");
     }
   };
 
@@ -721,6 +929,51 @@ export default function SpendsPage() {
                 </div>
               </DialogContent>
             </Dialog>
+            <Dialog
+              open={friendSpendDialogOpen}
+              onOpenChange={(open) => {
+                setFriendSpendDialogOpen(open);
+                if (!open) {
+                  setPendingFriendSpend(null);
+                  setFriendSpendForm(blankFriendSpendForm);
+                }
+              }}
+            >
+              <DialogContent className="max-w-md">
+                <DialogHeader><DialogTitle>Who used this credit card?</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div className="rounded-lg bg-muted/40 p-3 text-sm">
+                    <p className="font-medium">{pendingFriendSpend?.merchant ?? "Card spend"}</p>
+                    <p className="text-muted-foreground">
+                      {pendingFriendSpend?.currency ?? "INR"} {Number(pendingFriendSpend?.amount ?? 0).toFixed(2)}
+                      {pendingFriendSpend?.creditCard?.name ? ` on ${pendingFriendSpend.creditCard.name}` : ""}
+                    </p>
+                  </div>
+                  <div>
+                    <Label>Friend name</Label>
+                    <Input
+                      value={friendSpendForm.person}
+                      onChange={(e) => setFriendSpendForm({ ...friendSpendForm, person: e.target.value })}
+                      className="mt-1"
+                      placeholder="Dayza, Rahul, Priya..."
+                    />
+                  </div>
+                  <div>
+                    <Label>Note</Label>
+                    <Input
+                      value={friendSpendForm.notes}
+                      onChange={(e) => setFriendSpendForm({ ...friendSpendForm, notes: e.target.value })}
+                      className="mt-1"
+                      placeholder="Dinner, cab, shared order..."
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={() => setFriendSpendDialogOpen(false)}>Ignore</Button>
+                    <Button onClick={saveFriendSpendLink}>Add To Lend</Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
         </div>
       </FadeIn>
@@ -907,11 +1160,8 @@ export default function SpendsPage() {
               ) : (
                 <div className="grid gap-2">
                   {creditCards.map((card) => {
-                    const monthSpend = spends.filter((spend) => spend.creditCardId === card.id).reduce((sum, spend) => {
-                      const date = new Date(spend.date);
-                      const now = new Date();
-                      return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear() ? sum + (spend.amount ?? 0) : sum;
-                    }, 0);
+                    const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [] };
+                    const monthSpend = ownership.total;
                     return (
                       <div key={card.id} className="rounded-lg bg-muted/40 p-3">
                         <div className="flex items-start justify-between gap-3">
@@ -927,7 +1177,16 @@ export default function SpendsPage() {
                         <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                           <div><span className="text-muted-foreground">Current due</span><p className="font-mono">{formatInr(card.currentDue ?? 0)}</p></div>
                           <div><span className="text-muted-foreground">This month</span><p className="font-mono">{formatInr(monthSpend)}</p></div>
+                          <div><span className="text-muted-foreground">Mine</span><p className="font-mono">{formatInr(ownership.mine)}</p></div>
+                          <div><span className="text-muted-foreground">Friends</span><p className="font-mono">{formatInr(ownership.friends)}</p></div>
                         </div>
+                        {ownership.friendNames.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {ownership.friendNames.map((name) => (
+                              <Badge key={name} variant="outline">{name}</Badge>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -936,7 +1195,12 @@ export default function SpendsPage() {
             </div>
 
             <div className="space-y-3">
-              <h3 className="font-semibold">Lend / Borrow</h3>
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="font-semibold">Lend / Borrow</h3>
+                <p className="text-xs text-muted-foreground">
+                  Net: <span className="font-mono text-foreground">{formatInr(moneyLinkFilterTotals.net)}</span>
+                </p>
+              </div>
               <div className="grid gap-2 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
                 <Input placeholder="Person" value={moneyLinkForm.person} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, person: e.target.value })} />
                 <Input type="number" placeholder="Amount" value={moneyLinkForm.amount} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, amount: e.target.value })} />
@@ -951,10 +1215,46 @@ export default function SpendsPage() {
                 <Input className="sm:col-span-2" placeholder="Notes" value={moneyLinkForm.notes} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, notes: e.target.value })} />
                 <Button className="sm:col-span-2" onClick={saveMoneyLink}><Plus className="mr-2 h-4 w-4" />Add Entry</Button>
               </div>
+              <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
+                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <div>
+                    <Label>Filter person</Label>
+                    <Select value={moneyLinkPersonFilter} onValueChange={setMoneyLinkPersonFilter}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All people</SelectItem>
+                        {moneyLinkPeople.map((person) => (
+                          <SelectItem key={person} value={person}>{person}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button type="button" variant="outline" onClick={() => setMoneyLinkPersonFilter("all")}>Clear</Button>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
+                  <div className="rounded-md bg-background/60 p-2">
+                    <span className="text-muted-foreground">Lent</span>
+                    <p className="font-mono">{formatInr(moneyLinkFilterTotals.totalLend)}</p>
+                  </div>
+                  <div className="rounded-md bg-background/60 p-2">
+                    <span className="text-muted-foreground">Borrowed</span>
+                    <p className="font-mono">{formatInr(moneyLinkFilterTotals.totalBorrow)}</p>
+                  </div>
+                  <div className="rounded-md bg-background/60 p-2">
+                    <span className="text-muted-foreground">Net</span>
+                    <p className="font-mono">{formatInr(moneyLinkFilterTotals.net)}</p>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {moneyLinkFilterTotals.openCount} open, {moneyLinkFilterTotals.settledCount} settled
+                </p>
+              </div>
               <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
                 {moneyLinks.length === 0 ? (
                   <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No lend or borrow entries yet.</div>
-                ) : moneyLinks.map((link) => (
+                ) : filteredMoneyLinks.length === 0 ? (
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No entries match this person.</div>
+                ) : filteredMoneyLinks.map((link) => (
                   <div key={link.id} className={`grid gap-2 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center ${link.settled ? "opacity-60" : ""}`}>
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
@@ -971,6 +1271,9 @@ export default function SpendsPage() {
                     </div>
                   </div>
                 ))}
+                {moneyLinksHasMore && moneyLinkPersonFilter === "all" && (
+                  <Button type="button" variant="outline" onClick={loadMoreMoneyLinks}>Load more lend / borrow</Button>
+                )}
               </div>
             </div>
           </div>
@@ -1256,6 +1559,9 @@ export default function SpendsPage() {
                       {spend.category && <Badge variant="outline">{spend.category}</Badge>}
                       {spend.bankAccount && <Badge variant="secondary">{spend.bankAccount.name}</Badge>}
                       {spend.creditCard && <Badge variant="secondary">{spend.creditCard.name}</Badge>}
+                      {friendSpendLinks.get(spend.id) && (
+                        <Badge variant="outline">Friend: {friendSpendLinks.get(spend.id).person}</Badge>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center justify-between gap-2 sm:justify-end">
@@ -1269,6 +1575,9 @@ export default function SpendsPage() {
                   </div>
                 </div>
               ))}
+              {spendsHasMore && (
+                <Button type="button" variant="outline" onClick={loadMoreSpends}>Load more spends</Button>
+              )}
             </div>
           )}
         </CardContent>

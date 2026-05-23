@@ -4,7 +4,9 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
-const CHAT_IMAGE_RETENTION_DAYS = 7;
+const CHAT_IMAGE_RETENTION_DAYS = 5;
+const CHAT_SESSION_RETENTION_LIMIT = 7;
+const CHAT_MESSAGES_PER_SESSION_LIMIT = 10;
 const MAX_CHAT_IMAGE_BYTES = 2 * 1024 * 1024;
 
 type WorkoutExerciseWithExercise = {
@@ -293,6 +295,41 @@ async function getOrCreateChatSession(userId: string, sessionId?: string | null,
   return prisma.chatSession.create({ data: { userId, title } });
 }
 
+async function pruneChatRetention(userId: string) {
+  const sessions = await prisma.chatSession.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+
+  const keptSessionIds = sessions.slice(0, CHAT_SESSION_RETENTION_LIMIT).map((session) => session.id);
+  const oldSessionIds = sessions.slice(CHAT_SESSION_RETENTION_LIMIT).map((session) => session.id);
+
+  if (oldSessionIds.length > 0) {
+    await prisma.chatSession.deleteMany({ where: { userId, id: { in: oldSessionIds } } });
+  }
+
+  for (const sessionId of keptSessionIds) {
+    const oldMessages = await prisma.chatMessage.findMany({
+      where: { userId, sessionId },
+      orderBy: { createdAt: "desc" },
+      skip: CHAT_MESSAGES_PER_SESSION_LIMIT,
+      select: { id: true },
+    });
+    const oldMessageIds = oldMessages.map((message) => message.id);
+    if (oldMessageIds.length === 0) continue;
+
+    await prisma.chatAttachment.deleteMany({ where: { userId, messageId: { in: oldMessageIds } } });
+    await prisma.chatMessage.deleteMany({ where: { userId, id: { in: oldMessageIds } } });
+  }
+
+  const now = new Date();
+  await prisma.chatAttachment.updateMany({
+    where: { userId, deletedAt: null, expiresAt: { lte: now }, imageData: { not: null } },
+    data: { imageData: null, deletedAt: now },
+  });
+}
+
 function slugify(value: string) {
   return value
     .trim()
@@ -330,6 +367,138 @@ function hasKnownAnswer(value?: string | null) {
 function includesAny(text: string, words: string[]) {
   const normalized = text.toLowerCase();
   return words.some((word) => normalized.includes(word));
+}
+
+function normalizePersonName(value: string) {
+  return value
+    .replace(/\b(cash\s+lend|lend|lent|borrowed?|from|to)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseFriendMoneyMentions(text: string) {
+  const results: Array<{ person: string; amount: number; notes: string; index: number; rawName: string }> = [];
+  const normalized = text.replace(/[₹,]/g, "").replace(/\s+/g, " ");
+  const matches = normalized.matchAll(/([A-Za-z][A-Za-z\s]{1,44}?)\s*-\s*(\d{2,9})(?:\/-)?/g);
+  const ignoredNameWords = [
+    "card",
+    "credit",
+    "debit",
+    "spends",
+    "cards",
+    "account",
+    "balance",
+    "current",
+    "total",
+    "hdfc",
+    "sbi",
+    "rbl",
+    "tata",
+    "swiggy",
+    "bpcl",
+  ];
+
+  for (const match of matches) {
+    const rawName = match[1] ?? "";
+    const person = normalizePersonName(rawName);
+    const amount = toNumber(match[2]);
+    const lower = person.toLowerCase();
+    if (!person || amount <= 0) continue;
+    if (ignoredNameWords.some((word) => lower.includes(word))) continue;
+    if (person.split(" ").length > 3) continue;
+    results.push({
+      person,
+      amount,
+      rawName: rawName.trim(),
+      index: match.index ?? 0,
+      notes: `Parsed from Dayza Agent message: ${rawName.trim()} - ${amount}`,
+    });
+  }
+
+  const unique = new Map<string, { person: string; amount: number; notes: string; index: number; rawName: string }>();
+  results.forEach((item) => unique.set(`${item.person.toLowerCase()}:${item.amount}`, item));
+  return Array.from(unique.values());
+}
+
+function meaningfulCardTokens(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token && !["credit", "card", "bank"].includes(token));
+}
+
+function findMentionedCardForFriend(rawMessage: string, friendIndex: number, actions: AgentAction[]) {
+  const before = rawMessage.slice(0, friendIndex).toLowerCase();
+  const cardActions = actions.filter((action): action is Extract<AgentAction, { type: "create_credit_card" }> => action.type === "create_credit_card");
+  let best: Extract<AgentAction, { type: "create_credit_card" }> | null = null;
+  let bestIndex = -1;
+
+  for (const action of cardActions) {
+    const tokens = meaningfulCardTokens(action.name);
+    const tokenIndexes = tokens.map((token) => before.lastIndexOf(token)).filter((index) => index >= 0);
+    if (tokens.length > 0 && tokenIndexes.length < Math.min(2, tokens.length)) continue;
+    const mentionIndex = tokenIndexes.length ? Math.max(...tokenIndexes) : -1;
+    if (mentionIndex > bestIndex) {
+      best = action;
+      bestIndex = mentionIndex;
+    }
+  }
+
+  return best;
+}
+
+async function createMissingFriendMoneyLinks(userId: string, rawMessage: string, actions: AgentAction[]) {
+  if (!rawMessage || !/(lend|lent|credit card|card|my spends|\/-)/i.test(rawMessage)) return [];
+  const parsed = parseFriendMoneyMentions(rawMessage);
+  if (parsed.length === 0) return [];
+
+  const actionLinks = new Set(
+    actions
+      .filter((action): action is Extract<AgentAction, { type: "create_money_link" }> => action.type === "create_money_link")
+      .map((action) => `${action.person.trim().toLowerCase()}:${toNumber(action.amount)}`)
+  );
+
+  const created = [];
+  for (const item of parsed) {
+    const key = `${item.person.toLowerCase()}:${item.amount}`;
+    if (actionLinks.has(key)) continue;
+    const relatedCardAction = /cash\s+lend/i.test(item.rawName) ? null : findMentionedCardForFriend(rawMessage, item.index, actions);
+    const relatedCard = relatedCardAction
+      ? await prisma.creditCard.findFirst({
+          where: {
+            userId,
+            active: true,
+            name: { equals: relatedCardAction.name, mode: "insensitive" },
+          },
+          orderBy: { createdAt: "desc" },
+        })
+      : null;
+
+    const existing = await prisma.moneyLink.findFirst({
+      where: {
+        userId,
+        type: "lend",
+        settled: false,
+        person: { equals: item.person, mode: "insensitive" },
+        amount: item.amount,
+      },
+    });
+    if (existing) continue;
+
+    const moneyLink = await prisma.moneyLink.create({
+      data: {
+        userId,
+        person: item.person,
+        type: "lend",
+        amount: item.amount,
+        currency: "INR",
+        notes: relatedCard ? `Card: ${relatedCard.name}. Card ID: ${relatedCard.id}. ${item.notes}` : item.notes,
+      },
+    });
+    created.push({ type: "create_money_link", label: `Lent INR ${moneyLink.amount} to ${moneyLink.person}`, id: moneyLink.id });
+  }
+  return created;
 }
 
 function isWorkoutPlanIntent(text: unknown) {
@@ -375,7 +544,7 @@ async function streamSingleMessage(content: string) {
   });
 }
 
-async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?: string; muscleGroup?: string }) {
+async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?: string; muscleGroup?: string }, userId: string) {
   if (input.exerciseId) {
     const byId = await prisma.exercise.findUnique({ where: { id: input.exerciseId } });
     if (byId) return byId;
@@ -385,7 +554,10 @@ async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?:
   if (!name) throw new Error("Exercise name is required");
 
   const existing = await prisma.exercise.findFirst({
-    where: { name: { equals: name } },
+    where: {
+      name: { equals: name, mode: "insensitive" },
+      OR: [{ status: "approved" }, { submittedById: userId }],
+    },
   });
   if (existing) return existing;
 
@@ -406,6 +578,8 @@ async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?:
       category: null,
       description: `${name} exercise.`,
       formTips: "Use controlled form and a pain-free range of motion.",
+      status: "pending",
+      submittedById: userId,
     },
   });
 }
@@ -431,8 +605,12 @@ function inferSpendPaymentSource(text: string, action: Extract<AgentAction, { ty
 
 async function executeAgentAction(userId: string, action: AgentAction, rawMessage = "") {
   if (action.type === "create_exercise") {
-    const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup });
-    return { type: action.type, label: `Added ${exercise.name} to Exercise Library`, id: exercise.id };
+    const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
+    return {
+      type: action.type,
+      label: exercise.status === "pending" ? `Sent ${exercise.name} to admin for approval` : `Added ${exercise.name} to Exercise Library`,
+      id: exercise.id,
+    };
   }
 
   if (action.type === "create_food_log") {
@@ -630,7 +808,7 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
   if (action.type === "create_workout_log") {
     const exerciseRows = [];
     for (const exercise of action.exercises ?? []) {
-      const resolved = await findOrCreateExercise(exercise);
+      const resolved = await findOrCreateExercise(exercise, userId);
       exerciseRows.push({
         exerciseId: resolved.id,
         setNumber: exercise.setNumber,
@@ -749,7 +927,7 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
   if (action.type === "create_workout_template") {
     const exerciseRows = [];
     for (const [index, item] of (action.exercises ?? []).entries()) {
-      const exercise = await findOrCreateExercise(item);
+      const exercise = await findOrCreateExercise(item, userId);
       exerciseRows.push({
         exerciseId: exercise.id,
         sets: Math.round(toNumber(item.sets, 3)),
@@ -805,7 +983,7 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
       include: { exercises: true },
     });
     if (!template) return { type: action.type, label: `Could not find ${action.templateName}`, id: action.templateName };
-    const exercise = await findOrCreateExercise({ exerciseName: action.exerciseName, muscleGroup: action.muscleGroup });
+    const exercise = await findOrCreateExercise({ exerciseName: action.exerciseName, muscleGroup: action.muscleGroup }, userId);
     await prisma.workoutExercise.create({
       data: {
         workoutTemplateId: template.id,
@@ -885,19 +1063,16 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get("sessionId");
     const chatSession = sessionId ? await getOrCreateChatSession(userId, sessionId) : null;
+    await pruneChatRetention(userId);
     const now = new Date();
-    await prisma.chatAttachment.updateMany({
-      where: { userId, deletedAt: null, expiresAt: { lte: now }, imageData: { not: null } },
-      data: { imageData: null, deletedAt: now },
-    });
     const messages = await prisma.chatMessage.findMany({
       where: chatSession ? { userId, sessionId: chatSession.id } : { userId, sessionId: null },
       include: { attachments: true },
-      orderBy: { createdAt: "asc" },
-      take: 50,
+      orderBy: { createdAt: "desc" },
+      take: CHAT_MESSAGES_PER_SESSION_LIMIT,
     });
     const messagesWithUrls = await Promise.all(
-      messages.map(async (message) => ({
+      messages.reverse().map(async (message) => ({
         ...message,
         attachments: await Promise.all(
           message.attachments.map(async (attachment) => {
@@ -991,9 +1166,9 @@ export async function POST(req: Request) {
         }),
         prisma.workoutLog.findMany({
           where: { userId },
-          include: { exerciseLogs: { include: { exercise: true } } },
+          include: { exerciseLogs: { take: 8, include: { exercise: true } } },
           orderBy: { date: "desc" },
-          take: 5,
+          take: 3,
         }),
         prisma.progressEntry.findMany({
           where: { userId },
@@ -1003,22 +1178,24 @@ export async function POST(req: Request) {
         prisma.exercise.findMany({
           orderBy: { name: "asc" },
           select: { id: true, name: true, muscleGroup: true },
+          take: 120,
         }),
         prisma.workoutTemplate.findMany({
           where: { userId },
           include: { exercises: { include: { exercise: true }, orderBy: { orderIndex: "asc" } } },
-          orderBy: { createdAt: "asc" },
+          orderBy: { createdAt: "desc" },
+          take: 8,
         }),
         prisma.dietPlan.findMany({
           where: { userId },
           orderBy: { updatedAt: "desc" },
-          take: 10,
+          take: 5,
         }),
         prisma.spend.findMany({
           where: { userId },
           include: { bankAccount: true, creditCard: true },
           orderBy: { date: "desc" },
-          take: 20,
+          take: 10,
         }),
         prisma.financeProfile.findUnique({ where: { userId } }),
         prisma.bankAccount.findMany({
@@ -1032,12 +1209,12 @@ export async function POST(req: Request) {
         prisma.moneyLink.findMany({
           where: { userId },
           orderBy: [{ settled: "asc" }, { date: "desc" }],
-          take: 20,
+          take: 10,
         }),
         prisma.chatMessage.findMany({
           where: { userId, sessionId: chatSession.id },
           orderBy: { createdAt: "desc" },
-          take: 10,
+          take: CHAT_MESSAGES_PER_SESSION_LIMIT,
         }),
       ]);
 
@@ -1046,6 +1223,7 @@ export async function POST(req: Request) {
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
       await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
       await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
 
@@ -1054,6 +1232,7 @@ export async function POST(req: Request) {
         "Before I suggest a food or meal plan, do you have any food allergies, intolerances, or foods you avoid? If none, say “none.”";
       await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
       await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
 
@@ -1062,6 +1241,7 @@ export async function POST(req: Request) {
         "In how many days or weeks do you want to see changes, and what exact result are you aiming for? For example: visible muscle gain in 8 weeks, lose 4 kg in 10 weeks, or improve strength in 12 weeks.";
       await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
       await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
 
@@ -1196,6 +1376,8 @@ ${JSON.stringify({
 - If the user asks to save current balance or total amount, use update_finance_profile.
 - If the user asks to add a bank account or save a bank balance, use create_bank_account when it is a new account. Ask only if the account name is missing.
 - If the user asks to add a credit card, use create_credit_card. Ask only if the card name is missing.
+- If a credit-card/card-dues message includes "My spends" plus another person's name and amount, treat that named amount as money the user paid for that person. Add the card due with create_credit_card and also add create_money_link with linkType "lend" for each named person/amount. Do not ask again when the person name and amount are already present.
+- In shorthand like "HDFC card - 5964 - My spends - 2000 - Pratsa - 3964", save the card due as 5964 and save a lend entry for Pratsa 3964 with a note mentioning the related card message.
 - If the user logs a spend and says it was on a saved credit card, include creditCardName or cardLast4 so the spend is attached to that card.
 - If the user logs a spend from bank SMS text, include bankName/accountLast4 so the spend is attached to that bank account or debit-card source. Create it implicitly when only bank name + last4 are visible.
 - If the user says they lent money to someone or borrowed money from someone, use create_money_link with linkType "lend" or "borrow".
@@ -1317,6 +1499,8 @@ Available action examples:
       const result = await executeAgentAction(userId, action, message);
       if (result) actionResults.push(result);
     }
+    const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
+    actionResults.push(...inferredFriendLinks);
 
     const actionSummary =
       actionResults.length > 0
@@ -1328,6 +1512,7 @@ Available action examples:
       data: { userId, sessionId: chatSession.id, role: "assistant", content: fullContent },
     });
     await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+    await pruneChatRetention(userId);
 
     const stream = new ReadableStream({
       async start(controller) {

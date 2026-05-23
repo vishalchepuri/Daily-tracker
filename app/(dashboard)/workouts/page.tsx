@@ -9,7 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -80,7 +88,7 @@ export default function WorkoutsPage() {
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
   const [activeSet, setActiveSet] = useState({ weight: "", reps: "" });
   const [activeEntries, setActiveEntries] = useState<any[]>([]);
-  const [muscleFilter, setMuscleFilter] = useState("all");
+  const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
   const [historyRange, setHistoryRange] = useState("30");
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
   const [exerciseDialogOpen, setExerciseDialogOpen] = useState(false);
@@ -388,7 +396,7 @@ export default function WorkoutsPage() {
         toast.error(data?.error ?? "Failed to save exercise");
         return;
       }
-      toast.success(exerciseForm.id ? "Exercise updated" : "Exercise added");
+      toast.success(exerciseForm.id ? "Exercise updated" : data?.pending ? "Exercise sent to admin for approval" : "Exercise added");
       setExerciseDialogOpen(false);
       loadData();
     } catch {
@@ -552,9 +560,34 @@ export default function WorkoutsPage() {
   const muscleGroups = ["all", "chest", "back", "shoulders", "legs", "arms", "core"];
   const editableMuscleGroups = muscleGroups.filter((item) => item !== "all");
   const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const filteredExercises = muscleFilter === "all"
+  const filteredExercises = selectedMuscleGroups.length === 0
     ? exercises
-    : (exercises ?? []).filter((e: any) => e?.muscleGroup === muscleFilter);
+    : (exercises ?? []).filter((e: any) => selectedMuscleGroups.includes(e?.muscleGroup));
+  const selectedMuscleLabel = selectedMuscleGroups.length === 0
+    ? "All muscles"
+    : selectedMuscleGroups.length === 1
+      ? selectedMuscleGroups[0]
+      : `${selectedMuscleGroups.length} muscles`;
+  const templateMuscleGroups = String(templateForm.muscleGroups ?? "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => editableMuscleGroups.includes(item));
+  const templateMuscleLabel = templateMuscleGroups.length === 0
+    ? "Select muscles"
+    : templateMuscleGroups.length === 1
+      ? templateMuscleGroups[0]
+      : `${templateMuscleGroups.length} muscles selected`;
+  const toggleMuscleGroup = (group: string) => {
+    setSelectedMuscleGroups((current) =>
+      current.includes(group) ? current.filter((item) => item !== group) : [...current, group]
+    );
+  };
+  const toggleTemplateMuscleGroup = (group: string) => {
+    const nextGroups = templateMuscleGroups.includes(group)
+      ? templateMuscleGroups.filter((item) => item !== group)
+      : [...templateMuscleGroups, group];
+    setTemplateForm((prev: any) => ({ ...prev, muscleGroups: nextGroups.join(",") }));
+  };
   const groupExerciseLogs = (exerciseLogs: any[] = []) => {
     return exerciseLogs.reduce((groups: any[], entry: any) => {
       const exerciseId = entry?.exerciseId ?? entry?.exercise?.id ?? "unknown";
@@ -880,23 +913,44 @@ export default function WorkoutsPage() {
         </TabsContent>
 
         <TabsContent value="exercises" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex gap-2 flex-wrap">
-              {muscleGroups.map((mg: string) => (
-                <Button
-                  key={mg}
-                  size="sm"
-                  variant={muscleFilter === mg ? "default" : "outline"}
-                  onClick={() => setMuscleFilter(mg)}
-                  className="capitalize"
-                >
-                  {mg}
-                </Button>
-              ))}
+          <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Exercise Library</p>
+              <p className="text-xs text-muted-foreground">{filteredExercises.length} exercises shown</p>
             </div>
-            <Button size="sm" onClick={() => openExerciseDialog()}>
-              <Plus className="w-4 h-4 mr-2" />Add Exercise
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" className="w-full justify-between sm:w-56">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                    <span className="truncate capitalize">{selectedMuscleLabel}</span>
+                  </span>
+                  <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel>Filter Muscles</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuCheckboxItem
+                  checked={selectedMuscleGroups.length === 0}
+                  onCheckedChange={() => setSelectedMuscleGroups([])}
+                  onSelect={(event) => event.preventDefault()}
+                >
+                  All muscles
+                </DropdownMenuCheckboxItem>
+                {editableMuscleGroups.map((group) => (
+                  <DropdownMenuCheckboxItem
+                    key={group}
+                    checked={selectedMuscleGroups.includes(group)}
+                    onCheckedChange={() => toggleMuscleGroup(group)}
+                    onSelect={(event) => event.preventDefault()}
+                    className="capitalize"
+                  >
+                    {group}
+                  </DropdownMenuCheckboxItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {(filteredExercises ?? []).map((ex: any) => (
@@ -1167,7 +1221,32 @@ export default function WorkoutsPage() {
               </div>
               <div>
                 <Label>Muscle Groups</Label>
-                <Input value={templateForm.muscleGroups} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTemplateForm({ ...templateForm, muscleGroups: e.target.value })} className="mt-1" placeholder="legs,core" />
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" className="mt-1 w-full justify-between">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <SlidersHorizontal className="h-4 w-4 shrink-0" />
+                        <span className="truncate capitalize">{templateMuscleLabel}</span>
+                      </span>
+                      <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Workout Muscles</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {editableMuscleGroups.map((group) => (
+                      <DropdownMenuCheckboxItem
+                        key={group}
+                        checked={templateMuscleGroups.includes(group)}
+                        onCheckedChange={() => toggleTemplateMuscleGroup(group)}
+                        onSelect={(event) => event.preventDefault()}
+                        className="capitalize"
+                      >
+                        {group}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
             <div>

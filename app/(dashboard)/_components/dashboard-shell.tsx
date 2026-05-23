@@ -1,8 +1,9 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield
@@ -161,9 +162,16 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
   });
   const pathname = usePathname();
   const router = useRouter();
+  const mainRef = useRef<HTMLElement | null>(null);
+  const prefersReducedMotion = useReducedMotion();
   const [isRoutePending, startRouteTransition] = useTransition();
   const currentFeature = getFeatureHelp(pathname);
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
+  const chatHref = `/chat?from=${encodeURIComponent(pathname || "/dashboard")}`;
+
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
+  }, [pathname, prefersReducedMotion]);
 
   const goToFeature = (href: string) => {
     setSidebarOpen(false);
@@ -360,9 +368,9 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                 onFocus={() => router.prefetch(item?.href)}
                 onClick={() => goToFeature(item?.href)}
                 className={cn(
-                  "flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm font-medium transition-all",
+                  "flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-left text-sm font-medium transition-all duration-200 ease-out hover:translate-x-0.5 active:scale-[0.99]",
                   isActive
-                    ? "bg-primary/10 text-primary"
+                    ? "bg-primary/10 text-primary shadow-sm"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
@@ -405,8 +413,19 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
             {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
         </header>
-        <main className="min-h-0 flex-1 overflow-y-auto ios-scroll p-3 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] lg:p-6 lg:pb-6">
-          <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-3 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] lg:p-6 lg:pb-6">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={pathname}
+              className="mx-auto w-full max-w-[1600px]"
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.995 }}
+              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.998 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 
@@ -420,8 +439,8 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                 type="button"
                 onClick={() => goToFeature(item.href)}
                 className={cn(
-                  "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[0.66rem] font-medium",
-                  isActive ? "bg-primary/10 text-primary" : "text-muted-foreground"
+                  "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
+                  isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
                 )}
               >
                 <item.icon className="h-5 w-5 shrink-0" />
@@ -468,7 +487,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
               ))}
             </ul>
             <Button asChild className="mt-4 w-full">
-              <Link href="/chat" onClick={() => setCoachOpen(false)}>
+              <Link href={chatHref} onClick={() => setCoachOpen(false)}>
                 Open Dayza Agent
               </Link>
             </Button>
@@ -479,7 +498,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           size="icon"
           className="h-12 w-12 rounded-full shadow-lg"
         >
-          <Link href="/chat" aria-label="Open Dayza Agent">
+          <Link href={chatHref} aria-label="Open Dayza Agent">
             <MessageSquare className="h-5 w-5" />
           </Link>
         </Button>

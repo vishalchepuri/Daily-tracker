@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { signIn } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
 import { PlayCircle, RefreshCw, Sparkles, TrendingUp, Youtube } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,8 @@ function priorityLabel(score?: number) {
 
 export default function YtSummaryPage() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const videoId = searchParams.get("videoId");
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<any>(null);
@@ -56,53 +59,50 @@ export default function YtSummaryPage() {
     return fallback;
   };
 
-  const loadSubscriptions = async () => {
+  const loadSubscriptionFeed = async () => {
     setLoadingSubscriptions(true);
+    setLoadingVideos(true);
     try {
-      const res = await fetch("/api/youtube/subscriptions");
+      const res = await fetch("/api/youtube/feed");
       const data = await res.json();
       if (!res.ok) {
         setNeedsConnection(Boolean(data?.needsConnection));
         if (!data?.needsConnection) {
-          setYoutubeError({ message: errorMessage(data?.error, "Failed to load subscriptions"), actionUrl: data?.actionUrl });
-          toast.error(errorMessage(data?.error, "Failed to load subscriptions"));
+          setYoutubeError({ message: errorMessage(data?.error, "Failed to load subscription feed"), actionUrl: data?.actionUrl });
+          toast.error(errorMessage(data?.error, "Failed to load subscription feed"));
         }
         return;
       }
       setNeedsConnection(false);
       setYoutubeError(null);
       setSubscriptions(data.subscriptions ?? []);
+      setVideos(data.videos ?? []);
+      setSelectedChannel(null);
+      setSelectedVideo(null);
+      setSummary("");
+      setSource("");
     } catch {
-      toast.error("Failed to load subscriptions");
+      toast.error("Failed to load subscription feed");
     } finally {
       setLoadingSubscriptions(false);
+      setLoadingVideos(false);
     }
   };
 
-  useEffect(() => { loadSubscriptions(); }, []);
+  useEffect(() => { loadSubscriptionFeed(); }, []);
 
   const loadVideos = async (channel: any) => {
     setSelectedChannel(channel);
     setSelectedVideo(null);
     setSummary("");
     setSource("");
-    setLoadingVideos(true);
-    try {
-      const res = await fetch(`/api/youtube/videos?channelId=${encodeURIComponent(channel.channelId)}`);
-      const data = await res.json();
-      if (!res.ok) {
-        if (data?.needsConnection) setNeedsConnection(true);
-        if (!data?.needsConnection) setYoutubeError({ message: errorMessage(data?.error, "Failed to load videos"), actionUrl: data?.actionUrl });
-        toast.error(errorMessage(data?.error, "Failed to load videos"));
-        return;
-      }
-      setVideos(data.videos ?? []);
-    } catch {
-      toast.error("Failed to load videos");
-    } finally {
-      setLoadingVideos(false);
-    }
   };
+
+  const visibleVideos = useMemo(() => (
+    selectedChannel
+      ? videos.filter((video) => video.channelId === selectedChannel.channelId)
+      : videos
+  ), [selectedChannel, videos]);
 
   const summarizeVideo = async (video: any) => {
     setSelectedVideo(video);
@@ -130,6 +130,15 @@ export default function YtSummaryPage() {
       setSummarizing(false);
     }
   };
+
+  useEffect(() => {
+    if (videos.length > 0 && videoId) {
+      const targetVideo = videos.find((v: any) => v.id === videoId);
+      if (targetVideo) {
+        summarizeVideo(targetVideo);
+      }
+    }
+  }, [videos, videoId]);
 
   if (needsConnection) {
     return (
@@ -174,9 +183,9 @@ export default function YtSummaryPage() {
         <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
-            <p className="mt-1 text-sm text-muted-foreground">AI and tech videos are prioritized first, with short descriptions and focused summaries.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, newest first, with focused summaries.</p>
           </div>
-          <Button variant="outline" onClick={loadSubscriptions} disabled={loadingSubscriptions}>
+          <Button variant="outline" onClick={loadSubscriptionFeed} disabled={loadingSubscriptions || loadingVideos}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
             Refresh
           </Button>
@@ -211,6 +220,24 @@ export default function YtSummaryPage() {
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No subscriptions found.</div>
             ) : (
               <div className="grid max-h-[32rem] gap-2 overflow-y-auto pr-1 ios-scroll">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedChannel(null);
+                    setSelectedVideo(null);
+                    setSummary("");
+                    setSource("");
+                  }}
+                  className={`grid grid-cols-[3rem_1fr] items-center gap-3 rounded-lg p-2 text-left transition hover:bg-muted ${!selectedChannel ? "bg-primary/10 text-primary" : "bg-muted/35"}`}
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-md bg-red-500/10 text-red-500">
+                    <Youtube className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold">All subscriptions</p>
+                    <p className="text-xs text-muted-foreground">{videos.length} latest videos</p>
+                  </div>
+                </button>
                 {subscriptions.map((channel) => (
                   <button
                     key={channel.id}
@@ -236,27 +263,25 @@ export default function YtSummaryPage() {
               <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
                 <CardTitle className="flex items-center gap-2">
                   <PlayCircle className="h-5 w-5 text-primary" />
-                  {selectedChannel ? selectedChannel.title : "Recent Videos"}
+                  {selectedChannel ? selectedChannel.title : "Latest Subscription Videos"}
                 </CardTitle>
-                {selectedChannel && videos.length > 0 && (
+                {visibleVideos.length > 0 && (
                   <div className="flex gap-2 text-xs text-muted-foreground">
-                    <Badge variant="secondary">{videos.filter((video) => video.kind === "video").length} videos</Badge>
-                    <Badge variant="outline">{videos.filter((video) => video.kind === "short").length} shorts</Badge>
-                    <Badge variant="outline">Sorted by AI/tech signal</Badge>
+                    <Badge variant="secondary">{visibleVideos.filter((video) => video.kind === "video").length} videos</Badge>
+                    <Badge variant="outline">{visibleVideos.filter((video) => video.kind === "short").length} shorts</Badge>
+                    <Badge variant="outline">Newest first</Badge>
                   </div>
                 )}
               </div>
             </CardHeader>
             <CardContent>
-              {!selectedChannel ? (
-                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">Select a subscription to see recent videos.</div>
-              ) : loadingVideos ? (
+              {loadingVideos ? (
                 <div className="space-y-2">{[1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div>
-              ) : videos.length === 0 ? (
+              ) : visibleVideos.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No recent videos found.</div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
-                  {videos.map((video) => (
+                  {visibleVideos.map((video) => (
                     <button key={video.id} type="button" onClick={() => summarizeVideo(video)} className={`overflow-hidden rounded-lg border bg-muted/30 text-left transition hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}>
                       {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}
                       <div className="space-y-2 p-3">
@@ -268,6 +293,7 @@ export default function YtSummaryPage() {
                           <span className="text-xs text-muted-foreground">Score {video.priorityScore ?? 0}</span>
                         </div>
                         <p className="line-clamp-2 text-sm font-semibold">{video.title}</p>
+                        <p className="truncate text-xs font-medium text-muted-foreground">{video.channelTitle}</p>
                         {video.description && <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{video.description}</p>}
                         {video.matchedTopics?.length > 0 && (
                           <div className="flex flex-wrap gap-1">

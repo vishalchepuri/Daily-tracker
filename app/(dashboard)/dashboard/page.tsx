@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight } from "lucide-react";
+import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles } from "lucide-react";
 import { FadeIn, SlideIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,9 @@ export default function DashboardPage() {
   const [remindersLoading, setRemindersLoading] = useState(true);
   const [waterLoading, setWaterLoading] = useState(true);
   const [waterAdding, setWaterAdding] = useState(false);
+  const [youtubeVideos, setYoutubeVideos] = useState<any[]>([]);
+  const [youtubeLoading, setYoutubeLoading] = useState(true);
+  const [youtubeNeedsConnection, setYoutubeNeedsConnection] = useState(false);
 
   const fetchReminders = async () => {
     try {
@@ -57,6 +60,24 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchYoutubeVideos = async () => {
+    try {
+      const res = await fetch("/api/youtube/feed");
+      const d = await res.json();
+      if (res.ok) {
+        setYoutubeVideos(d.videos ?? []);
+      } else {
+        if (d?.needsConnection) {
+          setYoutubeNeedsConnection(true);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setYoutubeLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => r.json())
@@ -66,6 +87,7 @@ export default function DashboardPage() {
 
     fetchReminders();
     fetchWaterLogs();
+    fetchYoutubeVideos();
   }, []);
 
   const toggleReminder = async (id: string, completed: boolean) => {
@@ -486,7 +508,85 @@ export default function DashboardPage() {
         </FadeIn>
       </div>
 
+      {/* YouTube Recommended Learning */}
       <FadeIn delay={0.5}>
+        <Card className="mt-6">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Youtube className="w-5 h-5 text-red-500" />
+                Recommended Learning
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-1">High-signal tech and AI videos from your subscriptions</p>
+            </div>
+            <Link href="/yt-summary" className="text-xs text-primary hover:underline flex items-center gap-1">
+              View Feed <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {youtubeLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 py-2">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-32 bg-muted/40 animate-pulse rounded-lg" />
+                ))}
+              </div>
+            ) : youtubeNeedsConnection ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground border border-dashed border-border rounded-lg bg-muted/10">
+                <Sparkles className="w-8 h-8 text-primary/60 mb-2" />
+                <p className="font-semibold text-foreground">Unlock AI Video Summaries</p>
+                <p className="text-xs max-w-sm mt-1 px-4">Connect your YouTube account to automatically analyze and summarize educational videos from your feeds.</p>
+                <Link href="/yt-summary" className="mt-3">
+                  <Button size="sm" variant="outline">Connect YouTube</Button>
+                </Link>
+              </div>
+            ) : youtubeVideos.filter((v) => (v.priorityScore ?? 0) >= 35).length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-8 text-center text-sm text-muted-foreground border border-dashed border-border rounded-lg bg-muted/10">
+                <Youtube className="w-8 h-8 text-muted-foreground/40 mb-2" />
+                <p className="font-semibold">No high-signal videos today</p>
+                <p className="text-xs max-w-sm mt-1">We couldn&apos;t find any highly relevant learning content in your recent feed.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {youtubeVideos
+                  .filter((v) => (v.priorityScore ?? 0) >= 35)
+                  .slice(0, 3)
+                  .map((video) => (
+                    <Link
+                      key={video.id}
+                      href={`/yt-summary?videoId=${video.id}`}
+                      className="group block overflow-hidden rounded-lg border border-border/50 bg-muted/20 hover:border-primary/40 hover:bg-muted/40 transition-all p-3"
+                    >
+                      <div className="relative aspect-video rounded overflow-hidden bg-muted">
+                        {video.thumbnail ? (
+                          <img
+                            src={video.thumbnail}
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center"><Youtube className="w-6 h-6 text-muted-foreground" /></div>
+                        )}
+                        <div className="absolute top-2 left-2">
+                          <Badge variant="default" className="text-[9px] h-4 py-0 bg-primary/95 text-primary-foreground font-semibold">
+                            Score {video.priorityScore}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="mt-2 space-y-1">
+                        <p className="line-clamp-2 text-xs font-semibold text-foreground group-hover:text-primary transition-colors leading-relaxed">
+                          {video.title}
+                        </p>
+                        <p className="truncate text-[10px] text-muted-foreground font-medium">{video.channelTitle}</p>
+                      </div>
+                    </Link>
+                  ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      <FadeIn delay={0.55}>
         <IssueReportForm compact defaultPage="Dashboard" />
       </FadeIn>
     </div>

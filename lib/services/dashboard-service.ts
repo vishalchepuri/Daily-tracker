@@ -11,9 +11,10 @@ function todayRange() {
 }
 
 async function getWorkoutStreak(userId: string) {
-  const allWorkouts = await prisma.workoutLog.findMany({
+  const recentWorkouts = await prisma.workoutLog.findMany({
     where: { userId },
     orderBy: { date: "desc" },
+    take: 90,
     select: { date: true },
   });
 
@@ -21,7 +22,7 @@ async function getWorkoutStreak(userId: string) {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   const workoutDates = new Set(
-    (allWorkouts ?? []).map((workout) => {
+    (recentWorkouts ?? []).map((workout) => {
       const date = new Date(workout.date);
       date.setHours(0, 0, 0, 0);
       return date.toISOString();
@@ -81,4 +82,3 @@ export async function getDashboardData(userId: string) {
     },
   };
 }
-

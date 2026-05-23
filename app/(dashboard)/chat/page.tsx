@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 
@@ -18,44 +18,83 @@ declare global {
 
 export default function ChatPage() {
   const router = useRouter();
+  const [returnTo, setReturnTo] = useState("/dashboard");
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyOffset, setHistoryOffset] = useState(0);
+  const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
-
-  const loadSessions = useCallback(async () => {
-    const res = await fetch("/api/chat/sessions");
-    const data = await res.json();
-    const nextSessions = data?.sessions ?? [];
-    setSessions(nextSessions);
-    if (!activeSessionId && nextSessions[0]?.id) setActiveSessionId(nextSessions[0].id);
-    if (activeSessionId && !nextSessions.some((chat: any) => chat.id === activeSessionId)) {
-      setActiveSessionId(nextSessions[0]?.id ?? null);
-      if (!nextSessions[0]?.id) setMessages([]);
-    }
-  }, [activeSessionId]);
+  const skipNextMessageLoadRef = useRef<string | null>(null);
 
   const loadMessages = useCallback(async (sessionId: string | null) => {
-    const url = sessionId ? `/api/chat?sessionId=${encodeURIComponent(sessionId)}` : "/api/chat";
-    fetch(url).then(r => r.json()).then(d => setMessages(d?.messages ?? [])).catch(console.error);
+    setLoading(true);
+    try {
+      const url = sessionId ? `/api/chat?sessionId=${encodeURIComponent(sessionId)}` : "/api/chat";
+      const res = await fetch(url);
+      const data = await res.json();
+      setMessages(data?.messages ?? []);
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not load chat messages");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { loadSessions().catch(console.error); }, [loadSessions]);
-  useEffect(() => { loadMessages(activeSessionId).catch(console.error); }, [activeSessionId, loadMessages]);
+  const loadSessions = useCallback(async ({ reset = false }: { reset?: boolean } = {}) => {
+    if (historyLoading) return;
+    setHistoryLoading(true);
+    try {
+      const offset = reset ? 0 : historyOffset;
+      const res = await fetch(`/api/chat/sessions?offset=${offset}&limit=10`);
+      const data = await res.json();
+      const nextSessions = data?.sessions ?? [];
+      setSessions((prev) => reset ? nextSessions : [...prev, ...nextSessions.filter((chat: any) => !prev.some((item: any) => item.id === chat.id))]);
+      setHistoryOffset(data?.nextOffset ?? offset + nextSessions.length);
+      setHistoryHasMore(Boolean(data?.hasMore));
+    } catch (error) {
+      console.error(error);
+      toast.error("Could not load chat sessions");
+    } finally {
+      setHistoryLoading(false);
+      setHistoryLoaded(true);
+    }
+  }, [historyLoading, historyOffset]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    if (skipNextMessageLoadRef.current === activeSessionId) {
+      skipNextMessageLoadRef.current = null;
+      return;
+    }
+    loadMessages(activeSessionId).catch(console.error);
+  }, [activeSessionId, loadMessages]);
+  useEffect(() => {
+    if (historyOpen && !historyLoaded) loadSessions({ reset: true }).catch(console.error);
+  }, [historyLoaded, historyOpen, loadSessions]);
+  useEffect(() => {
+    const from = new URLSearchParams(window.location.search).get("from");
+    if (from?.startsWith("/") && !from.startsWith("//") && !from.startsWith("/chat")) {
+      setReturnTo(from);
+    }
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: scrollRef.current?.scrollHeight ?? 0, behavior: "smooth" });
   }, [messages]);
 
-  const createChatSession = useCallback(async (title = "New chat") => {
+  const createChatSession = useCallback(async (title = "New chat", options: { clearMessages?: boolean; skipAutoLoad?: boolean } = {}) => {
     const res = await fetch("/api/chat/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,8 +103,9 @@ export default function ChatPage() {
     const data = await res.json();
     if (data?.session?.id) {
       setSessions((prev) => [data.session, ...(prev ?? [])]);
+      if (options.skipAutoLoad) skipNextMessageLoadRef.current = data.session.id;
       setActiveSessionId(data.session.id);
-      setMessages([]);
+      if (options.clearMessages !== false) setMessages([]);
       return data.session.id as string;
     }
     return null;
@@ -73,11 +113,13 @@ export default function ChatPage() {
 
   const handleSend = useCallback(async () => {
     if ((!input?.trim() && !imageDataUrl) || streaming) return;
+    setStreaming(true);
     const userMsg = input.trim();
     const attachedImage = imageDataUrl;
-    const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat");
+    const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
     if (!targetSessionId) {
       toast.error("Could not start chat");
+      setStreaming(false);
       return;
     }
     setInput("");
@@ -88,7 +130,6 @@ export default function ChatPage() {
       imageDataUrl: attachedImage,
       id: `temp-${Date.now()}`,
     }]);
-    setStreaming(true);
     setMessages(prev => [...(prev ?? []), { role: "assistant", content: "", id: `stream-${Date.now()}` }]);
 
     try {
@@ -132,13 +173,24 @@ export default function ChatPage() {
       }
     } catch (err) { console.error(err); }
     setStreaming(false);
-    loadSessions().catch(console.error);
-  }, [activeSessionId, createChatSession, imageDataUrl, input, loadSessions, streaming]);
+  }, [activeSessionId, createChatSession, imageDataUrl, input, streaming]);
 
   const startNewChat = useCallback(async () => {
-    await createChatSession("New chat");
+    setActiveSessionId(null);
+    skipNextMessageLoadRef.current = null;
+    setMessages([]);
+    setInput("");
+    setImageDataUrl(null);
     setHistoryOpen(false);
-  }, [createChatSession]);
+  }, []);
+
+  const refreshChat = useCallback(async () => {
+    if (activeSessionId) await loadMessages(activeSessionId);
+    else {
+      setMessages([]);
+      toast.success("Ready for a new chat");
+    }
+  }, [activeSessionId, loadMessages]);
 
   const deleteChat = useCallback(async (sessionId: string) => {
     if (!confirm("Delete this chat and its images permanently?")) return;
@@ -213,8 +265,8 @@ export default function ChatPage() {
   }, [listening, streaming]);
 
   const closeChat = useCallback(() => {
-    router.push("/dashboard");
-  }, [router]);
+    router.push(returnTo);
+  }, [returnTo, router]);
 
   return (
     <div className="flex h-[calc(100svh_-_9.25rem_-_env(safe-area-inset-bottom))] min-h-[30rem] flex-col sm:h-[calc(100dvh-8rem)]">
@@ -225,6 +277,17 @@ export default function ChatPage() {
             <p className="mt-1 hidden text-sm text-muted-foreground min-[390px]:block">Ask about fitness, food, spends, reminders, and progress</p>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={refreshChat}
+              disabled={loading || streaming}
+              aria-label="Reload chat"
+              title="Reload chat"
+            >
+              <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
+            </Button>
             <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
               <DialogTrigger asChild>
                 <Button type="button" variant="ghost" size="icon" aria-label="Open chat history" title="Chat history">
@@ -244,8 +307,20 @@ export default function ChatPage() {
                     </Button>
                   </div>
                 </DialogHeader>
-                <div className="max-h-[64svh] overflow-y-auto p-3 ios-scroll">
-                  {(sessions ?? []).length === 0 ? (
+                <div
+                  className="max-h-[64svh] overflow-y-auto p-3 ios-scroll"
+                  onScroll={(event) => {
+                    const target = event.currentTarget;
+                    const nearBottom = target.scrollTop + target.clientHeight >= target.scrollHeight - 48;
+                    if (nearBottom && historyHasMore && !historyLoading) loadSessions().catch(console.error);
+                  }}
+                >
+                  {historyLoading && sessions.length === 0 ? (
+                    <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      Loading history...
+                    </div>
+                  ) : (sessions ?? []).length === 0 ? (
                     <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No chats yet. Tap New or send a message to start fresh.</div>
                   ) : (
                     <div className="space-y-2">
@@ -268,6 +343,12 @@ export default function ChatPage() {
                           </Button>
                         </div>
                       ))}
+                      {historyHasMore && (
+                        <Button type="button" variant="outline" className="w-full" onClick={() => loadSessions().catch(console.error)} disabled={historyLoading}>
+                          {historyLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          Load more chats
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -292,6 +373,12 @@ export default function ChatPage() {
 
       <div className="flex min-h-0 flex-1">
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {loading && (
+          <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            Loading chat...
+          </div>
+        )}
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 sm:space-y-4 sm:p-4">
           {(messages ?? [])?.length === 0 && (
             <div className="text-center py-12">

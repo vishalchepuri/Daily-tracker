@@ -23,18 +23,26 @@ async function resolveBankAccountId(userId: string, bankAccountId?: unknown) {
   return account.id;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
+    const { searchParams } = new URL(req.url);
+    const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
+    const limit = Math.min(100, Math.max(20, Number(searchParams.get("limit") ?? 50) || 50));
     const spends = await prisma.spend.findMany({
       where: { userId },
       include: { bankAccount: true, creditCard: true },
       orderBy: { date: "desc" },
-      take: 500,
+      skip: offset,
+      take: limit + 1,
     });
-    return NextResponse.json({ spends });
+    return NextResponse.json({
+      spends: spends.slice(0, limit),
+      nextOffset: offset + Math.min(spends.length, limit),
+      hasMore: spends.length > limit,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -160,7 +168,7 @@ export async function DELETE(req: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
 
-    const existing = await prisma.spend.findUnique({ where: { id } });
+    const existing = await prisma.spend.findUnique({ where: { id }, include: { creditCard: true } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
     await prisma.$transaction(async (tx) => {
       if (existing.balanceApplied && existing.bankAccountId) {
@@ -175,6 +183,21 @@ export async function DELETE(req: Request) {
           data: { currentDue: { decrement: existing.amount } },
         });
       }
+      await tx.moneyLink.deleteMany({
+        where: {
+          userId,
+          type: "lend",
+          OR: [
+            { notes: { contains: `Spend ID: ${id}` } },
+            existing.creditCard
+              ? {
+                  amount: existing.amount,
+                  notes: { contains: existing.creditCard.name },
+                }
+              : undefined,
+          ].filter(Boolean) as any,
+        },
+      });
       await tx.spend.delete({ where: { id } });
     });
     return NextResponse.json({ success: true });

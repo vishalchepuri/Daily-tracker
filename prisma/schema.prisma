@@ -40,9 +40,11 @@ model User {
   medicationLogs MedicationLog[]
   passwordResetTokens PasswordResetToken[]
   signupOtps    SignupOtp[]
-  issueReports  IssueReport[]
-  chatSessions  ChatSession[]
-  chatAttachments ChatAttachment[]
+    issueReports  IssueReport[]
+    chatSessions  ChatSession[]
+    chatAttachments ChatAttachment[]
+    submittedExercises Exercise[] @relation("SubmittedExercises")
+    reviewedExercises Exercise[] @relation("ReviewedExercises")
 }
 
 model Account {
@@ -139,17 +141,25 @@ model UserProfile {
 }
 
 model Exercise {
-  id            String   @id @default(cuid())
-  name          String
-  muscleGroup   String   // chest, back, shoulders, legs, arms, core
-  equipment     String?  // barbell, dumbbell, machine, bodyweight, cable
-  description   String?
-  formTips      String?
-  category      String?  // compound, isolation
-  createdAt     DateTime @default(now())
-  workoutExercises WorkoutExercise[]
-  exerciseLogs  ExerciseLog[]
-}
+    id            String   @id @default(cuid())
+    name          String
+    muscleGroup   String   // chest, back, shoulders, legs, arms, core
+    equipment     String?  // barbell, dumbbell, machine, bodyweight, cable
+    description   String?
+    formTips      String?
+    category      String?  // compound, isolation
+    status        String   @default("approved") // pending, approved, rejected
+    submittedById String?
+    submittedBy   User?    @relation("SubmittedExercises", fields: [submittedById], references: [id], onDelete: SetNull)
+    reviewedById  String?
+    reviewedBy    User?    @relation("ReviewedExercises", fields: [reviewedById], references: [id], onDelete: SetNull)
+    reviewedAt    DateTime?
+    createdAt     DateTime @default(now())
+    workoutExercises WorkoutExercise[]
+    exerciseLogs  ExerciseLog[]
+    @@index([status, createdAt])
+    @@index([submittedById])
+  }
 
 model WorkoutTemplate {
   id            String   @id @default(cuid())

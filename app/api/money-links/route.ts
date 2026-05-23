@@ -9,17 +9,25 @@ function parseAmount(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
+    const { searchParams } = new URL(req.url);
+    const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
+    const limit = Math.min(100, Math.max(20, Number(searchParams.get("limit") ?? 50) || 50));
     const moneyLinks = await prisma.moneyLink.findMany({
       where: { userId },
       orderBy: [{ settled: "asc" }, { date: "desc" }],
-      take: 200,
+      skip: offset,
+      take: limit + 1,
     });
-    return NextResponse.json({ moneyLinks });
+    return NextResponse.json({
+      moneyLinks: moneyLinks.slice(0, limit),
+      nextOffset: offset + Math.min(moneyLinks.length, limit),
+      hasMore: moneyLinks.length > limit,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { Shield, Users, Mail, Activity, CalendarClock } from "lucide-react";
+import { revalidatePath } from "next/cache";
+import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,11 +22,53 @@ function formatDate(value?: Date | null) {
   }).format(value);
 }
 
+function formatNumber(value?: number | null) {
+  return new Intl.NumberFormat("en-IN").format(value ?? 0);
+}
+
+function formatInr(value?: number | null) {
+  return `INR ${Number(value ?? 0).toFixed(0)}`;
+}
+
+async function approveExerciseSubmission(formData: FormData) {
+  "use server";
+  const admin = await requireAdminUser();
+  if (!admin) return;
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await prisma.exercise.update({
+    where: { id },
+    data: {
+      status: "approved",
+      reviewedById: admin.id,
+      reviewedAt: new Date(),
+    },
+  });
+  revalidatePath("/admin");
+}
+
+async function rejectExerciseSubmission(formData: FormData) {
+  "use server";
+  const admin = await requireAdminUser();
+  if (!admin) return;
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  await prisma.exercise.update({
+    where: { id },
+    data: {
+      status: "rejected",
+      reviewedById: admin.id,
+      reviewedAt: new Date(),
+    },
+  });
+  revalidatePath("/admin");
+}
+
 export default async function AdminPage() {
   const admin = await requireAdminUser();
   if (!admin) redirect("/dashboard");
 
-  const [users, totals] = await Promise.all([
+  const [users, totals, spendTotals, moneyLinkTotals, issueReports, recentSpends, activeChatUsers, recentWorkoutLogs, pendingExercises] = await Promise.all([
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -64,11 +107,66 @@ export default async function AdminPage() {
     prisma.user.aggregate({
       _count: { id: true },
     }),
+    prisma.spend.aggregate({
+      _count: { id: true },
+      _sum: { amount: true },
+    }),
+    prisma.moneyLink.aggregate({
+      where: { settled: false },
+      _count: { id: true },
+      _sum: { amount: true },
+    }),
+    prisma.issueReport.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      include: { user: { select: { name: true, email: true } } },
+    }),
+    prisma.spend.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 8,
+      select: { id: true, merchant: true, amount: true, currency: true, source: true, createdAt: true, user: { select: { name: true, email: true } } },
+    }),
+    prisma.chatMessage.groupBy({
+      by: ["userId"],
+      _count: { id: true },
+      orderBy: { _count: { id: "desc" } },
+      take: 5,
+    }),
+    prisma.workoutLog.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { id: true, templateName: true, duration: true, date: true, user: { select: { name: true, email: true } } },
+    }),
+    prisma.exercise.findMany({
+      where: { status: "pending" },
+      orderBy: { createdAt: "asc" },
+      take: 20,
+      include: { submittedBy: { select: { name: true, email: true } } },
+    }),
   ]);
 
   const googleUsers = users.filter((user) => user.accounts.some((account) => account.provider === "google")).length;
   const profileUsers = users.filter((user) => user.profile?.age && user.profile?.weight && user.profile?.height).length;
   const telegramUsers = users.filter((user) => user.profile?.telegramEnabled && user.profile?.telegramChatId).length;
+  const openIssues = issueReports.filter((issue) => issue.status === "open").length;
+  const totalActivity = users.reduce((sum, user) => (
+    sum +
+    user._count.chatMessages +
+    user._count.workoutLogs +
+    user._count.foodLogs +
+    user._count.spends +
+    user._count.reminders +
+    user._count.medications +
+    user._count.progressEntries
+  ), 0);
+  const activeChatUserIds = new Set(activeChatUsers.map((entry) => entry.userId));
+  const topActiveUsers = users
+    .filter((user) => activeChatUserIds.has(user.id))
+    .map((user) => ({
+      ...user,
+      chatCount: activeChatUsers.find((entry) => entry.userId === user.id)?._count.id ?? 0,
+    }))
+    .sort((a, b) => b.chatCount - a.chatCount);
 
   return (
     <div className="space-y-5">
@@ -77,50 +175,148 @@ export default async function AdminPage() {
           <Shield className="h-5 w-5" />
           <span className="text-sm font-semibold uppercase tracking-wide">Admin</span>
         </div>
-        <h2 className="mt-2 font-display text-2xl font-bold tracking-tight">Users</h2>
+        <h2 className="mt-2 font-display text-2xl font-bold tracking-tight">Admin Command Center</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Read-only view of registered Dayza users and their activity counts.
+          Monitor users, product usage, finance activity, workouts, and reported issues.
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-primary/10 p-2 text-primary"><Users className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm text-muted-foreground">Total users</p>
-              <p className="text-2xl font-bold">{totals._count.id}</p>
+        <AdminMetric title="Total users" value={formatNumber(totals._count.id)} detail={`${profileUsers} profiles ready`} icon={Users} />
+        <AdminMetric title="Total activity" value={formatNumber(totalActivity)} detail="records across users" icon={HeartPulse} />
+        <AdminMetric title="Spend volume" value={formatInr(spendTotals._sum.amount)} detail={`${formatNumber(spendTotals._count.id)} spend records`} icon={WalletCards} />
+        <AdminMetric title="Open issues" value={formatNumber(openIssues)} detail={`${formatNumber(issueReports.length)} recent reports`} icon={AlertCircle} />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <AdminMetric title="Google linked" value={formatNumber(googleUsers)} detail="OAuth accounts" icon={Mail} compact />
+        <AdminMetric title="Telegram linked" value={formatNumber(telegramUsers)} detail="reminder-ready users" icon={CalendarClock} compact />
+        <AdminMetric title="Money links" value={formatInr(moneyLinkTotals._sum.amount)} detail={`${formatNumber(moneyLinkTotals._count.id)} unsettled`} icon={Banknote} compact />
+        <AdminMetric title="Exercise approvals" value={formatNumber(pendingExercises.length)} detail="waiting for review" icon={Dumbbell} compact />
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" />Exercise Approval Queue</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pendingExercises.length === 0 ? (
+            <EmptyState label="No exercise submissions waiting for approval." />
+          ) : (
+            <div className="grid gap-2">
+              {pendingExercises.map((exercise) => (
+                <div key={exercise.id} className="grid gap-3 rounded-lg bg-muted/40 p-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{exercise.name}</p>
+                      <Badge variant="secondary" className="capitalize">{exercise.muscleGroup}</Badge>
+                      {exercise.equipment && <Badge variant="outline">{exercise.equipment}</Badge>}
+                      {exercise.category && <Badge variant="outline">{exercise.category}</Badge>}
+                    </div>
+                    {exercise.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{exercise.description}</p>}
+                    {exercise.formTips && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">Tips: {exercise.formTips}</p>}
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Submitted by {exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user"} on {formatDate(exercise.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <form action={approveExerciseSubmission}>
+                      <input type="hidden" name="id" value={exercise.id} />
+                      <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                        <CheckCircle2 className="h-4 w-4" /> Approve
+                      </button>
+                    </form>
+                    <form action={rejectExerciseSubmission}>
+                      <input type="hidden" name="id" value={exercise.id} />
+                      <button className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">
+                        <XCircle className="h-4 w-4" /> Reject
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              ))}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-3">
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-primary" />Top Chat Users</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {topActiveUsers.length === 0 ? (
+              <EmptyState label="No chat usage yet." />
+            ) : topActiveUsers.map((user) => (
+              <AdminListRow
+                key={user.id}
+                title={user.name || user.email}
+                detail={user.email}
+                value={`${formatNumber(user.chatCount)} chats`}
+              />
+            ))}
           </CardContent>
         </Card>
+
         <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-primary/10 p-2 text-primary"><Mail className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm text-muted-foreground">Google linked</p>
-              <p className="text-2xl font-bold">{googleUsers}</p>
-            </div>
+          <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="h-5 w-5 text-primary" />Recent Spends</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {recentSpends.length === 0 ? (
+              <EmptyState label="No spends recorded yet." />
+            ) : recentSpends.map((spend) => (
+              <AdminListRow
+                key={spend.id}
+                title={spend.merchant}
+                detail={`${spend.user.name || spend.user.email} - ${spend.source}`}
+                value={`${spend.currency} ${Number(spend.amount ?? 0).toFixed(0)}`}
+              />
+            ))}
           </CardContent>
         </Card>
+
         <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-primary/10 p-2 text-primary"><Activity className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm text-muted-foreground">Profiles ready</p>
-              <p className="text-2xl font-bold">{profileUsers}</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="flex items-center gap-3 p-4">
-            <div className="rounded-lg bg-primary/10 p-2 text-primary"><CalendarClock className="h-5 w-5" /></div>
-            <div>
-              <p className="text-sm text-muted-foreground">Telegram linked</p>
-              <p className="text-2xl font-bold">{telegramUsers}</p>
-            </div>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" />Recent Workouts</CardTitle></CardHeader>
+          <CardContent className="space-y-2">
+            {recentWorkoutLogs.length === 0 ? (
+              <EmptyState label="No workout logs yet." />
+            ) : recentWorkoutLogs.map((log) => (
+              <AdminListRow
+                key={log.id}
+                title={log.templateName || "Workout"}
+                detail={`${log.user.name || log.user.email} - ${formatDate(log.date)}`}
+                value={log.duration ? `${log.duration} min` : "Logged"}
+              />
+            ))}
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><AlertCircle className="h-5 w-5 text-primary" />Issue Queue</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {issueReports.length === 0 ? (
+            <EmptyState label="No issue reports yet." />
+          ) : (
+            <div className="grid gap-2">
+              {issueReports.map((issue) => (
+                <div key={issue.id} className="grid gap-2 rounded-lg bg-muted/40 p-3 md:grid-cols-[1fr_auto] md:items-center">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="truncate font-medium">{issue.category}</p>
+                      <Badge variant={issue.status === "open" ? "default" : "outline"}>{issue.status}</Badge>
+                      {issue.page && <Badge variant="secondary">{issue.page}</Badge>}
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{issue.message}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{issue.user?.email || issue.email || "Anonymous"}</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">{formatDate(issue.createdAt)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -196,4 +392,35 @@ export default async function AdminPage() {
       </Card>
     </div>
   );
+}
+
+function AdminMetric({ title, value, detail, icon: Icon, compact }: any) {
+  return (
+    <Card>
+      <CardContent className={`flex items-center gap-3 ${compact ? "p-3" : "p-4"}`}>
+        <div className="rounded-lg bg-primary/10 p-2 text-primary"><Icon className="h-5 w-5" /></div>
+        <div className="min-w-0">
+          <p className="truncate text-sm text-muted-foreground">{title}</p>
+          <p className={`${compact ? "text-xl" : "text-2xl"} font-bold`}>{value}</p>
+          <p className="truncate text-xs text-muted-foreground">{detail}</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AdminListRow({ title, detail, value }: { title: string; detail: string; value: string }) {
+  return (
+    <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/40 px-3 py-2">
+      <div className="min-w-0">
+        <p className="truncate text-sm font-medium">{title}</p>
+        <p className="truncate text-xs text-muted-foreground">{detail}</p>
+      </div>
+      <span className="whitespace-nowrap font-mono text-sm">{value}</span>
+    </div>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">{label}</div>;
 }
