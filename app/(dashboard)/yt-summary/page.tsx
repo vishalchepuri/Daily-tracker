@@ -270,7 +270,7 @@ export default function YtSummaryPage() {
                   <div className="flex gap-2 text-xs text-muted-foreground">
                     <Badge variant="secondary">{visibleVideos.filter((video) => video.kind === "video").length} videos</Badge>
                     <Badge variant="outline">{visibleVideos.filter((video) => video.kind === "short").length} shorts</Badge>
-                    <Badge variant="outline">Newest first</Badge>
+                    <Badge variant="outline">By priority score</Badge>
                   </div>
                 )}
               </div>
@@ -308,7 +308,14 @@ export default function YtSummaryPage() {
                           {video.durationSeconds > 0 && <Badge variant="outline">{formatDuration(video.durationSeconds)}</Badge>}
                           {video.viewCount > 0 && <Badge variant="outline">{formatViews(video.viewCount)}</Badge>}
                           <Badge variant={video.kind === "video" ? "default" : "outline"}>{video.kind === "video" ? "Video" : "Short"}</Badge>
-                          <Badge variant="secondary">Summarize</Badge>
+                          {(video.priorityScore ?? 0) >= 35 ? (
+                            <Badge variant="secondary" className="gap-1 text-primary">
+                              <Sparkles className="h-2.5 w-2.5" />
+                              AI Summary
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline">Summarize</Badge>
+                          )}
                         </div>
                       </div>
                     </button>

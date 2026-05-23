@@ -113,6 +113,14 @@
     transform: translateZ(0);
     backface-visibility: hidden;
   }
+
+  .hero-gradient {
+    background: radial-gradient(
+      ellipse 80% 80% at 50% -10%,
+      hsl(var(--primary) / 0.12) 0%,
+      hsl(var(--background)) 70%
+    );
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

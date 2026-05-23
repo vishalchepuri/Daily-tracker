@@ -8,9 +8,7 @@
   </defs>
   <rect width="256" height="256" rx="58" fill="#020817"/>
   <rect x="18" y="18" width="220" height="220" rx="50" fill="url(#bg)"/>
-  <path d="M128 38l22 63 63 22-63 22-22 63-22-63-63-22 63-22 22-63Z" fill="#F8FAFC"/>
-  <path d="M128 78l12 33 33 12-33 12-12 33-12-33-33-12 33-12 12-33Z" fill="#22C55E"/>
-  <circle cx="62" cy="190" r="16" fill="#BBF7D0"/>
-  <circle cx="196" cy="70" r="13" fill="#BBF7D0"/>
-  <path d="M82 181c32 18 68 18 100 0" stroke="#DCFCE7" stroke-width="16" stroke-linecap="round"/>
+  <path d="M80 152c-20-20-20-56 0-76s56-20 76 0l28 28" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M176 104c20 20 20 56 0 76s-56 20-76 0l-28-28" stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="128" cy="128" r="16" fill="#10B981"/>
 </svg>
