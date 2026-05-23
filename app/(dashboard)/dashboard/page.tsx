@@ -3,11 +3,12 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar } from "lucide-react";
+import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight } from "lucide-react";
 import { FadeIn, SlideIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { IssueReportForm } from "@/components/issue-report-form";
+import { toast } from "sonner";
 
 interface DashboardData {
   profile: any;
@@ -22,6 +23,39 @@ interface DashboardData {
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [waterLogs, setWaterLogs] = useState<any[]>([]);
+  const [remindersLoading, setRemindersLoading] = useState(true);
+  const [waterLoading, setWaterLoading] = useState(true);
+  const [waterAdding, setWaterAdding] = useState(false);
+
+  const fetchReminders = async () => {
+    try {
+      const res = await fetch("/api/reminders");
+      if (res.ok) {
+        const d = await res.json();
+        setReminders(d.reminders ?? []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setRemindersLoading(false);
+    }
+  };
+
+  const fetchWaterLogs = async () => {
+    try {
+      const res = await fetch("/api/water-logs");
+      if (res.ok) {
+        const d = await res.json();
+        setWaterLogs(d.logs ?? []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setWaterLoading(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/dashboard")
@@ -29,7 +63,56 @@ export default function DashboardPage() {
       .then((d) => setData(d))
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    fetchReminders();
+    fetchWaterLogs();
   }, []);
+
+  const toggleReminder = async (id: string, completed: boolean) => {
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, completed }),
+      });
+      if (res.ok) {
+        toast.success(completed ? "Reminder completed" : "Reminder active");
+        setReminders((prev) =>
+          prev.map((r) =>
+            r.id === id ? { ...r, completed, completedAt: completed ? new Date().toISOString() : null } : r
+          )
+        );
+      } else {
+        toast.error("Failed to update reminder");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to update reminder");
+    }
+  };
+
+  const addWater = async (amountMl: number) => {
+    setWaterAdding(true);
+    try {
+      const res = await fetch("/api/water-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountMl }),
+      });
+      if (res.ok) {
+        toast.success(`Logged ${amountMl}ml of water`);
+        fetchWaterLogs();
+      } else {
+        toast.error("Failed to log water");
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to log water");
+    } finally {
+      setWaterAdding(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -256,6 +339,149 @@ export default function DashboardPage() {
                 </div>
               )}
             </CardContent>
+          </Card>
+        </FadeIn>
+      </div>
+
+      {/* Reminders & Water Logs */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Reminders Card */}
+        <FadeIn delay={0.45}>
+          <Card className="h-full flex flex-col justify-between">
+            <div>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <ListTodo className="w-5 h-5 text-primary" />
+                  Due Reminders
+                </CardTitle>
+                <Link href="/reminders" className="text-xs text-primary hover:underline flex items-center gap-1">
+                  Manage <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              </CardHeader>
+              <CardContent>
+                {remindersLoading ? (
+                  <div className="space-y-2 py-4">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="h-10 bg-muted/45 animate-pulse rounded" />
+                    ))}
+                  </div>
+                ) : reminders.filter((r) => !r.completed).length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-10 text-center text-sm text-muted-foreground">
+                    <CheckCircle2 className="w-10 h-10 text-primary/50 mb-2" />
+                    <p className="font-medium text-foreground">All caught up! 🎉</p>
+                    <p className="text-xs mt-1">You have no pending reminders for today.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 py-2">
+                    {reminders
+                      .filter((r) => !r.completed)
+                      .slice(0, 5)
+                      .map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+                        >
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleReminder(r.id, true)}
+                              className="text-muted-foreground hover:text-primary transition-colors focus:outline-none"
+                              aria-label="Mark reminder completed"
+                            >
+                              <Circle className="w-5 h-5" />
+                            </button>
+                            <div className="text-sm">
+                              <p className="font-medium text-foreground">{r.title}</p>
+                              {r.notes && <p className="text-xs text-muted-foreground line-clamp-1">{r.notes}</p>}
+                            </div>
+                          </div>
+                          {r.priority && r.priority !== "none" && (
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] uppercase font-mono ${
+                                r.priority === "high"
+                                  ? "border-destructive text-destructive bg-destructive/5"
+                                  : r.priority === "medium"
+                                  ? "border-amber-500 text-amber-500 bg-amber-500/5"
+                                  : "border-blue-500 text-blue-500 bg-blue-500/5"
+                              }`}
+                            >
+                              {r.priority}
+                            </Badge>
+                          )}
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </div>
+          </Card>
+        </FadeIn>
+
+        {/* Water Tracker Card */}
+        <FadeIn delay={0.45}>
+          <Card className="h-full flex flex-col justify-between">
+            <div>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Droplets className="w-5 h-5 text-blue-500" />
+                  Water Tracker
+                </CardTitle>
+                <Badge variant="outline" className="text-blue-500 border-blue-500/30 bg-blue-500/5 font-mono">
+                  {Math.round(waterLogs.reduce((sum, log: any) => sum + (log.amountMl ?? 0), 0))} / {Math.round(profile?.targetWaterMl ?? 3000)} ml
+                </Badge>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {waterLoading ? (
+                  <div className="space-y-2 py-4">
+                    <div className="h-4 bg-muted animate-pulse rounded" />
+                    <div className="h-10 bg-muted animate-pulse rounded" />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Water Level Wave Progress Bar */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Daily Hydration Goal</span>
+                        <span className="font-mono font-bold text-blue-500">
+                          {profile?.targetWaterMl && profile.targetWaterMl > 0
+                            ? Math.min(100, Math.round((waterLogs.reduce((sum, log: any) => sum + (log.amountMl ?? 0), 0) / profile.targetWaterMl) * 100))
+                            : Math.min(100, Math.round((waterLogs.reduce((sum, log: any) => sum + (log.amountMl ?? 0), 0) / 3000) * 100))}%
+                        </span>
+                      </div>
+                      <div className="relative h-4 w-full overflow-hidden rounded-full bg-blue-950/20 border border-blue-500/20">
+                        <div
+                          className="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-500 ease-out"
+                          style={{
+                            width: `${
+                              profile?.targetWaterMl && profile.targetWaterMl > 0
+                                ? Math.min(100, Math.round((waterLogs.reduce((sum, log: any) => sum + (log.amountMl ?? 0), 0) / profile.targetWaterMl) * 100))
+                                : Math.min(100, Math.round((waterLogs.reduce((sum, log: any) => sum + (log.amountMl ?? 0), 0) / 3000) * 100))
+                            }%`
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Quick Add Buttons */}
+                    <div className="grid grid-cols-3 gap-2">
+                      {[250, 500, 750].map((amount) => (
+                        <Button
+                          key={amount}
+                          variant="outline"
+                          disabled={waterAdding}
+                          onClick={() => addWater(amount)}
+                          className="flex flex-col items-center gap-1 py-3 h-auto text-blue-500 hover:text-white border-blue-500/30 hover:border-blue-500 hover:bg-blue-600/90 transition-all"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span className="font-mono text-xs font-bold">{amount}ml</span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </div>
           </Card>
         </FadeIn>
       </div>
