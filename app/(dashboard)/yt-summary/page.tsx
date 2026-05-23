@@ -98,11 +98,12 @@ export default function YtSummaryPage() {
     setSource("");
   };
 
-  const visibleVideos = useMemo(() => (
-    selectedChannel
+  const visibleVideos = useMemo(() => {
+    const list = selectedChannel
       ? videos.filter((video) => video.channelId === selectedChannel.channelId)
-      : videos
-  ), [selectedChannel, videos]);
+      : videos;
+    return [...list].sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
+  }, [selectedChannel, videos]);
 
   const summarizeVideo = async (video: any) => {
     setSelectedVideo(video);

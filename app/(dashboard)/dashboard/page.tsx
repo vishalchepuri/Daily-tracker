@@ -642,6 +642,7 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {youtubeVideos
                   .filter((v) => (v.priorityScore ?? 0) >= 35)
+                  .sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0))
                   .slice(0, 3)
                   .map((video) => (
                     <button
