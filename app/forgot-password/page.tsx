@@ -8,28 +8,23 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
+import { getFirebaseClientAuth } from "@/lib/firebase-client";
+import { sendPasswordResetEmail } from "firebase/auth";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [resetUrl, setResetUrl] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const res = await fetch("/api/auth/forgot-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
+      await sendPasswordResetEmail(getFirebaseClientAuth(), email.trim().toLowerCase(), {
+        url: `${window.location.origin}/login`,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data?.error ?? "Could not create reset link");
-        return;
-      }
-      setResetUrl(data?.resetUrl ?? "");
-      toast.success("Reset link created");
+      toast.success("Password reset email sent");
+    } catch {
+      toast.error("Could not send reset email");
     } finally {
       setLoading(false);
     }
@@ -55,12 +50,6 @@ export default function ForgotPasswordPage() {
               </div>
               <Button type="submit" className="w-full" loading={loading}>Create Reset Link</Button>
             </form>
-            {resetUrl && (
-              <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-                <p className="mb-2 text-muted-foreground">Email sending is not configured yet. Use this reset link:</p>
-                <Link href={resetUrl} className="break-all text-primary hover:underline">{resetUrl}</Link>
-              </div>
-            )}
             <p className="text-center text-sm text-muted-foreground">
               Remembered it? <Link href="/login" className="font-medium text-primary hover:underline">Sign in</Link>
             </p>

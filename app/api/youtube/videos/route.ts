@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { youtubeFetch } from "@/lib/youtube";
 
 function parseIsoDurationSeconds(duration?: string) {
@@ -105,9 +104,9 @@ function scoreVideo(video: any, durationSeconds: number, viewCount: number | nul
 
 export async function GET(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const { searchParams } = new URL(req.url);
     const channelId = searchParams.get("channelId");
     if (!channelId) return NextResponse.json({ error: "Channel ID required" }, { status: 400 });

@@ -1,8 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
@@ -32,9 +31,9 @@ function connectionStatus(account: any, scope: string) {
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const userId = (session.user as any)?.id as string | undefined;
+  const user = await requireCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const userId = (user as any)?.id as string | undefined;
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const googleAccounts = await prisma.account.findMany({

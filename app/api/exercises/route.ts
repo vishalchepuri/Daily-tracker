@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions, requireAdminUser } from "@/lib/auth";
+import { requireAdminUser, requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ensureStarterExerciseLibrarySafe } from "@/lib/exercise-library";
 
@@ -11,10 +10,19 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const muscleGroup = searchParams.get("muscleGroup");
     const admin = await requireAdminUser();
+    const user = await requireCurrentUser();
+    const userId = user?.id;
     const status = admin ? searchParams.get("status") : null;
     const where = {
       ...(muscleGroup ? { muscleGroup } : {}),
-      status: status || "approved",
+      ...(admin
+        ? { status: status || "approved" }
+        : {
+            OR: [
+              { status: "approved" },
+              ...(userId ? [{ status: "pending", submittedById: userId }] : []),
+            ],
+          }),
     };
     const exercises = await prisma.exercise.findMany({
       where,
@@ -37,8 +45,8 @@ function slugify(value: string) {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const admin = await requireAdminUser();
     const data = await req.json();
     if (!data?.name || !data?.muscleGroup) {
@@ -76,7 +84,7 @@ export async function POST(req: Request) {
         description: data.description || null,
         formTips: data.formTips || null,
         status: admin ? "approved" : "pending",
-        submittedById: admin ? null : (session.user as any).id,
+        submittedById: admin ? null : (user as any).id,
         reviewedById: admin ? admin.id : null,
         reviewedAt: admin ? new Date() : null,
       },
@@ -89,8 +97,8 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const admin = await requireAdminUser();
     if (!admin) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     const data = await req.json();
@@ -117,8 +125,8 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const admin = await requireAdminUser();
     if (!admin) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     const data = await req.json();

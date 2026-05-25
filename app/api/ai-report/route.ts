@@ -1,15 +1,14 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 export async function GET(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any).id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = (user as any).id;
 
     const limited = rateLimit(req, "ai-report", { limit: 5, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {

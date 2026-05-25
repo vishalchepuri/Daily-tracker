@@ -91,8 +91,15 @@ export default function WorkoutsPage() {
   const [activeExerciseIndex, setActiveExerciseIndex] = useState(0);
   const [activeSet, setActiveSet] = useState({ weight: "", reps: "" });
   const [activeEntries, setActiveEntries] = useState<any[]>([]);
+  const [activeSubmissionId, setActiveSubmissionId] = useState("");
+  const [loggingSet, setLoggingSet] = useState(false);
+  const [finishingWorkout, setFinishingWorkout] = useState(false);
+  const [chooseExerciseOpen, setChooseExerciseOpen] = useState(false);
+  const [chooseExerciseSearch, setChooseExerciseSearch] = useState("");
+  const [addingChoiceExercise, setAddingChoiceExercise] = useState(false);
   const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
   const [historyRange, setHistoryRange] = useState("30");
+  const [deletingWorkoutLogId, setDeletingWorkoutLogId] = useState<string | null>(null);
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
   const [exerciseDialogOpen, setExerciseDialogOpen] = useState(false);
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
@@ -163,6 +170,7 @@ export default function WorkoutsPage() {
     setElapsedSeconds(0);
     setActiveExerciseIndex(0);
     setActiveEntries([]);
+    setActiveSubmissionId(crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
     setDuration("");
     setNotes("");
     setActiveSet({
@@ -179,32 +187,37 @@ export default function WorkoutsPage() {
     );
   };
 
-  const pickAlternativeExercise = (exercise: any, usedIds: string[] = []) => {
-    const currentId = exercise?.id;
-    const muscleGroup = exercise?.muscleGroup;
-    const candidates = (exercises ?? []).filter((item: any) =>
-      item?.id &&
-      item.id !== currentId &&
-      item.muscleGroup === muscleGroup &&
-      !usedIds.includes(item.id)
-    );
-    const fallbackCandidates = (exercises ?? []).filter((item: any) =>
-      item?.id &&
-      item.id !== currentId &&
-      item.muscleGroup === muscleGroup
-    );
-    const pool = candidates.length > 0 ? candidates : fallbackCandidates;
-    if (pool.length === 0) return null;
-    return pool[Math.floor(Math.random() * pool.length)];
+  const fetchReplacementExercise = async (exercise: any, usedIds: string[], usedNames: string[]) => {
+    const res = await fetch("/api/workouts/replace-exercise", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        currentExercise: exercise,
+        muscleGroup: exercise?.muscleGroup,
+        usedExerciseIds: usedIds,
+        usedExerciseNames: usedNames,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data?.error ?? "No replacement found");
+      return null;
+    }
+    if (data?.source === "ai") {
+      setExercises((prev) => [...prev, data.exercise].sort((a, b) => String(a.name).localeCompare(String(b.name))));
+    }
+    return data.exercise;
   };
 
-  const shuffleProgramExercise = async (template: any, workoutExercise: any) => {
+  const replaceProgramExercise = async (template: any, workoutExercise: any) => {
     const usedIds = (template?.exercises ?? [])
       .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
       .filter(Boolean);
-    const replacement = pickAlternativeExercise(workoutExercise?.exercise, usedIds);
+    const usedNames = (template?.exercises ?? [])
+      .map((item: any) => item?.exercise?.name)
+      .filter(Boolean);
+    const replacement = await fetchReplacementExercise(workoutExercise?.exercise, usedIds, usedNames);
     if (!replacement) {
-      toast.error(`No alternate ${workoutExercise?.exercise?.muscleGroup ?? ""} exercise found`);
       return;
     }
 
@@ -231,29 +244,35 @@ export default function WorkoutsPage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data?.error ?? "Failed to shuffle exercise");
+        toast.error(data?.error ?? "Failed to replace exercise");
         return;
       }
       toast.success(`Replaced with ${replacement.name}`);
       loadData();
     } catch {
-      toast.error("Failed to shuffle exercise");
+      toast.error("Failed to replace exercise");
     }
   };
 
-  const shuffleActiveExercise = () => {
+  const replaceActiveExercise = async () => {
     if (!currentExercise?.exercise) return;
-    if (currentExerciseSets.length > 0 && !window.confirm("You already logged sets for this exercise. Swap only the next sets to a different exercise?")) return;
+    if (currentExerciseSets.length > 0 && !window.confirm("You already logged sets for this exercise. Replace only the next sets with a different exercise?")) return;
 
     const usedIds = (activeExercises ?? [])
       .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
       .filter(Boolean);
-    const replacement = pickAlternativeExercise(currentExercise.exercise, usedIds);
+    const usedNames = (activeExercises ?? [])
+      .map((item: any) => item?.exercise?.name)
+      .filter(Boolean);
+    const replacement = await fetchReplacementExercise(currentExercise.exercise, usedIds, usedNames);
     if (!replacement) {
-      toast.error(`No alternate ${currentExercise.exercise.muscleGroup} exercise found`);
       return;
     }
+    applyActiveExerciseChoice(replacement);
+    toast.success(`Replaced with ${replacement.name}`);
+  };
 
+  const applyActiveExerciseChoice = (replacement: any) => {
     setActiveWorkout((prev: any) => ({
       ...prev,
       exercises: (prev?.exercises ?? []).map((item: any, index: number) => (
@@ -266,7 +285,6 @@ export default function WorkoutsPage() {
       reps: String(parseInt((currentExercise?.reps ?? "10").split("-")?.[0] ?? "10")),
       weight: "",
     });
-    toast.success(`Swapped to ${replacement.name}`);
   };
 
   const handleLogWorkout = async () => {
@@ -303,11 +321,9 @@ export default function WorkoutsPage() {
 
   const addActiveSet = () => {
     if (!currentExercise?.exercise?.id) return;
+    if (loggingSet) return;
+    setLoggingSet(true);
     const reps = parseInt(activeSet.reps) || 0;
-    if (reps <= 0) {
-      toast.error("Enter reps for this set");
-      return;
-    }
     const nextSetNumber = Math.max(0, ...currentExerciseSets.map((set: any) => set.setNumber ?? 0)) + 1;
     setActiveEntries((prev) => [
       ...prev,
@@ -320,6 +336,7 @@ export default function WorkoutsPage() {
       },
     ]);
     setActiveSet((prev) => ({ ...prev, weight: "" }));
+    window.setTimeout(() => setLoggingSet(false), 350);
   };
 
   const removeActiveSet = (entryIndex: number) => {
@@ -332,21 +349,25 @@ export default function WorkoutsPage() {
     setActiveStartedAt(null);
     setActiveEntries([]);
     setActiveExerciseIndex(0);
+    setActiveSubmissionId("");
     setNotes("");
     setDuration("");
   };
 
   const finishActiveWorkout = async () => {
+    if (finishingWorkout) return;
     if (!activeWorkout || activeEntries.length === 0) {
       toast.error("Log at least one set before finishing");
       return;
     }
+    setFinishingWorkout(true);
     try {
       const res = await fetch("/api/workout-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           templateName: activeWorkout?.name ?? "Workout",
+          submissionId: activeSubmissionId || `${Date.now()}-${Math.random()}`,
           duration: duration ? parseInt(duration) : elapsedMinutes,
           notes: notes || null,
           exercises: activeEntries,
@@ -357,16 +378,19 @@ export default function WorkoutsPage() {
         toast.error(data?.error ?? "Failed to finish workout");
         return;
       }
-      toast.success("Workout finished!");
+      toast.success(data?.duplicate ? "Workout already saved" : "Workout finished!");
       setActiveWorkout(null);
       setActiveStartedAt(null);
       setActiveEntries([]);
       setActiveExerciseIndex(0);
+      setActiveSubmissionId("");
       setNotes("");
       setDuration("");
       loadData();
     } catch {
       toast.error("Failed to finish workout");
+    } finally {
+      setFinishingWorkout(false);
     }
   };
 
@@ -381,6 +405,51 @@ export default function WorkoutsPage() {
       formTips: exercise.formTips ?? "",
     } : blankExerciseForm);
     setExerciseDialogOpen(true);
+  };
+
+  const closeChooseExercise = (open: boolean) => {
+    setChooseExerciseOpen(open);
+    if (!open) {
+      setChooseExerciseSearch("");
+      setAddingChoiceExercise(false);
+    }
+  };
+
+  const handleCreateExerciseFromChoice = async () => {
+    const name = chooseExerciseSearch.trim();
+    if (!name || addingChoiceExercise) return;
+    setAddingChoiceExercise(true);
+    try {
+      const res = await fetch("/api/exercises", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          muscleGroup: currentExercise?.exercise?.muscleGroup ?? "chest",
+          equipment: "",
+          category: "compound",
+          description: `User requested from active workout chooser.`,
+          formTips: "",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to add exercise");
+        return;
+      }
+      setExercises((prev) => [...prev, data.exercise].sort((a, b) => String(a.name).localeCompare(String(b.name))));
+      if (data?.pending) {
+        toast.success(`${data.exercise.name} sent to admin for approval`);
+      } else {
+        applyActiveExerciseChoice(data.exercise);
+        closeChooseExercise(false);
+        toast.success(`Selected ${data.exercise.name}`);
+      }
+    } catch {
+      toast.error("Failed to add exercise");
+    } finally {
+      setAddingChoiceExercise(false);
+    }
   };
 
   const handleSaveExercise = async () => {
@@ -542,9 +611,11 @@ export default function WorkoutsPage() {
 
   const deleteWorkoutLog = async (log: any) => {
     if (!log?.id) return;
+    if (deletingWorkoutLogId === log.id) return;
     const confirmed = window.confirm(`Delete ${log.templateName ?? "this workout"} from history?`);
     if (!confirmed) return;
 
+    setDeletingWorkoutLogId(log.id);
     try {
       const res = await fetch(`/api/workout-logs?id=${log.id}`, { method: "DELETE" });
       const data = await res.json();
@@ -553,10 +624,12 @@ export default function WorkoutsPage() {
         return;
       }
       toast.success("Workout deleted");
+      setWorkoutLogs((prev) => (prev ?? []).filter((item: any) => item?.id !== log.id));
       if (selectedHistoryLog?.id === log.id) setSelectedHistoryLog(null);
-      loadData();
     } catch {
       toast.error("Failed to delete workout");
+    } finally {
+      setDeletingWorkoutLogId(null);
     }
   };
 
@@ -718,8 +791,13 @@ export default function WorkoutsPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Button type="button" variant="outline" size="icon" onClick={shuffleActiveExercise} title="Shuffle this exercise">
-                      <Shuffle className="h-4 w-4" />
+                    <Button type="button" variant="outline" onClick={replaceActiveExercise} title="Replace with another exercise">
+                      <Shuffle className="mr-2 h-4 w-4" />
+                      Replace
+                    </Button>
+                    <Button type="button" variant="outline" onClick={() => setChooseExerciseOpen(true)} title="Choose exercise from library">
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Choose
                     </Button>
                     <Badge variant="secondary">{currentExerciseSets.length} logged</Badge>
                   </div>
@@ -765,7 +843,7 @@ export default function WorkoutsPage() {
                     />
                   </div>
                 </div>
-                <Button type="button" onClick={addActiveSet} className="mt-3 w-full">
+                <Button type="button" onClick={addActiveSet} className="mt-3 w-full" disabled={loggingSet} loading={loggingSet}>
                   <Plus className="mr-2 h-4 w-4" />
                   Log This Set
                 </Button>
@@ -819,7 +897,7 @@ export default function WorkoutsPage() {
                 empty="Cool down, then stretch the trained muscles pain-free for 30-45 seconds each."
               />
 
-              <Button type="button" onClick={finishActiveWorkout} className="w-full" disabled={activeEntries.length === 0}>
+              <Button type="button" onClick={finishActiveWorkout} className="w-full" disabled={activeEntries.length === 0 || finishingWorkout} loading={finishingWorkout}>
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Finish Workout ({duration || elapsedMinutes} min)
               </Button>
@@ -827,6 +905,77 @@ export default function WorkoutsPage() {
           </Card>
         </FadeIn>
       )}
+
+      <Dialog open={chooseExerciseOpen} onOpenChange={closeChooseExercise}>
+        <DialogContent className="max-h-[82svh] max-w-2xl overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>Choose replacement exercise</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Input
+              value={chooseExerciseSearch}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setChooseExerciseSearch(e.target.value)}
+              placeholder="Search exercise name..."
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Showing {currentExercise?.exercise?.muscleGroup ?? "matching"} exercises. Search a missing exercise to send it for admin approval.
+            </p>
+          </div>
+          <div className="max-h-[62svh] space-y-2 overflow-y-auto pr-1 ios-scroll">
+            {(() => {
+              const query = chooseExerciseSearch.trim().toLowerCase();
+              const matches = (exercises ?? [])
+                .filter((exercise: any) => !currentExercise?.exercise?.muscleGroup || exercise.muscleGroup === currentExercise.exercise.muscleGroup)
+                .filter((exercise: any) => exercise.id !== currentExercise?.exercise?.id)
+                .filter((exercise: any) => {
+                  if (!query) return true;
+                  return [exercise.name, exercise.equipment, exercise.category, exercise.description]
+                    .filter(Boolean)
+                    .some((value: string) => String(value).toLowerCase().includes(query));
+                });
+              const exactMatch = matches.some((exercise: any) => String(exercise.name ?? "").toLowerCase() === query);
+
+              return (
+                <>
+                  {matches.map((exercise: any) => (
+                <button
+                  type="button"
+                  key={exercise.id}
+                  className="w-full rounded-lg border border-border bg-muted/30 p-3 text-left transition hover:border-primary/40 hover:bg-primary/10"
+                  onClick={() => {
+                    applyActiveExerciseChoice(exercise);
+                    closeChooseExercise(false);
+                    toast.success(`Selected ${exercise.name}`);
+                  }}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{exercise.name}</span>
+                    <Badge variant="outline" className="capitalize">{exercise.muscleGroup}</Badge>
+                    {exercise.equipment && <Badge variant="secondary" className="capitalize">{exercise.equipment}</Badge>}
+                    {exercise.status === "pending" && <Badge variant="secondary">Pending approval</Badge>}
+                  </div>
+                  {exercise.description && <p className="mt-1 text-sm text-muted-foreground">{exercise.description}</p>}
+                </button>
+                  ))}
+                  {query && !exactMatch && (
+                    <div className="rounded-lg border border-dashed border-primary/40 bg-primary/5 p-3">
+                      <p className="text-sm font-semibold">"{chooseExerciseSearch.trim()}" is not in your library.</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Add it as a pending exercise for admin review. Once approved, everyone can use it.
+                      </p>
+                      <Button type="button" className="mt-3 w-full" onClick={handleCreateExerciseFromChoice} loading={addingChoiceExercise} disabled={addingChoiceExercise}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add for approval
+                      </Button>
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <FadeIn delay={0.05}>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -898,7 +1047,7 @@ export default function WorkoutsPage() {
                     <div className="space-y-1 mb-4">
                       {(t?.exercises ?? []).map((we: any) => (
                         <div key={we?.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-1 text-sm">
-                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => shuffleProgramExercise(t, we)} title="Shuffle exercise">
+                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => replaceProgramExercise(t, we)} title="Replace exercise">
                             <Shuffle className="h-3.5 w-3.5" />
                           </Button>
                           <span className="min-w-0 break-words">{we?.exercise?.name}</span>
@@ -917,44 +1066,28 @@ export default function WorkoutsPage() {
         </TabsContent>
 
         <TabsContent value="exercises" className="space-y-4">
-          <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+          <div className="grid gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">Exercise Library</p>
-              <p className="text-xs text-muted-foreground">{filteredExercises.length} exercises shown</p>
+              <p className="text-xs text-muted-foreground">{filteredExercises.length} exercises shown for {selectedMuscleLabel}</p>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="w-full justify-between sm:w-56">
-                  <span className="flex min-w-0 items-center gap-2">
-                    <SlidersHorizontal className="h-4 w-4 shrink-0" />
-                    <span className="truncate capitalize">{selectedMuscleLabel}</span>
-                  </span>
-                  <ChevronDown className="h-4 w-4 shrink-0 opacity-70" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Filter Muscles</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuCheckboxItem
-                  checked={selectedMuscleGroups.length === 0}
-                  onCheckedChange={() => setSelectedMuscleGroups([])}
-                  onSelect={(event) => event.preventDefault()}
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" size="sm" variant={selectedMuscleGroups.length === 0 ? "default" : "outline"} onClick={() => setSelectedMuscleGroups([])}>
+                All
+              </Button>
+              {editableMuscleGroups.map((group) => (
+                <Button
+                  key={group}
+                  type="button"
+                  size="sm"
+                  variant={selectedMuscleGroups.includes(group) ? "default" : "outline"}
+                  onClick={() => toggleMuscleGroup(group)}
+                  className="capitalize"
                 >
-                  All muscles
-                </DropdownMenuCheckboxItem>
-                {editableMuscleGroups.map((group) => (
-                  <DropdownMenuCheckboxItem
-                    key={group}
-                    checked={selectedMuscleGroups.includes(group)}
-                    onCheckedChange={() => toggleMuscleGroup(group)}
-                    onSelect={(event) => event.preventDefault()}
-                    className="capitalize"
-                  >
-                    {group}
-                  </DropdownMenuCheckboxItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+                  {group}
+                </Button>
+              ))}
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {(filteredExercises ?? []).map((ex: any) => (
@@ -1064,7 +1197,15 @@ export default function WorkoutsPage() {
                       <Button type="button" variant="outline" size="icon" onClick={() => repeatWorkout(log)} title="Repeat workout">
                         <RotateCcw className="h-4 w-4" />
                       </Button>
-                      <Button type="button" variant="outline" size="icon" onClick={() => deleteWorkoutLog(log)} title="Delete workout history">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => deleteWorkoutLog(log)}
+                        title="Delete workout history"
+                        disabled={deletingWorkoutLogId === log?.id}
+                        loading={deletingWorkoutLogId === log?.id}
+                      >
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>
                     </div>
@@ -1133,7 +1274,14 @@ export default function WorkoutsPage() {
                 </div>
               )}
 
-              <Button type="button" variant="outline" className="w-full hover:text-destructive" onClick={() => deleteWorkoutLog(selectedHistoryLog)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full hover:text-destructive"
+                onClick={() => deleteWorkoutLog(selectedHistoryLog)}
+                disabled={deletingWorkoutLogId === selectedHistoryLog?.id}
+                loading={deletingWorkoutLogId === selectedHistoryLog?.id}
+              >
                 <Trash2 className="mr-2 h-4 w-4" />
                 Delete This Workout
               </Button>

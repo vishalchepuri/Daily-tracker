@@ -5,8 +5,8 @@ import { prisma } from "@/lib/db";
 
 const requiredEnv = [
   "DATABASE_URL",
-  "NEXTAUTH_SECRET",
-  "NEXTAUTH_URL",
+  "APP_SECRET",
+  "APP_URL",
   "ABACUSAI_API_KEY",
   "RESEND_API_KEY",
   "EMAIL_FROM",

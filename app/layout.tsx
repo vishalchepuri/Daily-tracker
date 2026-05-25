@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({ subsets: ['latin'], variable: '--font-mon
 export const metadata = {
   title: 'Dayza - Fitness, Food, Spends & Reminders',
   description: 'Your daily dashboard for fitness, nutrition, spends, reminders, progress, and Dayza Agent.',
-  metadataBase: new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000'),
+  metadataBase: new URL(process.env.APP_URL || 'http://localhost:3000'),
   manifest: '/manifest.webmanifest',
   applicationName: 'Dayza',
   appleWebApp: {

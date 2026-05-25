@@ -1,6 +1,6 @@
 # Dayza Dashboard
 
-Dayza is a fitness, nutrition, spends, reminders, progress, and AI coaching dashboard built with Next.js, Prisma, PostgreSQL, and NextAuth.
+Dayza is a fitness, nutrition, spends, reminders, progress, and AI coaching dashboard built with Next.js, Firebase Auth/Storage, Prisma, and PostgreSQL.
 
 ## Current Status
 
@@ -18,7 +18,7 @@ http://localhost:3000
 - React 18
 - Prisma 6
 - PostgreSQL database
-- NextAuth credentials login
+- Firebase Auth login
 - Tailwind CSS
 - shadcn/Radix UI components
 - Abacus/OpenAI-compatible chat completions endpoint for AI coaching
@@ -67,25 +67,41 @@ Required values:
 
 ```bash
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require"
-NEXTAUTH_SECRET="replace-with-a-long-random-secret"
-NEXTAUTH_URL="http://localhost:3000"
+APP_SECRET="replace-with-a-long-random-secret"
+APP_URL="http://localhost:3000"
 ABACUSAI_API_KEY="your-key"
 ```
 
-Gmail spend import requires a Google OAuth app with Gmail API enabled and the redirect URL:
+Gmail spend import and YouTube summaries require the Gmail and YouTube Data APIs enabled in the same Google/Firebase project.
+
+Firebase Storage values are used for progress photo uploads:
 
 ```bash
-http://localhost:3000/api/auth/callback/google
+STORAGE_PROVIDER=firebase
+FIREBASE_STORAGE_BUCKET="your-project-id.appspot.com"
+FIREBASE_STORAGE_PREFIX=""
+FIREBASE_SERVICE_ACCOUNT_JSON='{"type":"service_account",...}'
 ```
 
-Optional storage values are used for progress photo uploads:
+For local development, you can use a downloaded service-account file instead of putting the JSON in `.env`:
 
 ```bash
-AWS_PROFILE=
-AWS_REGION=
-AWS_BUCKET_NAME=
-AWS_FOLDER_PREFIX=
+FIREBASE_SERVICE_ACCOUNT_PATH="C:\path\to\firebase-adminsdk.json"
 ```
+
+Firebase Auth email/password login uses the public web app config from Firebase Console > Project settings > Your apps:
+
+```bash
+NEXT_PUBLIC_FIREBASE_API_KEY=""
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=""
+NEXT_PUBLIC_FIREBASE_PROJECT_ID=""
+NEXT_PUBLIC_FIREBASE_APP_ID=""
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=""
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=""
+NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=""
+```
+
+These values are required for browser sign-in with Firebase Auth.
 
 Telegram reminders require:
 
@@ -98,9 +114,9 @@ TELEGRAM_BOT_TOKEN="your-telegram-bot-token"
 This app cannot be fully hosted on GitHub Pages / `github.io` because it uses:
 
 - Next.js API routes
-- NextAuth server-side authentication
+- Firebase Auth server-side session verification
 - Prisma database access
-- private environment variables such as `DATABASE_URL`, `NEXTAUTH_SECRET`, `ABACUSAI_API_KEY`, and `TELEGRAM_BOT_TOKEN`
+- private environment variables such as `DATABASE_URL`, `APP_SECRET`, `ABACUSAI_API_KEY`, and `TELEGRAM_BOT_TOKEN`
 
 GitHub Pages only serves static files and does not provide a secure server runtime for those secrets.
 
@@ -320,4 +336,4 @@ pnpm exec tsc --noEmit
 - ECG and workout route folders are not imported yet.
 - AI image food logging depends on the configured AI endpoint supporting vision input.
 - Speech-to-text depends on browser support.
-- `NEXTAUTH_URL` may warn in development if it is not set, but local auth still works.
+- `APP_URL` may warn in development if it is not set, but local auth still works.

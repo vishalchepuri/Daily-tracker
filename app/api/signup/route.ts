@@ -1,34 +1,37 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { verifyFirebaseIdToken } from "@/lib/firebase-admin-auth";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
 function hashOtp(email: string, otp: string) {
   return crypto
     .createHash("sha256")
-    .update(`${email}:${otp}:${process.env.NEXTAUTH_SECRET ?? "dayza-dev-secret"}`)
+    .update(`${email}:${otp}:${process.env.APP_SECRET ?? "dayza-dev-secret"}`)
     .digest("hex");
 }
 
 export async function POST(req: Request) {
   try {
-    const { email, password, name, otp } = await req.json();
+    const { email, password, name, otp, firebaseIdToken } = await req.json();
     const normalizedEmail = String(email ?? "").trim().toLowerCase();
-    if (!normalizedEmail || !password) {
+    const firebaseUser = await verifyFirebaseIdToken(firebaseIdToken);
+    const accountEmail = firebaseUser?.email ?? normalizedEmail;
+    if (!accountEmail || (!password && !firebaseUser)) {
       return NextResponse.json({ error: "Email and password are required" }, { status: 400 });
     }
     if (!otp) {
       return NextResponse.json({ error: "Verification code is required" }, { status: 400 });
     }
-    const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+    const existing = await prisma.user.findUnique({ where: { email: accountEmail } });
     if (existing) {
       return NextResponse.json({ error: "Email already registered" }, { status: 400 });
     }
     const otpRow = await prisma.signupOtp.findFirst({
       where: {
-        email: normalizedEmail,
-        tokenHash: hashOtp(normalizedEmail, String(otp).trim()),
+        email: accountEmail,
+        tokenHash: hashOtp(accountEmail, String(otp).trim()),
         usedAt: null,
         expiresAt: { gt: new Date() },
       },
@@ -38,9 +41,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid or expired verification code" }, { status: 400 });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 12);
+    const hashedPassword = password ? await bcrypt.hash(password, 12) : null;
     const user = await prisma.user.create({
-      data: { email: normalizedEmail, password: hashedPassword, name: name ?? normalizedEmail.split("@")[0] },
+      data: {
+        email: accountEmail,
+        password: hashedPassword,
+        name: name ?? firebaseUser?.name ?? accountEmail.split("@")[0],
+        image: firebaseUser?.picture ?? null,
+      },
     });
     await prisma.signupOtp.update({
       where: { id: otpRow.id },

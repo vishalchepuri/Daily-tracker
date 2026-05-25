@@ -11,7 +11,7 @@ function normalizeEmail(email: unknown) {
 function hashOtp(email: string, otp: string) {
   return crypto
     .createHash("sha256")
-    .update(`${email}:${otp}:${process.env.NEXTAUTH_SECRET ?? "dayza-dev-secret"}`)
+    .update(`${email}:${otp}:${process.env.APP_SECRET ?? "dayza-dev-secret"}`)
     .digest("hex");
 }
 

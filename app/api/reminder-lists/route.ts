@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 async function ensureDefaultList(userId: string) {
@@ -14,9 +13,9 @@ async function ensureDefaultList(userId: string) {
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     await ensureDefaultList(userId);
     const lists = await prisma.reminderList.findMany({
       where: { userId },
@@ -31,9 +30,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const data = await req.json();
     if (!data?.name) return NextResponse.json({ error: "List name is required" }, { status: 400 });
     const list = await prisma.reminderList.create({
@@ -47,9 +46,9 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const data = await req.json();
     const existing = await prisma.reminderList.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });

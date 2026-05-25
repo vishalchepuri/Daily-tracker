@@ -1,16 +1,15 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { deleteFile } from "@/lib/s3";
 
 const CHAT_SESSION_RETENTION_LIMIT = 7;
 
 async function getUserId() {
-  const session = await getServerSession(authOptions);
-  return (session?.user as any)?.id as string | undefined;
+  const user = await requireCurrentUser();
+  return user?.id;
 }
 
 async function pruneOldChatSessions(userId: string) {

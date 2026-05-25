@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { signIn } from "next-auth/react";
 import { AlertCircle, Banknote, CalendarDays, CreditCard, Download, HandCoins, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Sparkles, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -14,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { connectGoogleFeature } from "@/lib/google-feature-client";
 
 const blankForm = {
   id: "",
@@ -98,6 +98,7 @@ export default function SpendsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [connectingGmail, setConnectingGmail] = useState(false);
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
   const [targetEditing, setTargetEditing] = useState(false);
   const [targetSaving, setTargetSaving] = useState(false);
@@ -885,6 +886,19 @@ export default function SpendsPage() {
     }
   };
 
+  const connectGmail = async () => {
+    setConnectingGmail(true);
+    try {
+      await connectGoogleFeature("https://www.googleapis.com/auth/gmail.readonly");
+      toast.success("Gmail connected");
+      await loadData();
+    } catch (error: any) {
+      toast.error(error?.message ?? "Could not connect Gmail");
+    } finally {
+      setConnectingGmail(false);
+    }
+  };
+
   if (loading) return <div className="space-y-4">{[1,2,3].map((i) => <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
@@ -898,17 +912,9 @@ export default function SpendsPage() {
           <div className="grid grid-cols-2 gap-2 sm:flex">
             <Button
               variant="outline"
-              onClick={() =>
-                signIn(
-                  "google",
-                  { callbackUrl: "/spends" },
-                  {
-                    scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly",
-                    access_type: "offline",
-                    prompt: "consent",
-                  }
-                )
-              }
+              onClick={connectGmail}
+              loading={connectingGmail}
+              disabled={connectingGmail}
               className="px-3"
             >
               <Mail className="w-4 h-4 mr-2" />Connect Gmail
@@ -1052,13 +1058,9 @@ export default function SpendsPage() {
             {importHealth.gmail.needsReconnect && (
               <Button
                 variant="outline"
-                onClick={() =>
-                  signIn(
-                    "google",
-                    { callbackUrl: "/spends" },
-                    { scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly", access_type: "offline", prompt: "consent" }
-                  )
-                }
+                onClick={connectGmail}
+                loading={connectingGmail}
+                disabled={connectingGmail}
               >
                 <Mail className="mr-2 h-4 w-4" />
                 Reconnect

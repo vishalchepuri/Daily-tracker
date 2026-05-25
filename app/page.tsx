@@ -1,16 +1,15 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getServerSession } from "next-auth";
 import { Bot, Clock, Dumbbell, Mail, MessageSquare, Pill, ShieldCheck, Sparkles, Utensils, WalletCards, Youtube } from "lucide-react";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { IssueReportForm } from "@/components/issue-report-form";
 import { BrandLogo } from "@/components/brand-logo";
 
 export default async function Home() {
-  const session = await getServerSession(authOptions);
-  if (session) redirect("/dashboard");
+  const user = await requireCurrentUser();
+  if (user) redirect("/dashboard");
 
   return (
     <main className="app-viewport overflow-y-auto bg-background text-foreground ios-scroll">

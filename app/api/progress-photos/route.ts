@@ -1,15 +1,14 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getFileUrl } from "@/lib/s3";
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const photos = await prisma.progressPhoto.findMany({
       where: { userId },
       orderBy: { date: "desc" },
@@ -28,9 +27,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const data = await req.json();
     const photo = await prisma.progressPhoto.create({
       data: {

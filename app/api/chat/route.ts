@@ -1,6 +1,5 @@
 export const dynamic = "force-dynamic";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
@@ -1068,11 +1067,11 @@ async function writeSse(controller: ReadableStreamDefaultController, data: unkno
 
 export async function GET(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    const user = await requireCurrentUser();
+    if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
-    const userId = (session.user as any)?.id;
+    const userId = user.id;
     const { searchParams } = new URL(req.url);
     const sessionId = searchParams.get("sessionId");
     const chatSession = sessionId ? await getOrCreateChatSession(userId, sessionId) : null;
@@ -1111,12 +1110,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
+    const user = await requireCurrentUser();
+    if (!user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
     }
 
-    const userId = (session.user as any)?.id;
+    const userId = user.id;
     const limited = rateLimit(req, "dayza-agent", { limit: 60, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return new Response(JSON.stringify({ error: "Too many Dayza Agent messages. Please try again later." }), {
@@ -1273,7 +1272,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - create_workout_log: save a completed workout. Only use exercise IDs that appear in context.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
-- update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight after they answer timeline questions.
+- update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight only after they explicitly ask to save/update the profile goal or confirm/proceed with creating the plan.
 - create_workout_template: create a workout day after the user confirms a draft plan. You may use exerciseName for missing exercises; the app will create them first. Include warmups and stretches for every workout day.
 - remove_exercise_from_template: remove an exercise from an existing workout day/template.
 - add_exercise_to_template: add an exercise to an existing workout day/template. You may use exerciseName for missing exercises.
@@ -1293,7 +1292,7 @@ Rules:
 - If the user asks to log weight, measurements, body stats, or a progress note, use create_progress_entry instead of only replying.
 - Goal timeline flow for workout and diet plans:
   1. Before drafting a workout or diet plan, make sure the user has a clear goal outcome and timeline. If profile.goalTimelineDays is missing and the current message does not provide a timeline, ask: "In how many days or weeks do you want to see changes?"
-  2. If the user provides a timeline, save it with update_goal_timeline. Convert weeks to days. Save target weight only when the user gives one.
+  2. If the user provides a timeline during planning, use it for the draft but do not save it yet. Save it with update_goal_timeline only when the user explicitly says to save/update the goal in profile, or when they confirm/proceed with creating the workout or diet plan.
   3. Evaluate whether the timeline is safe and realistic before making the plan. Do not promise guaranteed results.
   4. If the request is realistic, say it is possible and give short week-by-week expectations.
   5. If the request is not safely realistic, say that clearly, give a safer timeline first, then build around the safer timeline.
@@ -1426,7 +1425,7 @@ Available action examples:
 {"type":"create_workout_log","templateName":"Push Day","duration":60,"notes":"Good session","exercises":[{"exerciseId":"barbell-bench-press","setNumber":1,"reps":8,"weight":70}]}
 {"type":"update_wellness_targets","targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetLiftVolume":25000,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
-{"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User wants visible muscle gain in 8 weeks."}
+{"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User confirmed saving/creating the plan with visible muscle gain in 8 weeks."}
 {"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","warmups":[{"name":"Light cardio","duration":"5-7 min","notes":"Easy treadmill, bike, or cross-trainer"},{"name":"Shoulder and elbow mobility","duration":"3-5 min","notes":"Arm circles, band pull-aparts, light pushdowns"}],"stretches":[{"name":"Chest doorway stretch","duration":"30-45 sec each side","notes":"Pain-free range only"},{"name":"Triceps and shoulder stretch","duration":"30 sec each","notes":"No elbow pinching"}],"exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
 {"type":"remove_exercise_from_template","templateName":"Monday - Chest","exerciseName":"Skull Crushers"}
 {"type":"add_exercise_to_template","templateName":"Monday - Chest","exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}

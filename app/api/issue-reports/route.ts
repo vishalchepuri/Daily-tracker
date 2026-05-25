@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 function cleanText(value: unknown, maxLength: number) {
@@ -12,7 +11,7 @@ function cleanText(value: unknown, maxLength: number) {
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
+    const user = await requireCurrentUser();
     const body = await request.json();
 
     const message = cleanText(body.message, 2000);
@@ -22,9 +21,9 @@ export async function POST(request: Request) {
 
     const report = await prisma.issueReport.create({
       data: {
-        userId: (session?.user as any)?.id ?? null,
+        userId: user?.id ?? null,
         name: cleanText(body.name, 120),
-        email: cleanText(body.email, 180)?.toLowerCase() ?? session?.user?.email ?? null,
+        email: cleanText(body.email, 180)?.toLowerCase() ?? user?.email ?? null,
         page: cleanText(body.page, 200),
         category: cleanText(body.category, 40) ?? "issue",
         message,

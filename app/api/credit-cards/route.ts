@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 function parseAmount(value: unknown) {
@@ -18,9 +17,9 @@ function parseDueDay(value: unknown) {
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const creditCards = await prisma.creditCard.findMany({
       where: { userId, active: true },
       orderBy: { createdAt: "desc" },
@@ -33,9 +32,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const data = await req.json();
     if (!data?.name) return NextResponse.json({ error: "Card name is required" }, { status: 400 });
     const creditCard = await prisma.creditCard.create({
@@ -57,9 +56,9 @@ export async function POST(req: Request) {
 
 export async function PATCH(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const data = await req.json();
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
     const existing = await prisma.creditCard.findUnique({ where: { id: data.id } });
@@ -83,9 +82,9 @@ export async function PATCH(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });

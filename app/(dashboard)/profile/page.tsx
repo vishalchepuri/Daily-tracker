@@ -32,9 +32,9 @@ import {
 } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
-import { signOut } from "next-auth/react";
 import { WeeklyReportPanel } from "../_components/weekly-report-panel";
 import { ProgressPanel } from "../_components/progress-panel";
+import { signOutOfDayza } from "@/lib/firebase-session-client";
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
@@ -169,7 +169,8 @@ export default function ProfilePage() {
         return;
       }
       toast.success("Account deleted");
-      await signOut({ callbackUrl: "/signup" });
+      await signOutOfDayza();
+      window.location.href = "/signup";
     } finally {
       setDeleting(false);
     }

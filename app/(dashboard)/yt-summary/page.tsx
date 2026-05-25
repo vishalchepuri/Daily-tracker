@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSession } from "next-auth/react";
-import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 import { AlertCircle, PlayCircle, RefreshCw, Sparkles, TrendingUp, Youtube, Bookmark, BookmarkCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
+import { connectGoogleFeature } from "@/lib/google-feature-client";
 
 function formatDuration(seconds?: number) {
   if (!seconds) return "";
@@ -47,7 +46,6 @@ interface SavedSummary {
 }
 
 export default function YtSummaryPage() {
-  const { data: session } = useSession();
   const searchParams = useSearchParams();
   const videoId = searchParams.get("videoId");
   const [subscriptions, setSubscriptions] = useState<any[]>([]);
@@ -64,6 +62,7 @@ export default function YtSummaryPage() {
   const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([]);
   const [activeTab, setActiveTab] = useState("feed");
   const [importHealth, setImportHealth] = useState<any>(null);
+  const [connectingYoutube, setConnectingYoutube] = useState(false);
 
   const errorMessage = (value: any, fallback: string) => {
     if (typeof value === "string") return value;
@@ -101,13 +100,32 @@ export default function YtSummaryPage() {
     }
   };
 
+  const loadImportHealth = async () => {
+    try {
+      const res = await fetch("/api/import-health");
+      const data = res.ok ? await res.json() : null;
+      setImportHealth(data);
+    } catch {
+      setImportHealth(null);
+    }
+  };
+
+  const connectYoutube = async () => {
+    setConnectingYoutube(true);
+    try {
+      await connectGoogleFeature("https://www.googleapis.com/auth/youtube.readonly");
+      toast.success("YouTube connected");
+      setNeedsConnection(false);
+      await Promise.all([loadImportHealth(), loadSubscriptionFeed()]);
+    } catch (error: any) {
+      toast.error(error?.message ?? "Could not connect YouTube");
+    } finally {
+      setConnectingYoutube(false);
+    }
+  };
+
   useEffect(() => { loadSubscriptionFeed(); }, []);
-  useEffect(() => {
-    fetch("/api/import-health")
-      .then((res) => res.ok ? res.json() : null)
-      .then(setImportHealth)
-      .catch(() => setImportHealth(null));
-  }, []);
+  useEffect(() => { loadImportHealth(); }, []);
 
   // Load saved summaries from localStorage
   useEffect(() => {
@@ -217,21 +235,7 @@ export default function YtSummaryPage() {
             <p className="text-sm text-muted-foreground">
               Sign in with Google again so Dayza can read your YouTube subscriptions and show videos to summarize.
             </p>
-            <Button
-              onClick={() =>
-                signIn(
-                  "google",
-                  { callbackUrl: "/yt-summary" },
-                  {
-                    scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
-                    access_type: "offline",
-                    prompt: "consent",
-                    login_hint: session?.user?.email ?? undefined,
-                  } as any
-                )
-              }
-              className="w-full"
-            >
+            <Button onClick={connectYoutube} className="w-full" loading={connectingYoutube} disabled={connectingYoutube}>
               Connect YouTube with Google
             </Button>
           </CardContent>
@@ -255,21 +259,7 @@ export default function YtSummaryPage() {
               </div>
             </div>
             {importHealth.youtube.needsReconnect && (
-              <Button
-                variant="outline"
-                onClick={() =>
-                  signIn(
-                    "google",
-                    { callbackUrl: "/yt-summary" },
-                    {
-                      scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
-                      access_type: "offline",
-                      prompt: "consent",
-                      login_hint: session?.user?.email ?? undefined,
-                    } as any
-                  )
-                }
-              >
+              <Button variant="outline" onClick={connectYoutube} loading={connectingYoutube} disabled={connectingYoutube}>
                 <Youtube className="mr-2 h-4 w-4" />
                 Reconnect
               </Button>

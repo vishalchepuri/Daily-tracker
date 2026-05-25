@@ -2,7 +2,6 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { signOut } from "next-auth/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
@@ -16,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
+import { signOutOfDayza } from "@/lib/firebase-session-client";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -185,7 +185,8 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       const data = await res.json().catch(() => ({}));
       if (res.status === 401) {
         toast.error("Your account session is no longer valid. Please sign in again.");
-        await signOut({ callbackUrl: "/login" });
+        await signOutOfDayza();
+        router.replace("/login");
         return;
       }
       if (!res.ok) {
@@ -380,7 +381,10 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
             variant="ghost"
             size="sm"
             className="w-full justify-start text-muted-foreground hover:text-destructive"
-            onClick={() => signOut({ callbackUrl: "/login" })}
+            onClick={async () => {
+              await signOutOfDayza();
+              router.replace("/login");
+            }}
           >
             <LogOut className="w-4 h-4 mr-2" />
             Sign Out

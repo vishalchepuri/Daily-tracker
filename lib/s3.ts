@@ -1,14 +1,23 @@
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { createS3Client, getBucketConfig } from "./aws-config";
+import { deleteFirebaseFile, generateFirebaseUploadUrl, getFirebaseFileUrl, uploadFirebaseBuffer } from "./firebase-storage";
 
 const s3 = createS3Client();
+
+function useFirebaseStorage() {
+  return process.env.STORAGE_PROVIDER?.toLowerCase() === "firebase";
+}
 
 export async function generatePresignedUploadUrl(
   fileName: string,
   contentType: string,
   isPublic: boolean = false
 ) {
+  if (useFirebaseStorage()) {
+    return generateFirebaseUploadUrl(fileName, contentType, isPublic);
+  }
+
   const { bucketName, folderPrefix } = getBucketConfig();
   const prefix = isPublic ? "public/uploads" : "uploads";
   const cloud_storage_path = `${folderPrefix}${prefix}/${Date.now()}-${fileName}`;
@@ -30,6 +39,10 @@ export async function uploadBuffer(
   buffer: Buffer,
   folder: string = "uploads/chat"
 ) {
+  if (useFirebaseStorage()) {
+    return uploadFirebaseBuffer(fileName, contentType, buffer, folder);
+  }
+
   const { bucketName, folderPrefix } = getBucketConfig();
   if (!bucketName) throw new Error("AWS bucket is not configured");
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "-");
@@ -48,6 +61,10 @@ export async function uploadBuffer(
 }
 
 export async function getFileUrl(cloud_storage_path: string, isPublic: boolean) {
+  if (useFirebaseStorage()) {
+    return getFirebaseFileUrl(cloud_storage_path, isPublic);
+  }
+
   const { bucketName } = getBucketConfig();
   if (isPublic) {
     const region = process.env.AWS_REGION ?? "us-east-1";
@@ -62,6 +79,11 @@ export async function getFileUrl(cloud_storage_path: string, isPublic: boolean) 
 }
 
 export async function deleteFile(cloud_storage_path: string) {
+  if (useFirebaseStorage()) {
+    await deleteFirebaseFile(cloud_storage_path);
+    return;
+  }
+
   const { bucketName } = getBucketConfig();
   await s3.send(
     new DeleteObjectCommand({

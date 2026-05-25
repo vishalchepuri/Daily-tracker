@@ -1,7 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { getPublicTranscript, youtubeFetch } from "@/lib/youtube";
 
@@ -17,9 +16,9 @@ function cleanSummaryText(value: string) {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const userId = (session.user as any)?.id;
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
     const limited = rateLimit(req, "youtube-summary", { limit: 20, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json(

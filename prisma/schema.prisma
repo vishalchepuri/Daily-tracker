@@ -194,11 +194,13 @@ model WorkoutLog {
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   date          DateTime @default(now())
   templateName  String?
+  submissionId  String?
   duration      Int?     // minutes
   notes         String?
   exerciseLogs  ExerciseLog[]
   createdAt     DateTime @default(now())
   @@index([userId, date])
+  @@unique([userId, submissionId])
 }
 
 model ExerciseLog {

@@ -1,8 +1,7 @@
 "use client";
 import { useState } from "react";
-import { signIn, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User, Eye, EyeOff } from "lucide-react";
+import { Apple, Mail, Lock, User, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
+import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
+import { GoogleAuthProvider, OAuthProvider, createUserWithEmailAndPassword, signInWithPopup, updateProfile } from "firebase/auth";
 
 export default function SignupPage() {
   const [name, setName] = useState("");
@@ -22,6 +23,7 @@ export default function SignupPage() {
   const [otpSent, setOtpSent] = useState(false);
   const [sendingOtp, setSendingOtp] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const router = useRouter();
 
   const requestOtp = async () => {
@@ -57,12 +59,52 @@ export default function SignupPage() {
 
   const handleGoogleSignup = async () => {
     setGoogleLoading(true);
-    await signOut({ redirect: false });
-    await signIn(
-      "google",
-      { callbackUrl: "/dashboard" },
-      { prompt: "select_account", scope: "openid email profile" }
-    );
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      const credential = await signInWithPopup(getFirebaseClientAuth(), provider);
+      const firebaseIdToken = await credential.user.getIdToken();
+      const res = await fetch("/api/auth/firebase-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: firebaseIdToken }),
+      });
+      if (!res.ok) toast.error("Could not start app session");
+      else router.replace("/dashboard");
+    } catch (error: any) {
+      toast.error(error?.code === "auth/popup-closed-by-user" ? "Google sign-in cancelled" : "Google sign-in failed");
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  const handleAppleSignup = async () => {
+    if (!hasFirebaseClientConfig()) {
+      toast.error("Firebase Auth is not configured");
+      return;
+    }
+    setAppleLoading(true);
+    try {
+      const provider = new OAuthProvider("apple.com");
+      provider.addScope("email");
+      provider.addScope("name");
+      const credential = await signInWithPopup(getFirebaseClientAuth(), provider);
+      const firebaseIdToken = await credential.user.getIdToken();
+      const signInRes = await fetch("/api/auth/firebase-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: firebaseIdToken }),
+      });
+      if (!signInRes.ok) {
+        toast.error("Could not start app session");
+      } else {
+        router.replace("/dashboard");
+      }
+    } catch (error: any) {
+      toast.error(error?.code === "auth/popup-closed-by-user" ? "Apple sign-in cancelled" : "Apple sign-in failed");
+    } finally {
+      setAppleLoading(false);
+    }
   };
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -74,10 +116,30 @@ export default function SignupPage() {
     setLoading(true);
     setSignupStep("creating");
     try {
+      if (hasFirebaseClientConfig()) {
+        const verifyRes = await fetch("/api/signup/verify-otp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, otp }),
+        });
+        const verifyData = await verifyRes.json();
+        if (!verifyRes.ok) {
+          toast.error(verifyData?.error ?? "Invalid verification code");
+          return;
+        }
+      }
+
+      let firebaseIdToken = "";
+      if (hasFirebaseClientConfig()) {
+        const credential = await createUserWithEmailAndPassword(getFirebaseClientAuth(), email.trim().toLowerCase(), password);
+        if (name.trim()) await updateProfile(credential.user, { displayName: name.trim() });
+        firebaseIdToken = await credential.user.getIdToken(true);
+      }
+
       const res = await fetch("/api/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name, otp }),
+        body: JSON.stringify({ email, password: hasFirebaseClientConfig() ? undefined : password, name, otp, firebaseIdToken }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -85,8 +147,12 @@ export default function SignupPage() {
         return;
       }
       setSignupStep("signing-in");
-      const signInRes = await signIn("credentials", { email, password, redirect: false });
-      if (signInRes?.error) {
+      const signInRes = await fetch("/api/auth/firebase-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ idToken: firebaseIdToken }),
+      });
+      if (!signInRes.ok) {
         toast.error("Account created. Please sign in.");
         router.replace("/login");
       } else {
@@ -119,6 +185,16 @@ export default function SignupPage() {
             >
               <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>
               {googleLoading ? "Opening Google..." : "Continue with Google"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-4 w-full"
+              onClick={handleAppleSignup}
+              disabled={appleLoading || !hasFirebaseClientConfig()}
+            >
+              <Apple className="mr-2 h-5 w-5" />
+              {appleLoading ? "Opening Apple..." : "Continue with Apple"}
             </Button>
             <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs text-muted-foreground">
               <div className="h-px bg-border" />

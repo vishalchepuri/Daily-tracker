@@ -1,13 +1,12 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
+import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 async function currentUserId() {
-  const session = await getServerSession(authOptions);
-  return (session?.user as any)?.id as string | undefined;
+  const user = await requireCurrentUser();
+  return user?.id;
 }
 
 export async function GET(req: Request) {
