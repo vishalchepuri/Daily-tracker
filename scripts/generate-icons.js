@@ -1,0 +1,61 @@
+const fs = require('fs');
+const path = require('path');
+const sharp = require('sharp');
+
+const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="84" y1="56" x2="428" y2="456" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#052E2B"/>
+      <stop offset=".48" stop-color="#047857"/>
+      <stop offset="1" stop-color="#22C55E"/>
+    </linearGradient>
+  </defs>
+  <!-- Solid background covering the entire 512x512 area to prevent cut off or transparent issues -->
+  <rect width="512" height="512" fill="#020817"/>
+
+  <!-- Scaled content to fit inside the 75% safe-zone (prevents OS masking from cutting it off) -->
+  <g transform="translate(64, 64) scale(0.75)">
+    <rect width="512" height="512" rx="116" fill="#020817"/>
+    <rect x="36" y="36" width="440" height="440" rx="100" fill="url(#bg)"/>
+    <path d="M160 304c-40-40-40-112 0-152s112-40 152 0l56 56" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M352 208c40 40 40 112 0 152s-112 40-152 0l-56-56" stroke="#FFFFFF" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="256" cy="256" r="32" fill="#10B981"/>
+  </g>
+</svg>`;
+
+const publicDir = path.join(__dirname, '..', 'public');
+
+async function generate() {
+  console.log('Generating PWA and iOS home screen icons...');
+
+  // Write the padded SVG
+  fs.writeFileSync(path.join(publicDir, 'app-icon.svg'), svgContent);
+
+  // Render PNGs
+  const svgBuffer = Buffer.from(svgContent);
+
+  await sharp(svgBuffer)
+    .resize(512, 512)
+    .png()
+    .toFile(path.join(publicDir, 'icon-512.png'));
+  console.log('Generated icon-512.png');
+
+  await sharp(svgBuffer)
+    .resize(192, 192)
+    .png()
+    .toFile(path.join(publicDir, 'icon-192.png'));
+  console.log('Generated icon-192.png');
+
+  await sharp(svgBuffer)
+    .resize(180, 180)
+    .png()
+    .toFile(path.join(publicDir, 'apple-touch-icon.png'));
+  console.log('Generated apple-touch-icon.png');
+
+  console.log('All icons generated successfully!');
+}
+
+generate().catch(err => {
+  console.error('Error generating icons:', err);
+  process.exit(1);
+});

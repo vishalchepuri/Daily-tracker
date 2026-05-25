@@ -39,6 +39,40 @@ function sanitizeMerchant(value: string) {
     .slice(0, 80);
 }
 
+function titleCaseMerchant(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/\b[a-z]/g, (char) => char.toUpperCase())
+    .replace(/\bUpi\b/g, "UPI")
+    .replace(/\bRsp\b/g, "RSP")
+    .trim();
+}
+
+function extractMerchantFromText(text: string, subject: string) {
+  const haystack = `${subject}\n${text}`.replace(/\s+/g, " ");
+  const patterns = [
+    /(?:towards|at|to|for)\s+([A-Z0-9][A-Z0-9\s&*._/-]{2,80}?)(?:\s+on\s+\d{1,2}\s+[A-Z][a-z]{2}|\s+on\s+\d{1,2}[/-]|\s+via\b|\s+ref\b|\s+txn\b|\.|,|$)/i,
+    /(?:merchant|payee)\s*[:\-]\s*([A-Z0-9][A-Z0-9\s&*._/-]{2,80}?)(?:\.|,|$)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = haystack.match(pattern);
+    const merchant = sanitizeMerchant(match?.[1] ?? "")
+      .replace(/\b(?:your|hdfc|sbi|icici|axis|kotak|bank|credit|debit|card|account|upi|txn|transaction|check details)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (merchant && merchant.length > 2) return titleCaseMerchant(merchant);
+  }
+
+  const cleanedSubject = sanitizeMerchant(subject
+    .replace(/^(re|fw):\s*/i, "")
+    .replace(/you have done a upi txn\.?\s*check details!?/i, "")
+    .replace(/view$/i, "")
+    .replace(/receipt|invoice|payment|paid|order|purchase|confirmation|transaction|debited|credited/gi, "")
+    .replace(/[:#|].*$/, "")
+  );
+  return cleanedSubject && cleanedSubject.length > 2 ? titleCaseMerchant(cleanedSubject) : "Gmail Transaction";
+}
+
 function bodyText(payload: any): string {
   if (!payload) return "";
   if (payload.body?.data) return decodeBase64Url(payload.body.data);
@@ -50,7 +84,7 @@ function hasScope(scope?: string | null) {
 }
 
 async function refreshGoogleAccessToken(account: any) {
-  if (!account?.refresh_token || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return account;
+  if (!account?.refresh_token || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) return null;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -64,12 +98,13 @@ async function refreshGoogleAccessToken(account: any) {
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) return account;
+  if (!res.ok || !data.access_token) return null;
 
   return prisma.account.update({
     where: { id: account.id },
     data: {
       access_token: data.access_token,
+      refresh_token: data.refresh_token ?? account.refresh_token,
       expires_at: data.expires_in ? Math.floor(Date.now() / 1000) + Number(data.expires_in) : account.expires_at,
       token_type: data.token_type ?? account.token_type,
       scope: data.scope
@@ -107,16 +142,20 @@ function parseSpend(text: string, subject: string) {
       : currencySymbol === "£"
         ? "GBP"
         : "USD";
-  const merchant = sanitizeMerchant(subject
-    .replace(/receipt|invoice|payment|paid|order|purchase|confirmation|transaction|debited|credited/gi, "")
-    .replace(/[:#|].*$/, "")
-  ) || "Gmail Receipt";
+  const merchant = extractMerchantFromText(text, subject);
 
   return { merchant, amount, currency };
 }
 
 async function gmailFetch(account: any, url: string) {
-  return fetch(url, { headers: { Authorization: `Bearer ${account.access_token}` } });
+  let res = await fetch(url, { headers: { Authorization: `Bearer ${account.access_token}` } });
+  if (res.status !== 401 || !account.refresh_token) return { res, account };
+
+  const refreshed = await refreshGoogleAccessToken(account);
+  if (!refreshed?.access_token) return { res, account };
+
+  res = await fetch(url, { headers: { Authorization: `Bearer ${refreshed.access_token}` } });
+  return { res, account: refreshed };
 }
 
 export async function POST(req: Request) {
@@ -166,11 +205,22 @@ export async function POST(req: Request) {
     if (account.expires_at && account.expires_at < Math.floor(Date.now() / 1000) + 60) {
       account = await refreshGoogleAccessToken(account);
     }
+    if (!account?.access_token) {
+      return NextResponse.json(
+        {
+          error: "Gmail access expired. Please reconnect Google and approve Gmail read-only access.",
+          needsConnection: true,
+        },
+        { status: 400 }
+      );
+    }
 
-    const listRes = await gmailFetch(
+    const listFetch = await gmailFetch(
       account,
       `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(receiptQuery)}&maxResults=${MAX_EMAILS_PER_RUN}`
     );
+    account = listFetch.account;
+    const listRes = listFetch.res;
     if (!listRes.ok) {
       const data = await listRes.json().catch(() => ({}));
       const message = data?.error?.message || "Could not read Gmail. Please reconnect Google and approve Gmail read-only access.";
@@ -201,10 +251,12 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const metadataRes = await gmailFetch(
+      const metadataFetch = await gmailFetch(
         account,
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`
       );
+      account = metadataFetch.account;
+      const metadataRes = metadataFetch.res;
       if (!metadataRes.ok) continue;
 
       const metadata = await metadataRes.json();
@@ -220,10 +272,12 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const msgRes = await gmailFetch(
+      const msgFetch = await gmailFetch(
         account,
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`
       );
+      account = msgFetch.account;
+      const msgRes = msgFetch.res;
       if (!msgRes.ok) continue;
       fullReads += 1;
 

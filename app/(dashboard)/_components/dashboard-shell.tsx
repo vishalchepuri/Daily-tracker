@@ -407,27 +407,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
             {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
         </header>
-        <div className="border-b border-border bg-background/95 px-3 py-2 lg:hidden">
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 ios-scroll">
-            {visibleNavItems.map((item: any) => {
-              const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
-              return (
-                <button
-                  key={item.href}
-                  type="button"
-                  onClick={() => goToFeature(item.href)}
-                  className={cn(
-                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors",
-                    isActive ? "border-primary/40 bg-primary/15 text-primary" : "border-border bg-card text-muted-foreground"
-                  )}
-                >
-                  <item.icon className="h-4 w-4" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
+
         <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-3 pb-[calc(6.9rem_+_env(safe-area-inset-bottom))] sm:p-4 lg:p-6 lg:pb-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div

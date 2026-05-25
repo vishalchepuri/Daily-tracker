@@ -125,6 +125,7 @@ export default function SpendsPage() {
   const [friendSpendDialogOpen, setFriendSpendDialogOpen] = useState(false);
   const [friendSpendForm, setFriendSpendForm] = useState(blankFriendSpendForm);
   const [pendingFriendSpend, setPendingFriendSpend] = useState<any>(null);
+  const [cardOthersDialog, setCardOthersDialog] = useState<{ cardName: string; rows: Array<{ person: string; amount: number }> } | null>(null);
 
   const loadData = async () => {
     try {
@@ -356,7 +357,7 @@ export default function SpendsPage() {
         .sort((a, b) => a.remainder - b.remainder);
       return candidates[0]?.id ?? null;
     };
-    return creditCards.reduce((acc: Record<string, { total: number; mine: number; friends: number; friendNames: string[] }>, card) => {
+    return creditCards.reduce((acc: Record<string, { total: number; mine: number; friends: number; friendNames: string[]; friendBreakdown: Array<{ person: string; amount: number }> }>, card) => {
       const cardFriendLinks = moneyLinks.filter((link) => {
         const notes = String(link.notes ?? "");
         const normalizedNotes = notes.toLowerCase();
@@ -375,11 +376,16 @@ export default function SpendsPage() {
         return spend.creditCardId === card.id && date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
       });
       const friendNames = new Set<string>();
+      const friendAmounts = new Map<string, number>();
+      const addFriendAmount = (person: string, amount: number) => {
+        friendNames.add(person);
+        friendAmounts.set(person, (friendAmounts.get(person) ?? 0) + amount);
+      };
       const totals = cardSpends.reduce(
         (sum, spend) => {
           const link = friendSpendLinks.get(spend.id);
           if (link && !link.settled) {
-            friendNames.add(link.person);
+            addFriendAmount(link.person, spend.amount ?? 0);
             return { ...sum, friends: sum.friends + (spend.amount ?? 0) };
           }
           return { ...sum, mine: sum.mine + (spend.amount ?? 0) };
@@ -387,11 +393,11 @@ export default function SpendsPage() {
         { mine: 0, friends: 0 }
       );
       const cardLinkFriends = cardFriendLinks.reduce((sum, link) => {
-        friendNames.add(link.person);
+        addFriendAmount(link.person, link.amount ?? 0);
         return sum + (link.amount ?? 0);
       }, 0);
       const legacyLinkFriends = legacyCardFriendLinks.reduce((sum, link) => {
-        friendNames.add(link.person);
+        addFriendAmount(link.person, link.amount ?? 0);
         return sum + (link.amount ?? 0);
       }, 0);
       totals.friends += cardLinkFriends + legacyLinkFriends;
@@ -403,6 +409,9 @@ export default function SpendsPage() {
         mine: Math.max(0, billTotal - totals.friends),
         friends: totals.friends,
         friendNames: Array.from(friendNames),
+        friendBreakdown: Array.from(friendAmounts.entries())
+          .map(([person, amount]) => ({ person, amount }))
+          .sort((a, b) => b.amount - a.amount),
       };
       return acc;
     }, {});
@@ -906,7 +915,7 @@ export default function SpendsPage() {
                 <DialogHeader><DialogTitle>{form.id ? "Edit Spend" : "Add Spend"}</DialogTitle></DialogHeader>
                 <div className="space-y-4">
                   <div><Label>Merchant</Label><Input value={form.merchant} onChange={(e) => setForm({ ...form, merchant: e.target.value })} className="mt-1" /></div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div><Label>Amount</Label><Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="mt-1" /></div>
                     <div><Label>Currency</Label><Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} className="mt-1" /></div>
                     <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1" placeholder="Food, travel, shopping" /></div>
@@ -949,6 +958,22 @@ export default function SpendsPage() {
                   </div>
                   <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1" /></div>
                   <Button onClick={saveSpend} className="w-full">{form.id ? "Update Spend" : "Save Spend"}</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Dialog open={Boolean(cardOthersDialog)} onOpenChange={(open) => !open && setCardOthersDialog(null)}>
+              <DialogContent className="max-w-md">
+                <DialogHeader><DialogTitle>Others on {cardOthersDialog?.cardName}</DialogTitle></DialogHeader>
+                <div className="space-y-2">
+                  {(cardOthersDialog?.rows ?? []).map((row) => (
+                    <div key={row.person} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2">
+                      <span className="font-medium">{row.person}</span>
+                      <span className="font-mono">{formatInr(row.amount)}</span>
+                    </div>
+                  ))}
+                  {(cardOthersDialog?.rows ?? []).length === 0 && (
+                    <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No others for this card.</div>
+                  )}
                 </div>
               </DialogContent>
             </Dialog>
@@ -1017,7 +1042,7 @@ export default function SpendsPage() {
                   <DialogHeader><DialogTitle>{bankForm.id ? "Edit Bank Account" : "Add Bank Account"}</DialogTitle></DialogHeader>
                   <div className="space-y-4">
                     <div><Label>Account Name</Label><Input value={bankForm.name} onChange={(e) => setBankForm({ ...bankForm, name: e.target.value })} className="mt-1" placeholder="Salary account, Savings..." /></div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div><Label>Bank</Label><Input value={bankForm.bankName} onChange={(e) => setBankForm({ ...bankForm, bankName: e.target.value })} className="mt-1" /></div>
                       <div><Label>Last 4</Label><Input value={bankForm.last4} onChange={(e) => setBankForm({ ...bankForm, last4: e.target.value.slice(0, 4) })} className="mt-1" /></div>
                       <div>
@@ -1047,7 +1072,7 @@ export default function SpendsPage() {
                   <DialogHeader><DialogTitle>{cardForm.id ? "Edit Credit Card" : "Add Credit Card"}</DialogTitle></DialogHeader>
                   <div className="space-y-4">
                     <div><Label>Card Name</Label><Input value={cardForm.name} onChange={(e) => setCardForm({ ...cardForm, name: e.target.value })} className="mt-1" placeholder="HDFC Regalia, SBI Cashback..." /></div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <div><Label>Bank</Label><Input value={cardForm.bankName} onChange={(e) => setCardForm({ ...cardForm, bankName: e.target.value })} className="mt-1" /></div>
                       <div><Label>Last 4</Label><Input value={cardForm.last4} onChange={(e) => setCardForm({ ...cardForm, last4: e.target.value.slice(0, 4) })} className="mt-1" /></div>
                       <div><Label>Current Due</Label><Input type="number" value={cardForm.currentDue} onChange={(e) => setCardForm({ ...cardForm, currentDue: e.target.value })} className="mt-1" /></div>
@@ -1152,8 +1177,8 @@ export default function SpendsPage() {
               ) : (
                 <div className="grid gap-2">
                   {bankAccounts.map((account) => (
-                    <div key={account.id} className="rounded-lg bg-muted/40 p-3">
-                      <div className="flex items-start justify-between gap-3">
+                    <div key={account.id} className="rounded-lg bg-muted/40 p-3 min-w-0">
+                      <div className="flex items-start justify-between gap-3 min-w-0">
                         <div className="min-w-0">
                           <p className="truncate font-medium">{account.name}</p>
                           <p className="text-xs capitalize text-muted-foreground">{[account.bankName, account.accountType, account.last4 ? `Account ending ${account.last4}` : null].filter(Boolean).join(" - ")}</p>
@@ -1174,7 +1199,7 @@ export default function SpendsPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Credit Cards</h3>
                 <p className="text-xs text-muted-foreground">Current due: {formatInr(financeTotals.currentCardDue)}</p>
               </div>
@@ -1183,11 +1208,11 @@ export default function SpendsPage() {
               ) : (
                 <div className="grid gap-2">
                   {creditCards.map((card) => {
-                    const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [] };
+                    const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [], friendBreakdown: [] };
                     const monthSpend = ownership.total;
                     return (
-                      <div key={card.id} className="rounded-lg bg-muted/40 p-3">
-                        <div className="flex items-start justify-between gap-3">
+                      <div key={card.id} className="rounded-lg bg-muted/40 p-3 min-w-0">
+                        <div className="flex items-start justify-between gap-3 min-w-0">
                           <div className="min-w-0">
                             <p className="truncate font-medium">{card.name}</p>
                             <p className="text-xs text-muted-foreground">{[card.bankName, card.last4 ? `Card ending ${card.last4}` : null, card.dueDay ? `Due ${card.dueDay}` : null].filter(Boolean).join(" - ")}</p>
@@ -1201,14 +1226,21 @@ export default function SpendsPage() {
                           <div><span className="text-muted-foreground">Current due</span><p className="font-mono">{formatInr(card.currentDue ?? 0)}</p></div>
                           <div><span className="text-muted-foreground">This month</span><p className="font-mono">{formatInr(monthSpend)}</p></div>
                           <div><span className="text-muted-foreground">Mine</span><p className="font-mono">{formatInr(ownership.mine)}</p></div>
-                          <div><span className="text-muted-foreground">Friends</span><p className="font-mono">{formatInr(ownership.friends)}</p></div>
-                        </div>
-                        {ownership.friendNames.length > 0 && (
-                          <div className="mt-3 flex flex-wrap gap-1">
-                            {ownership.friendNames.map((name) => (
-                              <Badge key={name} variant="outline">{name}</Badge>
-                            ))}
+                          <div>
+                            <span className="text-muted-foreground">Others</span>
+                            <p className="font-mono">{formatInr(ownership.friends)}</p>
                           </div>
+                        </div>
+                        {ownership.friendBreakdown.length > 0 && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="mt-3"
+                            onClick={() => setCardOthersDialog({ cardName: card.name, rows: ownership.friendBreakdown })}
+                          >
+                            View Others
+                          </Button>
                         )}
                       </div>
                     );
@@ -1218,7 +1250,7 @@ export default function SpendsPage() {
             </div>
 
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Lend / Borrow</h3>
                 <p className="text-xs text-muted-foreground">
                   Net: <span className="font-mono text-foreground">{formatInr(moneyLinkFilterTotals.net)}</span>
@@ -1608,7 +1640,7 @@ export default function SpendsPage() {
           ) : (
             <div className="space-y-2">
               {filteredSpends.map((spend) => (
-                <div key={spend.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div key={spend.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center min-w-0">
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>
                     <p className="text-xs text-muted-foreground truncate">
@@ -1703,7 +1735,7 @@ function HistoryPanel({ data, emptyLabel }: { data: any[]; emptyLabel: string })
 
   return (
     <div className="space-y-4">
-      <div className="h-64 w-full">
+      <div className="relative h-64 w-full min-w-0 overflow-hidden">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 8 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />

@@ -15,7 +15,7 @@ export function googleNeedsReconnect(scope?: string | null) {
 
 async function refreshGoogleAccessToken(account: Awaited<ReturnType<typeof getGoogleAccount>>) {
   if (!account?.refresh_token || !process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
-    return account;
+    return null;
   }
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -30,17 +30,45 @@ async function refreshGoogleAccessToken(account: Awaited<ReturnType<typeof getGo
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) return account;
+  if (!res.ok || !data.access_token) return null;
 
   return prisma.account.update({
     where: { id: account.id },
     data: {
       access_token: data.access_token,
+      refresh_token: data.refresh_token ?? account.refresh_token,
       expires_at: data.expires_in ? Math.floor(Date.now() / 1000) + Number(data.expires_in) : account.expires_at,
       token_type: data.token_type ?? account.token_type,
       scope: data.scope ? Array.from(new Set(`${account.scope ?? ""} ${data.scope}`.split(/\s+/).filter(Boolean))).join(" ") : account.scope,
     },
   });
+}
+
+function youtubeErrorPayload(data: any, status: number) {
+  const errorReason = data?.error?.details?.find?.((detail: any) => detail?.reason)?.reason;
+  const activationUrl = data?.error?.details?.find?.((detail: any) => detail?.metadata?.activationUrl)?.metadata?.activationUrl;
+  if (errorReason === "SERVICE_DISABLED") {
+    return {
+      error:
+        "YouTube Data API v3 is disabled in Google Cloud. Enable it for this project, wait a few minutes, then refresh YT Summary.",
+      actionUrl: activationUrl,
+      needsConnection: false,
+    };
+  }
+
+  const message =
+    data?.error?.message ||
+    data?.error_description ||
+    data?.message ||
+    "Could not read YouTube. Please reconnect Google with YouTube access.";
+  const reason = data?.error?.errors?.[0]?.reason || data?.error;
+  return {
+    error: String(message),
+    needsConnection:
+      status === 401 ||
+      reason === "insufficientPermissions" ||
+      /insufficient|permission|auth|credential|token/i.test(String(message)),
+  };
 }
 
 export async function youtubeFetch(userId: string, url: string) {
@@ -71,38 +99,27 @@ export async function youtubeFetch(userId: string, url: string) {
     };
   }
 
-  const res = await fetch(url, {
+  let res = await fetch(url, {
     headers: { Authorization: `Bearer ${account.access_token}` },
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const errorReason = data?.error?.details?.find?.((detail: any) => detail?.reason)?.reason;
-    const activationUrl = data?.error?.details?.find?.((detail: any) => detail?.metadata?.activationUrl)?.metadata?.activationUrl;
-    if (errorReason === "SERVICE_DISABLED") {
-      return {
-        ok: false as const,
-        status: res.status,
-        data: {
-          error:
-            "YouTube Data API v3 is disabled in Google Cloud. Enable it for this project, wait a few minutes, then refresh YT Summary.",
-          actionUrl: activationUrl,
-          needsConnection: false,
-        },
-      };
-    }
+  let data = await res.json().catch(() => ({}));
 
-    const message =
-      data?.error?.message ||
-      data?.error_description ||
-      data?.message ||
-      "Could not read YouTube. Please reconnect Google with YouTube access.";
+  if (res.status === 401 && account.refresh_token) {
+    const refreshed = await refreshGoogleAccessToken(account);
+    if (refreshed?.access_token) {
+      account = refreshed;
+      res = await fetch(url, {
+        headers: { Authorization: `Bearer ${account.access_token}` },
+      });
+      data = await res.json().catch(() => ({}));
+    }
+  }
+
+  if (!res.ok) {
     return {
       ok: false as const,
       status: res.status,
-      data: {
-        error: String(message),
-        needsConnection: res.status === 401 || res.status === 403,
-      },
+      data: youtubeErrorPayload(data, res.status),
     };
   }
   return { ok: res.ok as boolean, status: res.status, data };

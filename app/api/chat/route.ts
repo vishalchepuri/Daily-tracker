@@ -593,6 +593,38 @@ function inferSpendPaymentSource(text: string, action: Extract<AgentAction, { ty
   };
 }
 
+async function getCreditCardSpendBlocker(userId: string, action: Extract<AgentAction, { type: "create_spend_log" }>, rawMessage = "") {
+  const inferred = inferSpendPaymentSource(rawMessage, action);
+  const isCreditCardSpend = inferred.paymentSource === "credit_card" || Boolean(action.creditCardName || inferred.cardLast4);
+  if (!isCreditCardSpend) return null;
+
+  if (inferred.cardLast4) {
+    const exactCard = await prisma.creditCard.findFirst({
+      where: { userId, active: true, last4: inferred.cardLast4 },
+      select: { id: true },
+    });
+    if (!exactCard) {
+      return `I see a credit card ending ${inferred.cardLast4}, but I do not have that card saved yet. Please tell me which card name to save with last 4 digits ${inferred.cardLast4}, then I will log this transaction.`;
+    }
+    return null;
+  }
+
+  if (action.creditCardName) {
+    const matches = await prisma.creditCard.findMany({
+      where: {
+        userId,
+        active: true,
+        name: { contains: action.creditCardName, mode: "insensitive" },
+      },
+      select: { id: true, name: true, last4: true },
+      take: 3,
+    });
+    if (matches.length === 1 && matches[0].last4) return null;
+  }
+
+  return "Before I log this credit card spend, please tell me the last 4 digits of the card. I will not save this transaction until you confirm the card ending digits.";
+}
+
 async function executeAgentAction(userId: string, action: AgentAction, rawMessage = "") {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
@@ -644,19 +676,26 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
     const bankName = inferred.bankName;
     const accountLast4 = inferred.accountLast4;
     const cardLast4 = inferred.cardLast4;
-    const card = (paymentSource === "credit_card" || action.creditCardName || cardLast4)
+    let card = cardLast4
       ? await prisma.creditCard.findFirst({
           where: {
             userId,
             active: true,
-            OR: [
-              action.creditCardName ? { name: { contains: action.creditCardName, mode: "insensitive" } } : undefined,
-              bankName ? { bankName: { contains: bankName, mode: "insensitive" } } : undefined,
-              cardLast4 ? { last4: cardLast4 } : undefined,
-            ].filter(Boolean) as any,
+            last4: cardLast4,
           },
         })
       : null;
+    if (!card && action.creditCardName && !cardLast4) {
+      const matches = await prisma.creditCard.findMany({
+          where: {
+            userId,
+            active: true,
+            name: { contains: action.creditCardName, mode: "insensitive" },
+          },
+          take: 2,
+        });
+      card = matches.length === 1 && matches[0].last4 ? matches[0] : null;
+    }
     let bankAccount = !card && (paymentSource === "bank_account" || paymentSource === "debit_card" || accountLast4 || bankName || action.accountName)
       ? await prisma.bankAccount.findFirst({
           where: {
@@ -1319,6 +1358,7 @@ ${JSON.stringify({
 - If the text says "debited from account", "account ending 1234", or similar, set paymentSource to "bank_account", include bankName and accountLast4, and attach/create the bank account automatically.
 - If the text says "debit card ending 1234", set paymentSource to "debit_card", include bankName and accountLast4, and attach/create that debit-card source under Bank Accounts.
 - If the text says "credit card", "card ending 1234", or a named saved card, set paymentSource to "credit_card" and include creditCardName or cardLast4.
+- Never log a credit-card spend unless the card last 4 digits are visible in the message or the saved card already has known last 4 digits. If last 4 digits are missing, ask for them and do not create a spend action.
 - If the spend screenshot is missing amount, source, or whether it was a transfer vs purchase, ask one short follow-up question instead of logging. Do not ask only because merchant or category is imperfect; save the best visible merchant/category and note uncertainty.
 - Choose practical spend categories such as Food, Groceries, Travel, Shopping, Health, Fitness, Bills, Subscriptions, Entertainment, or Other.
 - If the user asks to set/change monthly spending budget/limit/target, use update_spend_target.
@@ -1439,6 +1479,15 @@ Available action examples:
     }
 
     const actions = Array.isArray(agentResult.actions) ? agentResult.actions.slice(0, 20) : [];
+    for (const action of actions) {
+      if (action.type !== "create_spend_log") continue;
+      const blocker = await getCreditCardSpendBlocker(userId, action, message);
+      if (!blocker) continue;
+      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content: blocker } });
+      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await pruneChatRetention(userId);
+      return streamSingleMessage(blocker);
+    }
     const actionResults = [];
     for (const action of actions) {
       const result = await executeAgentAction(userId, action, message);
