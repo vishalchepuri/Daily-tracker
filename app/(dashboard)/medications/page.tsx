@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bell, CalendarDays, CheckCircle2, Clock, Edit, PauseCircle, Pill, PlayCircle, Plus, Search, SkipForward, Trash2, TrendingUp } from "lucide-react";
+import { AlertTriangle, Bell, CalendarDays, CheckCircle2, Clock, Edit, Package, PauseCircle, Pill, PlayCircle, Plus, Search, SkipForward, Trash2, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,10 @@ const blankForm = {
   dayOfMonth: "",
   startDate: "",
   endDate: "",
+  stockCount: "",
+  doseUnits: "1",
+  refillAt: "",
+  refillNotes: "",
   active: true,
 };
 
@@ -149,6 +153,10 @@ export default function MedicationsPage() {
   const adherenceRate = adherenceLogs.length
     ? Math.round((adherenceLogs.filter((log) => log.status === "taken").length / adherenceLogs.length) * 100)
     : 0;
+  const refillAlerts = medications.filter((med) => {
+    if (med.stockCount == null || med.refillAt == null) return false;
+    return Number(med.stockCount) <= Number(med.refillAt);
+  });
   const nextDose = dueTodayMeds.find((med) => !todayLogs.some((log) => log.medicationId === med.id));
   const upcomingWeek = useMemo(() => {
     return Array.from({ length: 7 }, (_, index) => {
@@ -195,6 +203,10 @@ export default function MedicationsPage() {
       dayOfMonth: med.dayOfMonth ? String(med.dayOfMonth) : "",
       startDate: med.startDate ? new Date(med.startDate).toISOString().slice(0, 10) : "",
       endDate: med.endDate ? new Date(med.endDate).toISOString().slice(0, 10) : "",
+      stockCount: med.stockCount == null ? "" : String(med.stockCount),
+      doseUnits: med.doseUnits == null ? "1" : String(med.doseUnits),
+      refillAt: med.refillAt == null ? "" : String(med.refillAt),
+      refillNotes: med.refillNotes ?? "",
       active: Boolean(med.active),
     });
     setDialogOpen(true);
@@ -423,6 +435,28 @@ export default function MedicationsPage() {
                   </div>
                 </div>
 
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="mb-3 flex items-center gap-2">
+                    <Package className="h-4 w-4 text-primary" />
+                    <Label>Refill Tracking</Label>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div>
+                      <Label>Remaining pills</Label>
+                      <Input type="number" min="0" value={form.stockCount} onChange={(e) => setForm({ ...form, stockCount: e.target.value })} className="mt-1" placeholder="30" />
+                    </div>
+                    <div>
+                      <Label>Used per dose</Label>
+                      <Input type="number" min="1" value={form.doseUnits} onChange={(e) => setForm({ ...form, doseUnits: e.target.value })} className="mt-1" placeholder="1" />
+                    </div>
+                    <div>
+                      <Label>Alert at</Label>
+                      <Input type="number" min="0" value={form.refillAt} onChange={(e) => setForm({ ...form, refillAt: e.target.value })} className="mt-1" placeholder="5" />
+                    </div>
+                  </div>
+                  <Input value={form.refillNotes} onChange={(e) => setForm({ ...form, refillNotes: e.target.value })} className="mt-3" placeholder="Refill note, pharmacy, prescription..." />
+                </div>
+
                 <div>
                   <Label>Instructions</Label>
                   <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1" placeholder="After food, before bed, avoid with milk..." />
@@ -441,6 +475,26 @@ export default function MedicationsPage() {
         <SummaryCard title="Missed" value={missedToday} icon={Clock} />
         <SummaryCard title="Adherence" value={logs.length ? `${adherenceRate}%` : "0%"} icon={TrendingUp} />
       </div>
+
+      {refillAlerts.length > 0 && (
+        <Card className="border-amber-500/35 bg-amber-500/5">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              <h3 className="font-semibold">Refill needed</h3>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {refillAlerts.map((med) => (
+                <div key={med.id} className="rounded-lg bg-background/60 p-3">
+                  <p className="font-medium">{med.name}</p>
+                  <p className="text-sm text-muted-foreground">{med.stockCount} left, alert at {med.refillAt}</p>
+                  {med.refillNotes && <p className="mt-1 text-xs text-muted-foreground">{med.refillNotes}</p>}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {nextDose && (
         <Card className="border-primary/30 bg-primary/5">
@@ -544,9 +598,9 @@ export default function MedicationsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-7">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 ios-scroll lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0 lg:pb-0">
             {upcomingWeek.map((day) => (
-              <div key={day.date.toISOString()} className="rounded-lg border border-border bg-muted/20 p-3">
+              <div key={day.date.toISOString()} className="min-w-[9.5rem] rounded-lg border border-border bg-muted/20 p-3 lg:min-w-0">
                 <p className="text-sm font-semibold">{dateLabel(day.date)}</p>
                 <p className="mt-2 text-2xl font-bold">{day.due.length}</p>
                 <p className="text-xs text-muted-foreground">{day.taken}/{day.due.length} taken</p>
@@ -593,8 +647,13 @@ export default function MedicationsPage() {
                   <div className="min-w-0">
                     <p className="truncate font-medium">{med.name}</p>
                     <p className="text-xs text-muted-foreground">{med.timeOfDay} - {formatRepeat(med)} {med.dosage ? `- ${med.dosage}` : ""}</p>
+                    {med.stockCount != null && (
+                      <p className={`mt-1 text-xs ${med.refillAt != null && med.stockCount <= med.refillAt ? "text-amber-500" : "text-muted-foreground"}`}>
+                        Stock: {med.stockCount} left{med.refillAt != null ? `, refill at ${med.refillAt}` : ""}
+                      </p>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between gap-2 sm:justify-end">
+                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 sm:flex sm:justify-end">
                     <Badge variant={med.active ? "secondary" : "outline"}>{med.active ? "Active" : "Paused"}</Badge>
                     <Button variant="ghost" size="icon" onClick={() => toggleMedicationActive(med)} title={med.active ? "Pause medication" : "Resume medication"}>
                       {med.active ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4 text-primary" />}

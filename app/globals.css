@@ -81,6 +81,21 @@
     overscroll-behavior: none;
     -webkit-tap-highlight-color: transparent;
   }
+  button,
+  a,
+  [role="button"] {
+    touch-action: manipulation;
+  }
+  h1,
+  h2,
+  h3,
+  p,
+  span,
+  label,
+  button,
+  a {
+    overflow-wrap: anywhere;
+  }
   input,
   textarea,
   select {
@@ -107,6 +122,20 @@
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
     scroll-behavior: smooth;
+  }
+
+  .mobile-action-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  @media (min-width: 640px) {
+    .mobile-action-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+    }
   }
 
   .motion-safe-transform {

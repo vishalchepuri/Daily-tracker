@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Activity,
   Banknote,
@@ -36,6 +37,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(false);
+  const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
@@ -193,15 +195,41 @@ export default function ProfilePage() {
     }
   };
 
+  const runRetentionCleanup = async () => {
+    setCleaningRetention(true);
+    try {
+      const res = await fetch("/api/retention", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to clean old data");
+        return;
+      }
+      toast.success("Old chat data cleaned");
+    } catch {
+      toast.error("Failed to clean old data");
+    } finally {
+      setCleaningRetention(false);
+    }
+  };
+
   if (loading) return <div className="h-64 bg-muted animate-pulse rounded-lg" />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <h2 className="text-2xl font-display font-bold tracking-tight">Profile & Goals</h2>
+        <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Profile & Goals</h2>
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
       </FadeIn>
 
+      <Tabs defaultValue="profile" className="space-y-4">
+        <TabsList className="flex h-auto w-full gap-2 overflow-x-auto bg-transparent p-0">
+          <TabsTrigger value="profile" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Profile</TabsTrigger>
+          <TabsTrigger value="activity" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Activity</TabsTrigger>
+          <TabsTrigger value="integrations" className="min-w-28 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Integrations</TabsTrigger>
+          <TabsTrigger value="danger" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Danger</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile" className="space-y-6">
       <FadeIn delay={0.1}>
         <Card>
           <CardHeader>
@@ -275,57 +303,6 @@ export default function ProfilePage() {
         </Card>
       </FadeIn>
 
-      <FadeIn delay={0.18}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageCircle className="h-5 w-5 text-primary" />
-              Telegram Bot
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
-              Message your Dayza Telegram bot once, send <span className="font-mono text-foreground">/start</span>, then paste the chat ID here. Once connected, Telegram can receive reminders and log spends, water, weight, medications, reminders, and saved diet meals.
-            </div>
-            {!telegramForm.botConfigured && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
-                Bot token is not configured. Add <span className="font-mono">TELEGRAM_BOT_TOKEN</span> and restart the app.
-              </div>
-            )}
-            <div>
-              <Label>Telegram Chat ID</Label>
-              <Input
-                value={telegramForm.telegramChatId}
-                onChange={(e) => setTelegramForm({ ...telegramForm, telegramChatId: e.target.value })}
-                className="mt-1"
-                placeholder="123456789"
-              />
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant={telegramForm.telegramEnabled ? "default" : "outline"}
-                onClick={() => setTelegramForm({ ...telegramForm, telegramEnabled: !telegramForm.telegramEnabled })}
-              >
-                {telegramForm.telegramEnabled ? "Telegram Enabled" : "Enable Telegram"}
-              </Button>
-              <Button type="button" onClick={saveTelegram} loading={savingTelegram}>
-                <Save className="mr-2 h-4 w-4" />
-                Save Telegram
-              </Button>
-              <Button type="button" variant="outline" onClick={sendDueTelegram} loading={checkingTelegram}>
-                <Send className="mr-2 h-4 w-4" />
-                Send Due
-              </Button>
-              <Button type="button" variant="outline" onClick={checkTelegramMessages} loading={checkingTelegram}>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Check Bot
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </FadeIn>
-
       {profile && (
         <FadeIn delay={0.2}>
           <Card>
@@ -360,7 +337,9 @@ export default function ProfilePage() {
           </Card>
         </FadeIn>
       )}
+        </TabsContent>
 
+        <TabsContent value="activity" className="space-y-6">
       <FadeIn delay={0.25}>
         <Card>
           <CardHeader>
@@ -416,7 +395,81 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
+        </TabsContent>
 
+        <TabsContent value="integrations" className="space-y-6">
+      <FadeIn delay={0.18}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5 text-primary" />
+              Telegram Bot
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+              Message your Dayza Telegram bot once, send <span className="font-mono text-foreground">/start</span>, then paste the chat ID here. Once connected, Telegram can receive reminders and log spends, water, weight, medications, reminders, and saved diet meals.
+            </div>
+            {!telegramForm.botConfigured && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Bot token is not configured. Add <span className="font-mono">TELEGRAM_BOT_TOKEN</span> and restart the app.
+              </div>
+            )}
+            <div>
+              <Label>Telegram Chat ID</Label>
+              <Input
+                value={telegramForm.telegramChatId}
+                onChange={(e) => setTelegramForm({ ...telegramForm, telegramChatId: e.target.value })}
+                className="mt-1"
+                placeholder="123456789"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant={telegramForm.telegramEnabled ? "default" : "outline"}
+                onClick={() => setTelegramForm({ ...telegramForm, telegramEnabled: !telegramForm.telegramEnabled })}
+              >
+                {telegramForm.telegramEnabled ? "Telegram Enabled" : "Enable Telegram"}
+              </Button>
+              <Button type="button" onClick={saveTelegram} loading={savingTelegram}>
+                <Save className="mr-2 h-4 w-4" />
+                Save Telegram
+              </Button>
+              <Button type="button" variant="outline" onClick={sendDueTelegram} loading={checkingTelegram}>
+                <Send className="mr-2 h-4 w-4" />
+                Send Due
+              </Button>
+              <Button type="button" variant="outline" onClick={checkTelegramMessages} loading={checkingTelegram}>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Check Bot
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </FadeIn>
+      <FadeIn delay={0.22}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-primary" />
+              Data Retention
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Keeps the latest 7 chats, latest 10 messages in each chat, and removes image data after 5 days.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <Button type="button" variant="outline" onClick={runRetentionCleanup} loading={cleaningRetention}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Run Cleanup
+            </Button>
+          </CardContent>
+        </Card>
+      </FadeIn>
+        </TabsContent>
+
+        <TabsContent value="danger" className="space-y-6">
       <FadeIn delay={0.3}>
         <Card className="border-destructive/30">
           <CardHeader>
@@ -440,6 +493,8 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -31,6 +31,7 @@ export default function ChatPage() {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -111,11 +112,14 @@ export default function ChatPage() {
     return null;
   }, []);
 
-  const handleSend = useCallback(async () => {
-    if ((!input?.trim() && !imageDataUrl) || streaming) return;
+  const sendMessage = useCallback(async (messageOverride?: string, imageOverride?: string | null) => {
+    const outgoingText = messageOverride ?? input.trim();
+    const outgoingImage = imageOverride ?? imageDataUrl;
+    if ((!outgoingText && !outgoingImage) || streaming) return;
     setStreaming(true);
-    const userMsg = input.trim();
-    const attachedImage = imageDataUrl;
+    setLastFailedMessage(null);
+    const userMsg = outgoingText;
+    const attachedImage = outgoingImage;
     const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
     if (!targetSessionId) {
       toast.error("Could not start chat");
@@ -139,7 +143,13 @@ export default function ChatPage() {
         body: JSON.stringify({ message: userMsg, imageDataUrl: attachedImage, sessionId: targetSessionId }),
       });
 
-      if (!res.ok) { setStreaming(false); return; }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
+        toast.error(data?.error ?? "Agent response failed. You can retry.");
+        setStreaming(false);
+        return;
+      }
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -171,9 +181,22 @@ export default function ChatPage() {
           }
         }
       }
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+      setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
+      toast.error("Agent response failed. You can retry.");
+    }
     setStreaming(false);
   }, [activeSessionId, createChatSession, imageDataUrl, input, streaming]);
+
+  const handleSend = useCallback(async () => {
+    await sendMessage();
+  }, [sendMessage]);
+
+  const retryLastMessage = useCallback(async () => {
+    if (!lastFailedMessage) return;
+    await sendMessage(lastFailedMessage.message, lastFailedMessage.imageDataUrl);
+  }, [lastFailedMessage, sendMessage]);
 
   const startNewChat = useCallback(async () => {
     setActiveSessionId(null);
@@ -377,6 +400,20 @@ export default function ChatPage() {
           <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
             Loading chat...
+          </div>
+        )}
+        {lastFailedMessage && !streaming && (
+          <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+            <span className="text-destructive">Last message failed.</span>
+            <Button type="button" size="sm" variant="outline" onClick={retryLastMessage}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {streaming && (
+          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            Dayza is thinking...
           </div>
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 sm:space-y-4 sm:p-4">

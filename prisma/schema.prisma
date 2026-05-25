@@ -459,6 +459,10 @@ model Medication {
   dayOfMonth  Int?
   startDate   DateTime?
   endDate     DateTime?
+  stockCount  Int?
+  doseUnits   Int      @default(1)
+  refillAt    Int?
+  refillNotes String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

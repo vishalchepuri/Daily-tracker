@@ -34,7 +34,7 @@ const navItems = [
 const adminNavItem = { label: "Admin", href: "/admin", icon: Shield };
 
 const mobileNavItems = navItems.filter((item) =>
-  ["/dashboard", "/reminders", "/medications", "/nutrition", "/workouts"].includes(item.href)
+  ["/dashboard", "/reminders", "/medications", "/spends", "/workouts"].includes(item.href)
 );
 
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
@@ -399,15 +399,36 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       </aside>
 
       <div className="flex min-h-0 flex-1 flex-col min-w-0">
-        <header className="sticky top-0 z-30 h-16 bg-card/80 backdrop-blur-md border-b border-border flex items-center px-4 lg:px-6">
-          <button className="lg:hidden mr-3" onClick={() => setSidebarOpen(true)}>
+        <header className="sticky top-0 z-30 flex h-14 items-center border-b border-border bg-card/90 px-3 backdrop-blur-md lg:h-16 lg:px-6">
+          <button className="mr-3 rounded-md p-2 -ml-2 lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open menu">
             <Menu className="w-6 h-6" />
           </button>
-          <h1 className="font-display font-semibold text-lg tracking-tight">
+          <h1 className="min-w-0 truncate font-display text-base font-semibold tracking-tight sm:text-lg">
             {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
         </header>
-        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-3 pb-[calc(6.5rem_+_env(safe-area-inset-bottom))] lg:p-6 lg:pb-6">
+        <div className="border-b border-border bg-background/95 px-3 py-2 lg:hidden">
+          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 ios-scroll">
+            {visibleNavItems.map((item: any) => {
+              const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
+              return (
+                <button
+                  key={item.href}
+                  type="button"
+                  onClick={() => goToFeature(item.href)}
+                  className={cn(
+                    "inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors",
+                    isActive ? "border-primary/40 bg-primary/15 text-primary" : "border-border bg-card text-muted-foreground"
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-3 pb-[calc(6.9rem_+_env(safe-area-inset-bottom))] sm:p-4 lg:p-6 lg:pb-6">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={pathname}
@@ -433,7 +454,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                 type="button"
                 onClick={() => goToFeature(item.href)}
                 className={cn(
-                  "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
+                  "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
                   isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
                 )}
               >

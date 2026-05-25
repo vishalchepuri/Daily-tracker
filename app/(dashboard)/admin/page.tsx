@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
+import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,6 +61,52 @@ async function rejectExerciseSubmission(formData: FormData) {
       reviewedAt: new Date(),
     },
   });
+  revalidatePath("/admin");
+}
+
+async function runRetentionCleanup() {
+  "use server";
+  const admin = await requireAdminUser();
+  if (!admin) return;
+  const now = new Date();
+  const imageCutoff = new Date(now.getTime() - 5 * 86_400_000);
+  const users = await prisma.user.findMany({ select: { id: true }, take: 500 });
+
+  for (const user of users) {
+    const sessions = await prisma.chatSession.findMany({
+      where: { userId: user.id },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true },
+    });
+    const oldSessionIds = sessions.slice(7).map((session) => session.id);
+    if (oldSessionIds.length) {
+      await prisma.chatSession.deleteMany({ where: { userId: user.id, id: { in: oldSessionIds } } });
+    }
+
+    for (const session of sessions.slice(0, 7)) {
+      const oldMessages = await prisma.chatMessage.findMany({
+        where: { userId: user.id, sessionId: session.id },
+        orderBy: { createdAt: "desc" },
+        skip: 10,
+        select: { id: true },
+      });
+      const oldMessageIds = oldMessages.map((message) => message.id);
+      if (!oldMessageIds.length) continue;
+      await prisma.chatAttachment.deleteMany({ where: { userId: user.id, messageId: { in: oldMessageIds } } });
+      await prisma.chatMessage.deleteMany({ where: { userId: user.id, id: { in: oldMessageIds } } });
+    }
+
+    await prisma.chatAttachment.updateMany({
+      where: {
+        userId: user.id,
+        deletedAt: null,
+        imageData: { not: null },
+        OR: [{ expiresAt: { lte: now } }, { createdAt: { lt: imageCutoff } }],
+      },
+      data: { imageData: null, deletedAt: now },
+    });
+  }
+
   revalidatePath("/admin");
 }
 
@@ -167,6 +213,30 @@ export default async function AdminPage() {
       chatCount: activeChatUsers.find((entry) => entry.userId === user.id)?._count.id ?? 0,
     }))
     .sort((a, b) => b.chatCount - a.chatCount);
+  const reviewQueue = [
+    ...pendingExercises.map((exercise) => ({
+      id: exercise.id,
+      type: "Exercise",
+      title: exercise.name,
+      detail: `${exercise.muscleGroup}${exercise.equipment ? ` - ${exercise.equipment}` : ""}`,
+      user: exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user",
+      createdAt: exercise.createdAt,
+      kind: "exercise" as const,
+    })),
+    ...issueReports
+      .filter((issue) => issue.status === "open")
+      .map((issue) => ({
+        id: issue.id,
+        type: "Issue",
+        title: issue.category,
+        detail: issue.message,
+        user: issue.user?.name || issue.user?.email || issue.email || "Anonymous",
+        createdAt: issue.createdAt,
+        kind: "issue" as const,
+      })),
+  ]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, 12);
 
   return (
     <div className="space-y-5">
@@ -193,6 +263,68 @@ export default async function AdminPage() {
         <AdminMetric title="Telegram linked" value={formatNumber(telegramUsers)} detail="reminder-ready users" icon={CalendarClock} compact />
         <AdminMetric title="Money links" value={formatInr(moneyLinkTotals._sum.amount)} detail={`${formatNumber(moneyLinkTotals._count.id)} unsettled`} icon={Banknote} compact />
         <AdminMetric title="Exercise approvals" value={formatNumber(pendingExercises.length)} detail="waiting for review" icon={Dumbbell} compact />
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />Smart Review Queue</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {reviewQueue.length === 0 ? (
+              <EmptyState label="Nothing needs review right now." />
+            ) : (
+              <div className="grid gap-2">
+                {reviewQueue.map((item) => (
+                  <div key={`${item.kind}-${item.id}`} className="grid gap-3 rounded-lg bg-muted/40 p-3 md:grid-cols-[1fr_auto] md:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={item.kind === "exercise" ? "default" : "secondary"}>{item.type}</Badge>
+                        <p className="truncate font-semibold">{item.title}</p>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{item.user} - {formatDate(item.createdAt)}</p>
+                    </div>
+                    {item.kind === "exercise" ? (
+                      <div className="flex flex-wrap gap-2">
+                        <form action={approveExerciseSubmission}>
+                          <input type="hidden" name="id" value={item.id} />
+                          <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                            <CheckCircle2 className="h-4 w-4" /> Approve
+                          </button>
+                        </form>
+                        <form action={rejectExerciseSubmission}>
+                          <input type="hidden" name="id" value={item.id} />
+                          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">
+                            <XCircle className="h-4 w-4" /> Reject
+                          </button>
+                        </form>
+                      </div>
+                    ) : (
+                      <Badge variant="outline">Open</Badge>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2"><Database className="h-5 w-5 text-primary" />Retention Cleanup</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Applies chat limits for every user: 7 chats, 10 messages per chat, and image data only for 5 days.
+            </p>
+            <form action={runRetentionCleanup}>
+              <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
+                <Database className="h-4 w-4" /> Run Cleanup
+              </button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -318,11 +450,11 @@ export default async function AdminPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="overflow-hidden">
         <CardHeader>
           <CardTitle>Latest Users</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto ios-scroll">
           <Table>
             <TableHeader>
               <TableRow>

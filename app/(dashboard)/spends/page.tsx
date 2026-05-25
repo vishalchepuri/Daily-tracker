@@ -606,8 +606,31 @@ export default function SpendsPage() {
 
   const deleteSpend = async (id: string) => {
     try {
-      await fetch(`/api/spends?id=${id}`, { method: "DELETE" });
-      toast.success("Spend removed");
+      const res = await fetch(`/api/spends?id=${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to remove spend");
+        return;
+      }
+      toast.success("Spend removed", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            const restoreRes = await fetch("/api/spends", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ restoreSpend: data.deletedSpend, restoreMoneyLinks: data.deletedMoneyLinks ?? [] }),
+            });
+            const restoreData = await restoreRes.json();
+            if (!restoreRes.ok) {
+              toast.error(restoreData?.error ?? "Could not restore spend");
+              return;
+            }
+            toast.success("Spend restored");
+            loadData();
+          },
+        },
+      });
       loadData();
     } catch {
       toast.error("Failed to remove spend");

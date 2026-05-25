@@ -207,6 +207,18 @@ export default function RemindersPage() {
     loadData();
   };
 
+  const snoozeReminder = async (item: any, minutesToAdd: number) => {
+    const nextDue = new Date();
+    nextDue.setMinutes(nextDue.getMinutes() + minutesToAdd);
+    await fetch("/api/reminders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: item.id, dueDate: nextDue.toISOString(), completed: false }),
+    });
+    toast.success(`Snoozed for ${minutesToAdd >= 60 ? `${minutesToAdd / 60}h` : `${minutesToAdd}m`}`);
+    loadData();
+  };
+
   const deleteReminder = async (id: string) => {
     await fetch(`/api/reminders?id=${id}`, { method: "DELETE" });
     toast.success("Reminder deleted");
@@ -421,8 +433,8 @@ export default function RemindersPage() {
             ) : (
               <div className="space-y-2">
                 {filteredReminders.map((item) => (
-                  <div key={item.id} className={`flex items-start gap-3 rounded-lg bg-muted/40 p-3 ${item.completed ? "opacity-60" : ""}`}>
-                    <button onClick={() => toggleComplete(item)} className="mt-1">
+                  <div key={item.id} className={`grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
+                    <button onClick={() => toggleComplete(item)} className="mt-1 justify-self-start">
                       {item.completed ? <CheckCircle2 className="w-5 h-5 text-primary" /> : <Circle className="w-5 h-5 text-muted-foreground" />}
                     </button>
                     <div className="min-w-0 flex-1">
@@ -436,8 +448,20 @@ export default function RemindersPage() {
                       {item.notes && <p className="mt-1 text-sm text-muted-foreground">{item.notes}</p>}
                       {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleString()}</p>}
                     </div>
-                    <Button variant="ghost" size="icon" onClick={() => openEditReminder(item)}><Pencil className="w-4 h-4" /></Button>
-                    <Button variant="ghost" size="icon" onClick={() => deleteReminder(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                    {!item.completed && (
+                      <div className="flex shrink-0 flex-wrap gap-1">
+                        <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 15)}>
+                          <Clock3 className="mr-1 h-3 w-3" />15m
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 60)}>
+                          <Clock3 className="mr-1 h-3 w-3" />1h
+                        </Button>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 sm:contents">
+                      <Button variant="ghost" size="icon" onClick={() => openEditReminder(item)}><Pencil className="w-4 h-4" /></Button>
+                      <Button variant="ghost" size="icon" onClick={() => deleteReminder(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                    </div>
                   </div>
                 ))}
               </div>

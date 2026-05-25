@@ -49,6 +49,12 @@ export async function POST(req: Request) {
       },
       include: { medication: true },
     });
+    if (log.status === "taken" && medication.stockCount != null) {
+      await prisma.medication.update({
+        where: { id: medication.id },
+        data: { stockCount: Math.max(0, medication.stockCount - medication.doseUnits) },
+      });
+    }
     return NextResponse.json({ log });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
@@ -64,10 +70,16 @@ export async function DELETE(req: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "Log ID is required" }, { status: 400 });
 
-    const existing = await prisma.medicationLog.findUnique({ where: { id } });
+    const existing = await prisma.medicationLog.findUnique({ where: { id }, include: { medication: true } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
     await prisma.medicationLog.delete({ where: { id } });
+    if (existing.status === "taken" && existing.medication.stockCount != null) {
+      await prisma.medication.update({
+        where: { id: existing.medicationId },
+        data: { stockCount: existing.medication.stockCount + existing.medication.doseUnits },
+      });
+    }
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

@@ -54,6 +54,50 @@ export async function POST(req: Request) {
     if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (session.user as any)?.id;
     const data = await req.json();
+    if (data?.restoreSpend) {
+      const restored = data.restoreSpend;
+      const restoredLinks = Array.isArray(data.restoreMoneyLinks) ? data.restoreMoneyLinks : [];
+      const restoredSpend = await prisma.$transaction(async (tx) => {
+        const bankAccountId = await resolveBankAccountId(userId, restored.bankAccountId);
+        const creditCardId = await resolveCreditCardId(userId, restored.creditCardId);
+        const amount = parseAmount(restored.amount);
+        const created = await tx.spend.create({
+          data: {
+            userId,
+            merchant: restored.merchant,
+            amount,
+            currency: restored.currency || "INR",
+            category: restored.category || null,
+            date: restored.date ? new Date(restored.date) : new Date(),
+            notes: restored.notes || null,
+            source: restored.source || "manual",
+            bankAccountId,
+            creditCardId,
+            balanceApplied: Boolean(bankAccountId || creditCardId),
+          },
+          include: { bankAccount: true, creditCard: true },
+        });
+        if (bankAccountId) await tx.bankAccount.update({ where: { id: bankAccountId }, data: { balance: { decrement: amount } } });
+        if (creditCardId) await tx.creditCard.update({ where: { id: creditCardId }, data: { currentDue: { increment: amount } } });
+        for (const link of restoredLinks) {
+          await tx.moneyLink.create({
+            data: {
+              userId,
+              person: link.person,
+              type: link.type === "borrow" ? "borrow" : "lend",
+              amount: parseAmount(link.amount),
+              currency: link.currency || "INR",
+              notes: link.notes || null,
+              settled: Boolean(link.settled),
+              date: link.date ? new Date(link.date) : new Date(),
+            },
+          });
+        }
+        return created;
+      });
+      return NextResponse.json({ spend: restoredSpend, restored: true });
+    }
+
     if (!data?.merchant || !data?.amount) {
       return NextResponse.json({ error: "Merchant and amount are required" }, { status: 400 });
     }
@@ -170,6 +214,7 @@ export async function DELETE(req: Request) {
 
     const existing = await prisma.spend.findUnique({ where: { id }, include: { creditCard: true } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    let deletedMoneyLinks: any[] = [];
     await prisma.$transaction(async (tx) => {
       if (existing.balanceApplied && existing.bankAccountId) {
         await tx.bankAccount.update({
@@ -183,8 +228,7 @@ export async function DELETE(req: Request) {
           data: { currentDue: { decrement: existing.amount } },
         });
       }
-      await tx.moneyLink.deleteMany({
-        where: {
+      const linkedWhere = {
           userId,
           type: "lend",
           OR: [
@@ -196,11 +240,12 @@ export async function DELETE(req: Request) {
                 }
               : undefined,
           ].filter(Boolean) as any,
-        },
-      });
+        };
+      deletedMoneyLinks = await tx.moneyLink.findMany({ where: linkedWhere });
+      await tx.moneyLink.deleteMany({ where: linkedWhere });
       await tx.spend.delete({ where: { id } });
     });
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, deletedSpend: existing, deletedMoneyLinks });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }

@@ -15,6 +15,17 @@ function parseDayOfMonth(value: unknown) {
   return Number.isFinite(parsed) && parsed >= 1 && parsed <= 31 ? Math.round(parsed) : null;
 }
 
+function parsePositiveInt(value: unknown) {
+  if (value === "" || value == null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : null;
+}
+
+function parseDoseUnits(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.round(parsed) : 1;
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -54,6 +65,10 @@ export async function POST(req: Request) {
         dayOfMonth: data.recurrence === "monthly" ? parseDayOfMonth(data.dayOfMonth) : null,
         startDate: parseDate(data.startDate),
         endDate: parseDate(data.endDate),
+        stockCount: parsePositiveInt(data.stockCount),
+        doseUnits: parseDoseUnits(data.doseUnits),
+        refillAt: parsePositiveInt(data.refillAt),
+        refillNotes: data.refillNotes || null,
         active: data.active == null ? true : Boolean(data.active),
       },
     });
@@ -86,6 +101,10 @@ export async function PATCH(req: Request) {
         dayOfMonth: data.recurrence === "monthly" ? parseDayOfMonth(data.dayOfMonth) : data.recurrence === undefined ? existing.dayOfMonth : null,
         startDate: data.startDate === undefined ? existing.startDate : parseDate(data.startDate),
         endDate: data.endDate === undefined ? existing.endDate : parseDate(data.endDate),
+        stockCount: data.stockCount === undefined ? existing.stockCount : parsePositiveInt(data.stockCount),
+        doseUnits: data.doseUnits === undefined ? existing.doseUnits : parseDoseUnits(data.doseUnits),
+        refillAt: data.refillAt === undefined ? existing.refillAt : parsePositiveInt(data.refillAt),
+        refillNotes: data.refillNotes === undefined ? existing.refillNotes : data.refillNotes || null,
         active: data.active == null ? existing.active : Boolean(data.active),
       },
     });
