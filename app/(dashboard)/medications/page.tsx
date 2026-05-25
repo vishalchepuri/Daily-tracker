@@ -469,7 +469,7 @@ export default function MedicationsPage() {
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <SummaryCard title="Active" value={activeMeds.length} icon={Pill} />
         <SummaryCard title="Due Today" value={dueTodayMeds.length} icon={Bell} />
         <SummaryCard title="Missed" value={missedToday} icon={Clock} />
@@ -702,14 +702,14 @@ export default function MedicationsPage() {
 function SummaryCard({ title, value, icon: Icon }: any) {
   return (
     <Card>
-      <CardContent className="p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10">
+      <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <span className="text-sm font-medium">{title}</span>
+          <span className="min-w-0 text-sm font-medium leading-snug">{title}</span>
         </div>
-        <p className="text-2xl font-semibold">{value}</p>
+        <p className="font-mono text-2xl font-semibold leading-none">{value}</p>
       </CardContent>
     </Card>
   );

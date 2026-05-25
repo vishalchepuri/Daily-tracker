@@ -126,6 +126,7 @@ export default function SpendsPage() {
   const [friendSpendForm, setFriendSpendForm] = useState(blankFriendSpendForm);
   const [pendingFriendSpend, setPendingFriendSpend] = useState<any>(null);
   const [cardOthersDialog, setCardOthersDialog] = useState<{ cardName: string; rows: Array<{ person: string; amount: number }> } | null>(null);
+  const [importHealth, setImportHealth] = useState<any>(null);
 
   const loadData = async () => {
     try {
@@ -166,6 +167,12 @@ export default function SpendsPage() {
   };
 
   useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    fetch("/api/import-health")
+      .then((res) => res.ok ? res.json() : null)
+      .then(setImportHealth)
+      .catch(() => setImportHealth(null));
+  }, []);
 
   const loadMoreSpends = async () => {
     try {
@@ -867,8 +874,10 @@ export default function SpendsPage() {
         toast.error(data?.error ?? "Gmail import failed");
         return;
       }
-      toast.success(`Imported ${data.summary.imported} spends. Scanned ${data.summary.scanned} emails, read ${data.summary.fullReads}.`);
+      const reviewed = data.summary.filteredOut ?? 0;
+      toast.success(`Imported ${data.summary.imported} spends. ${reviewed ? `${reviewed} skipped or sent to Review. ` : ""}Scanned ${data.summary.scanned} emails.`);
       loadData();
+      fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
     } catch {
       toast.error("Gmail import failed");
     } finally {
@@ -1025,6 +1034,39 @@ export default function SpendsPage() {
           </div>
         </div>
       </FadeIn>
+
+      {importHealth?.gmail && (
+        <Card className={importHealth.gmail.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}>
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 rounded-full p-2 ${importHealth.gmail.needsReconnect ? "bg-amber-500/15 text-amber-400" : "bg-primary/15 text-primary"}`}>
+                {importHealth.gmail.needsReconnect ? <AlertCircle className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+              </div>
+              <div>
+                <p className="font-semibold">Gmail import: {importHealth.gmail.label}</p>
+                <p className="text-sm text-muted-foreground">
+                  Gmail spends are only added when the email includes a saved card/account last 4 digits. Unclear items go to Profile Review.
+                </p>
+              </div>
+            </div>
+            {importHealth.gmail.needsReconnect && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  signIn(
+                    "google",
+                    { callbackUrl: "/spends" },
+                    { scope: "openid email profile https://www.googleapis.com/auth/gmail.readonly", access_type: "offline", prompt: "consent" }
+                  )
+                }
+              >
+                <Mail className="mr-2 h-4 w-4" />
+                Reconnect
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="overflow-hidden border-primary/30">
         <CardHeader>
@@ -1649,6 +1691,7 @@ export default function SpendsPage() {
                     <div className="flex flex-wrap gap-2">
                       <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>
                       {spend.category && <Badge variant="outline">{spend.category}</Badge>}
+                      {spend.transactionId && <Badge variant="outline">Txn {String(spend.transactionId).slice(-8)}</Badge>}
                       {spend.bankAccount && <Badge variant="secondary">{spend.bankAccount.name}</Badge>}
                       {spend.creditCard && <Badge variant="secondary">{spend.creditCard.name}</Badge>}
                       {friendSpendLinks.get(spend.id) && (
@@ -1681,15 +1724,15 @@ export default function SpendsPage() {
 function SummaryCard({ title, value, detail, icon: Icon }: any) {
   return (
     <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-9 h-9 rounded-md bg-primary/10 flex items-center justify-center">
+      <CardContent className="min-h-[7.5rem] p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10">
             <Icon className="w-5 h-5 text-primary" />
           </div>
-          <span className="text-sm font-medium">{title}</span>
+          <span className="min-w-0 text-sm font-medium leading-snug">{title}</span>
         </div>
-        <p className="text-2xl font-semibold">{value}</p>
-        <p className="text-xs text-muted-foreground mt-1">{detail}</p>
+        <p className="font-mono text-xl font-semibold leading-tight sm:text-2xl">{value}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{detail}</p>
       </CardContent>
     </Card>
   );
@@ -1698,7 +1741,7 @@ function SummaryCard({ title, value, detail, icon: Icon }: any) {
 function InsightCard({ title, value, detail, warning }: any) {
   return (
     <Card className={warning ? "border-destructive/40 bg-destructive/5" : ""}>
-      <CardContent className="p-4">
+      <CardContent className="p-4 sm:p-5">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         <p className="mt-2 text-xl font-semibold">{value}</p>
         <p className="mt-1 text-xs text-muted-foreground">{detail}</p>

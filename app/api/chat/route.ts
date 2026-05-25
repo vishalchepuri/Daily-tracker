@@ -625,6 +625,29 @@ async function getCreditCardSpendBlocker(userId: string, action: Extract<AgentAc
   return "Before I log this credit card spend, please tell me the last 4 digits of the card. I will not save this transaction until you confirm the card ending digits.";
 }
 
+async function createReviewItemOnce(userId: string, data: { type: string; title: string; detail?: string; priority?: string; actionLabel?: string; payload?: any }) {
+  const existing = await prisma.reviewItem.findFirst({
+    where: {
+      userId,
+      status: "open",
+      type: data.type,
+      title: data.title,
+    },
+  });
+  if (existing) return existing;
+  return prisma.reviewItem.create({
+    data: {
+      userId,
+      type: data.type,
+      title: data.title,
+      detail: data.detail ?? null,
+      priority: data.priority ?? "normal",
+      actionLabel: data.actionLabel ?? null,
+      payload: data.payload ?? undefined,
+    },
+  });
+}
+
 async function executeAgentAction(userId: string, action: AgentAction, rawMessage = "") {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
@@ -1266,6 +1289,8 @@ Rules:
 - Do not create entries unless the user clearly requests logging/saving/recording/tracking.
 - Use the dashboard profile when answering personalized questions. If age, height, weight, gender, activity level, or goal are needed and missing from profile/context, ask for the missing fields instead of guessing.
 - For calorie, macro, BMI, body-weight, recovery, and training-plan questions, explicitly base the answer on available profile fields such as age, height, weight, activityLevel, and goal.
+- For progress questions, use recentProgress and recentWorkouts from context. Mention weight, measurement, and strength trends only when data exists; if progress data is missing, ask the user to log weight/measurements in Profile > Progress or ask whether you should save a new progress entry.
+- If the user asks to log weight, measurements, body stats, or a progress note, use create_progress_entry instead of only replying.
 - Goal timeline flow for workout and diet plans:
   1. Before drafting a workout or diet plan, make sure the user has a clear goal outcome and timeline. If profile.goalTimelineDays is missing and the current message does not provide a timeline, ask: "In how many days or weeks do you want to see changes?"
   2. If the user provides a timeline, save it with update_goal_timeline. Convert weeks to days. Save target weight only when the user gives one.
@@ -1483,6 +1508,14 @@ Available action examples:
       if (action.type !== "create_spend_log") continue;
       const blocker = await getCreditCardSpendBlocker(userId, action, message);
       if (!blocker) continue;
+      await createReviewItemOnce(userId, {
+        type: "missing_card_last4",
+        title: "Credit card spend needs card last 4",
+        detail: `${action.merchant} - INR ${toNumber(action.amount)}. ${blocker}`,
+        priority: "high",
+        actionLabel: "Add card last 4",
+        payload: { action, rawMessage: message },
+      });
       await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content: blocker } });
       await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
       await pruneChatRetention(userId);

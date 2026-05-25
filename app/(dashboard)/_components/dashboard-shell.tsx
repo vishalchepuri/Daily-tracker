@@ -5,9 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
-  LayoutDashboard, Utensils, Dumbbell, TrendingUp, MessageSquare, UserCircle,
+  LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
-  ClipboardList
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,10 +23,8 @@ const navItems = [
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
-  { label: "Report", href: "/report", icon: ClipboardList },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
-  { label: "Progress", href: "/progress", icon: TrendingUp },
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
 
@@ -94,19 +91,12 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Review recent training and recommend progression.",
     ],
   },
-  "/progress": {
-    label: "Progress",
-    suggestions: [
-      "Explain your progress trends in plain language.",
-      "Identify plateaus or momentum shifts.",
-      "Recommend what to change next week.",
-    ],
-  },
   "/profile": {
     label: "Profile",
     suggestions: [
       "Help set a realistic fitness goal.",
       "Adjust targets for your body metrics and routine.",
+      "Review progress trends and report insights.",
       "Translate preferences into a coaching plan.",
     ],
   },
@@ -408,7 +398,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           </h1>
         </header>
 
-        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-3 pb-[calc(6.9rem_+_env(safe-area-inset-bottom))] sm:p-4 lg:p-6 lg:pb-6">
+        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={pathname}

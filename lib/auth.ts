@@ -6,6 +6,8 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
+const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
 const adapter = PrismaAdapter(prisma);
 
 function normalizeEmail(email?: string | null) {
@@ -144,11 +146,11 @@ export const authOptions: NextAuthOptions = {
   ],
   session: {
     strategy: "jwt",
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: SESSION_MAX_AGE_SECONDS,
     updateAge: 60 * 60 * 24,
   },
   jwt: {
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: SESSION_MAX_AGE_SECONDS,
   },
   callbacks: {
     async signIn({ user, account, profile }) {

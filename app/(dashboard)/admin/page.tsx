@@ -529,8 +529,8 @@ export default async function AdminPage() {
 function AdminMetric({ title, value, detail, icon: Icon, compact }: any) {
   return (
     <Card>
-      <CardContent className={`flex items-center gap-3 ${compact ? "p-3" : "p-4"}`}>
-        <div className="rounded-lg bg-primary/10 p-2 text-primary"><Icon className="h-5 w-5" /></div>
+      <CardContent className={`flex min-h-[6.5rem] items-center gap-3 ${compact ? "p-4" : "p-5"}`}>
+        <div className="shrink-0 rounded-lg bg-primary/10 p-2.5 text-primary"><Icon className="h-5 w-5" /></div>
         <div className="min-w-0">
           <p className="truncate text-sm text-muted-foreground">{title}</p>
           <p className={`${compact ? "text-xl" : "text-2xl"} font-bold`}>{value}</p>

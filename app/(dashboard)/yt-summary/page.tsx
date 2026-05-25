@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { signIn } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
-import { PlayCircle, RefreshCw, Sparkles, TrendingUp, Youtube, Bookmark, BookmarkCheck, Trash2 } from "lucide-react";
+import { AlertCircle, PlayCircle, RefreshCw, Sparkles, TrendingUp, Youtube, Bookmark, BookmarkCheck, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,6 +63,7 @@ export default function YtSummaryPage() {
   const [youtubeError, setYoutubeError] = useState<{ message: string; actionUrl?: string } | null>(null);
   const [savedSummaries, setSavedSummaries] = useState<SavedSummary[]>([]);
   const [activeTab, setActiveTab] = useState("feed");
+  const [importHealth, setImportHealth] = useState<any>(null);
 
   const errorMessage = (value: any, fallback: string) => {
     if (typeof value === "string") return value;
@@ -101,6 +102,12 @@ export default function YtSummaryPage() {
   };
 
   useEffect(() => { loadSubscriptionFeed(); }, []);
+  useEffect(() => {
+    fetch("/api/import-health")
+      .then((res) => res.ok ? res.json() : null)
+      .then(setImportHealth)
+      .catch(() => setImportHealth(null));
+  }, []);
 
   // Load saved summaries from localStorage
   useEffect(() => {
@@ -235,6 +242,42 @@ export default function YtSummaryPage() {
 
   const feedContent = (
     <div className="space-y-4">
+      {importHealth?.youtube && (
+        <Card className={importHealth.youtube.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}>
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="flex items-start gap-3">
+              <div className={`mt-0.5 rounded-full p-2 ${importHealth.youtube.needsReconnect ? "bg-amber-500/15 text-amber-400" : "bg-primary/15 text-primary"}`}>
+                {importHealth.youtube.needsReconnect ? <AlertCircle className="h-4 w-4" /> : <Youtube className="h-4 w-4" />}
+              </div>
+              <div>
+                <p className="font-semibold">YouTube import: {importHealth.youtube.label}</p>
+                <p className="text-sm text-muted-foreground">Reconnect if subscriptions stop loading or the token no longer has YouTube read access.</p>
+              </div>
+            </div>
+            {importHealth.youtube.needsReconnect && (
+              <Button
+                variant="outline"
+                onClick={() =>
+                  signIn(
+                    "google",
+                    { callbackUrl: "/yt-summary" },
+                    {
+                      scope: "openid email profile https://www.googleapis.com/auth/youtube.readonly",
+                      access_type: "offline",
+                      prompt: "consent",
+                      login_hint: session?.user?.email ?? undefined,
+                    } as any
+                  )
+                }
+              >
+                <Youtube className="mr-2 h-4 w-4" />
+                Reconnect
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {youtubeError && (
         <Card className="border-amber-500/40 bg-amber-500/10">
           <CardContent className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">

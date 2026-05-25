@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings } from "lucide-react";
+import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox } from "lucide-react";
 import { FadeIn, SlideIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -39,6 +39,8 @@ export default function DashboardPage() {
   const [youtubeVideos, setYoutubeVideos] = useState<any[]>([]);
   const [youtubeLoading, setYoutubeLoading] = useState(true);
   const [youtubeNeedsConnection, setYoutubeNeedsConnection] = useState(false);
+  const [reviewItems, setReviewItems] = useState<any[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(true);
 
   // Targets Settings Drawer States
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -112,6 +114,20 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchReviewItems = async () => {
+    try {
+      const res = await fetch("/api/review-items?status=open");
+      if (res.ok) {
+        const d = await res.json();
+        setReviewItems(d.items ?? []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => r.json())
@@ -122,6 +138,7 @@ export default function DashboardPage() {
     fetchReminders();
     fetchWaterLogs();
     fetchYoutubeVideos();
+    fetchReviewItems();
   }, []);
 
   const toggleReminder = async (id: string, completed: boolean) => {
@@ -263,12 +280,38 @@ export default function DashboardPage() {
         </div>
       </FadeIn>
 
+      {!reviewLoading && reviewItems.length > 0 && (
+        <FadeIn delay={0.08}>
+          <Card className="border-amber-500/35 bg-amber-500/5">
+            <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div className="flex min-w-0 gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-500/15 text-amber-500">
+                  <Inbox className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold">{reviewItems.length} item{reviewItems.length === 1 ? "" : "s"} need review</p>
+                  <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                    {reviewItems[0]?.title ?? "Confirm uncertain imports and agent actions before they affect reports."}
+                  </p>
+                </div>
+              </div>
+              <Button asChild>
+                <Link href="/profile?tab=review">
+                  Review Now
+                  <ChevronRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       {/* Stats Row */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <SlideIn from="bottom" delay={0}>
           <Card className="relative overflow-hidden">
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 sm:gap-3">
+            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
+              <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <Flame className="w-5 h-5 text-primary" />
                 </div>
@@ -283,8 +326,8 @@ export default function DashboardPage() {
         </SlideIn>
         <SlideIn from="bottom" delay={0.1}>
           <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 sm:gap-3">
+            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
+              <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <Dumbbell className="w-5 h-5 text-blue-500" />
                 </div>
@@ -299,8 +342,8 @@ export default function DashboardPage() {
         </SlideIn>
         <SlideIn from="bottom" delay={0.2}>
           <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 sm:gap-3">
+            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
+              <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-orange-500/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <Utensils className="w-5 h-5 text-orange-500" />
                 </div>
@@ -315,8 +358,8 @@ export default function DashboardPage() {
         </SlideIn>
         <SlideIn from="bottom" delay={0.3}>
           <Card>
-            <CardContent className="p-3 sm:p-4">
-              <div className="flex items-center gap-2 sm:gap-3">
+            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
+              <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-lg bg-green-500/10 flex items-center justify-center sm:h-10 sm:w-10">
                   <TrendingUp className="w-5 h-5 text-green-500" />
                 </div>

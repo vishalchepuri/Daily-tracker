@@ -1481,12 +1481,12 @@ function RoutineEditor({
 function WorkoutStatCard({ icon: Icon, title, value, detail }: any) {
   return (
     <Card>
-      <CardContent className="p-3 sm:p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+      <CardContent className="min-h-[7.5rem] p-4 sm:p-5">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
             <Icon className="h-5 w-5 text-primary" />
           </div>
-          <p className="text-sm font-medium">{title}</p>
+          <p className="min-w-0 text-sm font-medium leading-snug">{title}</p>
         </div>
         <p className="break-words font-display text-2xl font-bold">{value}</p>
         <p className="mt-1 text-xs text-muted-foreground">{detail}</p>

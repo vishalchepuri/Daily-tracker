@@ -44,6 +44,7 @@ model User {
     chatAttachments ChatAttachment[]
     submittedExercises Exercise[] @relation("SubmittedExercises")
     reviewedExercises Exercise[] @relation("ReviewedExercises")
+    reviewItems   ReviewItem[]
 }
 
 model Account {
@@ -338,6 +339,7 @@ model Spend {
   emailSubject String?
   emailFrom    String?
   gmailMessageId String?
+  transactionId String?
   bankAccountId String?
   bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   creditCardId String?
@@ -348,6 +350,7 @@ model Spend {
   updatedAt   DateTime @updatedAt
   @@index([userId, date])
   @@unique([userId, gmailMessageId])
+  @@unique([userId, transactionId])
 }
 
 model FinanceProfile {
@@ -409,6 +412,24 @@ model MoneyLink {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([userId, type, settled])
+}
+
+model ReviewItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  title     String
+  detail    String?
+  status    String   @default("open")
+  priority  String   @default("normal")
+  actionLabel String?
+  payload   Json?
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, status, createdAt])
+  @@index([userId, type])
 }
 
 model ReminderList {

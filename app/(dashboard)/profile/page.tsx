@@ -9,11 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Activity,
+  AlertTriangle,
   Banknote,
   Bot,
   Calculator,
   CalendarCheck,
+  CheckCircle2,
+  Clock3,
   Dumbbell,
+  Inbox,
   Pill,
   Save,
   Send,
@@ -24,15 +28,23 @@ import {
   UserCircle,
   Utensils,
   WalletCards,
+  XCircle,
 } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { signOut } from "next-auth/react";
+import { WeeklyReportPanel } from "../_components/weekly-report-panel";
+import { ProgressPanel } from "../_components/progress-panel";
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [activityItems, setActivityItems] = useState<any[]>([]);
   const [activityCounts, setActivityCounts] = useState<Record<string, number>>({});
+  const [reviewItems, setReviewItems] = useState<any[]>([]);
+  const [reviewCounts, setReviewCounts] = useState<any[]>([]);
+  const [reviewFilter, setReviewFilter] = useState("open");
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("profile");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [savingTelegram, setSavingTelegram] = useState(false);
@@ -42,16 +54,24 @@ export default function ProfilePage() {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
   const [form, setForm] = useState({
+    firstName: "", lastName: "",
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
     healthLimitations: "", foodAllergies: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
   });
 
   useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab && ["profile", "review", "report", "progress", "activity", "integrations", "danger"].includes(tab)) {
+      setActiveTab(tab);
+    }
     fetch("/api/profile").then(r => r.json()).then(d => {
       const p = d?.profile;
+      const u = d?.user;
       if (p) {
         setProfile(p);
         setForm({
+          firstName: u?.firstName ?? "",
+          lastName: u?.lastName ?? "",
           age: String(p?.age ?? ""),
           weight: String(p?.weight ?? ""),
           height: String(p?.height ?? ""),
@@ -65,6 +85,8 @@ export default function ProfilePage() {
           goalTargetWeight: String(p?.goalTargetWeight ?? ""),
           linkedinUrl: p?.linkedinUrl ?? "",
         });
+      } else if (u) {
+        setForm((current) => ({ ...current, firstName: u?.firstName ?? "", lastName: u?.lastName ?? "" }));
       }
     }).catch(console.error).finally(() => setLoading(false));
     fetch("/api/telegram-settings").then(r => r.json()).then(d => {
@@ -80,6 +102,24 @@ export default function ProfilePage() {
     }).catch(console.error);
   }, []);
 
+  const loadReviewItems = useCallback(async () => {
+    setReviewLoading(true);
+    try {
+      const res = await fetch(`/api/review-items?status=${reviewFilter}`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to load review items");
+        return;
+      }
+      setReviewItems(data?.items ?? []);
+      setReviewCounts(data?.counts ?? []);
+    } finally {
+      setReviewLoading(false);
+    }
+  }, [reviewFilter]);
+
+  useEffect(() => { loadReviewItems(); }, [loadReviewItems]);
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -87,6 +127,8 @@ export default function ProfilePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          firstName: form.firstName || null,
+          lastName: form.lastName || null,
           age: parseInt(form.age) || null,
           weight: parseFloat(form.weight) || null,
           height: parseFloat(form.height) || null,
@@ -104,6 +146,9 @@ export default function ProfilePage() {
       const data = await res.json();
       if (res.ok) {
         setProfile(data?.profile);
+        if (data?.user) {
+          setForm((current) => ({ ...current, firstName: data.user.firstName ?? "", lastName: data.user.lastName ?? "" }));
+        }
         toast.success("Profile and nutrition targets updated");
       }
     } catch { toast.error("Failed to save"); }
@@ -212,6 +257,21 @@ export default function ProfilePage() {
     }
   };
 
+  const resolveReviewItem = async (item: any, status: "confirmed" | "ignored") => {
+    const res = await fetch("/api/review-items", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: item.id, status }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      toast.error(data?.error ?? "Failed to update item");
+      return;
+    }
+    toast.success(status === "confirmed" ? "Marked confirmed" : "Ignored");
+    loadReviewItems();
+  };
+
   if (loading) return <div className="h-64 bg-muted animate-pulse rounded-lg" />;
 
   return (
@@ -221,9 +281,12 @@ export default function ProfilePage() {
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
       </FadeIn>
 
-      <Tabs defaultValue="profile" className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex h-auto w-full gap-2 overflow-x-auto bg-transparent p-0">
           <TabsTrigger value="profile" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Profile</TabsTrigger>
+          <TabsTrigger value="review" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Review</TabsTrigger>
+          <TabsTrigger value="report" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Report</TabsTrigger>
+          <TabsTrigger value="progress" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Progress</TabsTrigger>
           <TabsTrigger value="activity" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Activity</TabsTrigger>
           <TabsTrigger value="integrations" className="min-w-28 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Integrations</TabsTrigger>
           <TabsTrigger value="danger" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Danger</TabsTrigger>
@@ -239,6 +302,10 @@ export default function ProfilePage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div><Label>First Name</Label><Input value={form.firstName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, firstName: e.target.value})} className="mt-1" /></div>
+              <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, lastName: e.target.value})} className="mt-1" /></div>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Age</Label><Input type="number" value={form.age} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, age: e.target.value})} className="mt-1" /></div>
               <div><Label>Weight (kg)</Label><Input type="number" value={form.weight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, weight: e.target.value})} className="mt-1" /></div>
@@ -337,6 +404,86 @@ export default function ProfilePage() {
           </Card>
         </FadeIn>
       )}
+        </TabsContent>
+
+        <TabsContent value="review" className="space-y-6">
+      <FadeIn delay={0.16}>
+        <Card>
+          <CardHeader>
+            <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Inbox className="h-5 w-5 text-primary" />
+                  Review Inbox
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Confirm uncertain imports, agent actions, and account warnings.</p>
+              </div>
+              <Button type="button" variant="outline" onClick={loadReviewItems} loading={reviewLoading}>
+                <RefreshCw className="h-4 w-4" />
+                Refresh
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-3 gap-2">
+              <ReviewFilterButton active={reviewFilter === "open"} label="Open" count={reviewCount(reviewCounts, "open")} onClick={() => setReviewFilter("open")} />
+              <ReviewFilterButton active={reviewFilter === "confirmed"} label="Confirmed" count={reviewCount(reviewCounts, "confirmed")} onClick={() => setReviewFilter("confirmed")} />
+              <ReviewFilterButton active={reviewFilter === "ignored"} label="Ignored" count={reviewCount(reviewCounts, "ignored")} onClick={() => setReviewFilter("ignored")} />
+            </div>
+            {reviewLoading ? (
+              <div className="space-y-2">
+                {[1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-lg bg-muted" />)}
+              </div>
+            ) : reviewItems.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+                Nothing to review here.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {reviewItems.map((item) => (
+                  <div key={item.id} className="grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={item.priority === "high" ? "destructive" : "secondary"}>
+                          {item.priority === "high" ? <AlertTriangle className="mr-1 h-3 w-3" /> : null}
+                          {reviewTypeLabel(item.type)}
+                        </Badge>
+                        <Badge variant="outline">{item.status}</Badge>
+                      </div>
+                      <p className="mt-2 font-semibold">{item.title}</p>
+                      {item.detail && <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>}
+                      <p className="mt-2 flex items-center gap-1 text-xs text-muted-foreground">
+                        <Clock3 className="h-3 w-3" />
+                        {formatReviewDate(item.createdAt)}
+                      </p>
+                    </div>
+                    {item.status === "open" && (
+                      <div className="grid grid-cols-2 gap-2 sm:flex">
+                        <Button type="button" size="sm" onClick={() => resolveReviewItem(item, "confirmed")}>
+                          <CheckCircle2 className="h-4 w-4" />
+                          Confirm
+                        </Button>
+                        <Button type="button" size="sm" variant="outline" onClick={() => resolveReviewItem(item, "ignored")}>
+                          <XCircle className="h-4 w-4" />
+                          Ignore
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+        </TabsContent>
+
+        <TabsContent value="report" className="space-y-6">
+          <WeeklyReportPanel />
+        </TabsContent>
+
+        <TabsContent value="progress" className="space-y-6">
+          <ProgressPanel />
         </TabsContent>
 
         <TabsContent value="activity" className="space-y-6">
@@ -529,5 +676,31 @@ function ActivityMetric({ label, value }: { label: string; value: number }) {
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 font-mono text-xl font-bold">{value}</p>
     </div>
+  );
+}
+
+function reviewCount(counts: any[], status: string) {
+  return counts.find((entry) => entry.status === status)?._count?.id ?? 0;
+}
+
+function reviewTypeLabel(type: string) {
+  return type.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatReviewDate(value?: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-IN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function ReviewFilterButton({ active, label, count, onClick }: { active: boolean; label: string; count: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg border p-3 text-left transition-colors ${active ? "border-primary/40 bg-primary/15 text-primary" : "border-border bg-card text-muted-foreground"}`}
+    >
+      <span className="text-xs font-medium">{label}</span>
+      <p className="mt-1 font-mono text-xl font-bold">{count}</p>
+    </button>
   );
 }

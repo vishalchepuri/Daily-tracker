@@ -8,15 +8,11 @@ import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
-const receiptQuery = 'newer_than:90d ("payment successful" OR "payment received" OR "amount debited" OR "amount credited" OR "debited from" OR "credited to" OR "transaction successful" OR "card charged" OR receipt)';
+const receiptQuery = "newer_than:90d";
 const candidatePattern =
   /(receipt|invoice|order|payment|paid|purchase|transaction|debited|credited|spent|charged|upi|card|statement|rs\.?|inr|₹|\$)/i;
 const sensitiveCodePattern =
   /\b(otp|one[-\s]?time password|verification code|security code|login code|auth code|2fa|two[-\s]?factor|password reset|reset password|passcode)\b/i;
-const strictTransactionPattern =
-  /(payment successful|payment received|paid|debited|credited|charged|spent|transaction successful|receipt|upi transaction|card transaction)/i;
-const nonTransactionPattern =
-  /(out for delivery|delivered|picked up|shipped|arriving|track your order|last day to pay|pay your bill|bill due|e-?bill|statement|summary|subscription has ended|subscription ended|renew now|offer|sale|discount|elevate your|experience|marketing|newsletter|verification|otp|password|jioairfiber|fixedvoice)/i;
 const STORE_GMAIL_METADATA = process.env.STORE_GMAIL_METADATA === "true";
 
 function decodeBase64Url(value?: string) {
@@ -114,10 +110,8 @@ async function refreshGoogleAccessToken(account: any) {
   });
 }
 
-function parseSpend(text: string, subject: string) {
+function parseSpendWithRegex(text: string, subject: string) {
   const haystack = `${subject}\n${text}`.replace(/\s+/g, " ");
-  if (nonTransactionPattern.test(haystack)) return null;
-  if (!strictTransactionPattern.test(haystack)) return null;
   const strictAmountMatch =
     haystack.match(/(?:paid|charged|payment(?:\s+of)?|amount(?:\s+of)?|debited|credited|spent|transaction(?:\s+of)?)[^\d$]{0,50}([$]?\s?\d{1,8}(?:[,.]\d{2})?)/i) ??
     haystack.match(/(?:paid|charged|payment(?:\s+of)?|amount(?:\s+of)?|debited|credited|spent|transaction(?:\s+of)?)[^\d]{0,50}(?:rs\.?|inr)\s?(\d{1,8}(?:[,.]\d{2})?)/i) ??
@@ -143,8 +137,117 @@ function parseSpend(text: string, subject: string) {
         ? "GBP"
         : "USD";
   const merchant = extractMerchantFromText(text, subject);
+  const last4 = extractLast4(haystack);
+  const transactionId = extractTransactionId(haystack);
 
-  return { merchant, amount, currency };
+  const needsReview = merchant === "Gmail Transaction" || /upi txn|check details|^view$/i.test(merchant);
+  return { merchant, amount, currency, last4, transactionId, needsReview };
+}
+
+function cleanAiJson(value: string) {
+  return value.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/, "").trim();
+}
+
+async function aiExtractSpend(input: { subject: string; from: string; snippet: string; body: string }) {
+  if (!process.env.ABACUSAI_API_KEY) {
+    const fallback = parseSpendWithRegex(`${input.snippet}\n${input.body}`, input.subject);
+    return fallback ? { ...fallback, confidence: 0.55, reason: "AI not configured; regex fallback used." } : null;
+  }
+
+  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-5.4-mini",
+      stream: false,
+      max_tokens: 500,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You extract completed bank/card/UPI/debit/credit transaction details from Gmail emails. Decide from the email content, not keyword filters. Return ONLY JSON. If it is not an actual completed money transaction, set isTransaction false. Exclude OTP/security/login/marketing/delivery/bill reminder emails. For real debit/spend transactions, extract merchant/payee, amount, currency, card/account last4 when visible, and the bank transaction/reference id such as UTR, RRN, UPI Ref, transaction id, ref no, auth code, IMPS/NEFT/RTGS ref. Same amount can repeat only if transactionId differs.",
+        },
+        {
+          role: "user",
+          content: `Return JSON with this exact shape:
+{"isTransaction":true,"direction":"debit","merchant":"RSP*INSTAMART","amount":515,"currency":"INR","last4":"4363","transactionId":"123456789012","confidence":0.92,"needsReview":false,"reason":"short reason"}
+
+Email:
+Subject: ${input.subject}
+From: ${input.from}
+Snippet: ${input.snippet}
+Body:
+${input.body.slice(0, 10000)}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => ({}));
+  const raw = cleanAiJson(data?.choices?.[0]?.message?.content ?? "{}");
+  const parsed = JSON.parse(raw);
+  if (!parsed?.isTransaction || parsed.direction === "credit") return null;
+
+  const amount = Number(parsed.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const fallback = parseSpendWithRegex(`${input.snippet}\n${input.body}`, input.subject);
+  return {
+    merchant: sanitizeMerchant(String(parsed.merchant || fallback?.merchant || "Gmail Transaction")) || "Gmail Transaction",
+    amount,
+    currency: String(parsed.currency || fallback?.currency || "INR").toUpperCase(),
+    last4: String(parsed.last4 || fallback?.last4 || "").replace(/\D/g, "").slice(-4),
+    transactionId: normalizeTransactionId(parsed.transactionId) || fallback?.transactionId || "",
+    needsReview: Boolean(parsed.needsReview) || Number(parsed.confidence ?? 0) < 0.75 || !parsed.merchant,
+    confidence: Number(parsed.confidence ?? 0),
+    reason: String(parsed.reason ?? ""),
+  };
+}
+
+function normalizeTransactionId(value?: string | null) {
+  const clean = String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return clean.length >= 8 && clean.length <= 32 ? clean : "";
+}
+
+function extractTransactionId(text: string) {
+  const patterns = [
+    /\b(?:txn|transaction|trans|ref|reference|rrn|utr|upi\s*ref|upi\s*reference|imps\s*ref|neft\s*ref|auth(?:orization)?\s*code)\s*(?:id|no|number|#)?\s*[:\-]?\s*([A-Z0-9][A-Z0-9/-]{7,31})\b/i,
+    /\b(?:UPI|P2M|P2A|IMPS|NEFT|RTGS)[/-]([A-Z0-9]{8,24})\b/i,
+    /\b(?:UPI|P2M|P2A|IMPS|NEFT|RTGS)[/-][A-Z0-9/-]*?[/-]([A-Z0-9]{8,24})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const id = normalizeTransactionId(match?.[1]);
+    if (id) return id;
+  }
+  return "";
+}
+
+function extractLast4(text: string) {
+  const patterns = [
+    /(?:card|a\/c|account|ending|xx|x{2,}|\*{2,})\s*(?:no\.?|number|ending)?\s*(?:in|with)?\s*[:\-]?\s*(\d{4})\b/i,
+    /\b(?:debit|credit)\s+card\s+\*{0,4}(\d{4})\b/i,
+    /\b(?:ending|ends)\s+(?:with|in)\s+(\d{4})\b/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return match[1];
+  }
+  return "";
+}
+
+async function findPaymentAccount(userId: string, last4: string) {
+  if (!last4) return { creditCardId: null as string | null, bankAccountId: null as string | null, matchedName: "" };
+  const [creditCard, bankAccount] = await Promise.all([
+    prisma.creditCard.findFirst({ where: { userId, active: true, last4 }, select: { id: true, name: true } }),
+    prisma.bankAccount.findFirst({ where: { userId, active: true, last4 }, select: { id: true, name: true } }),
+  ]);
+  if (creditCard) return { creditCardId: creditCard.id, bankAccountId: null, matchedName: creditCard.name };
+  if (bankAccount) return { creditCardId: null, bankAccountId: bankAccount.id, matchedName: bankAccount.name };
+  return { creditCardId: null, bankAccountId: null, matchedName: "" };
 }
 
 async function gmailFetch(account: any, url: string) {
@@ -156,6 +259,28 @@ async function gmailFetch(account: any, url: string) {
 
   res = await fetch(url, { headers: { Authorization: `Bearer ${refreshed.access_token}` } });
   return { res, account: refreshed };
+}
+
+async function createReviewItemOnce(userId: string, data: { type: string; title: string; detail?: string; priority?: string; payload?: any }) {
+  const existing = await prisma.reviewItem.findFirst({
+    where: {
+      userId,
+      status: "open",
+      type: data.type,
+      title: data.title,
+    },
+  });
+  if (existing) return existing;
+  return prisma.reviewItem.create({
+    data: {
+      userId,
+      type: data.type,
+      title: data.title,
+      detail: data.detail ?? null,
+      priority: data.priority ?? "normal",
+      payload: data.payload ?? undefined,
+    },
+  });
 }
 
 export async function POST(req: Request) {
@@ -267,11 +392,6 @@ export async function POST(req: Request) {
         filteredOut += 1;
         continue;
       }
-      if (nonTransactionPattern.test(quickText) || !strictTransactionPattern.test(quickText)) {
-        filteredOut += 1;
-        continue;
-      }
-
       const msgFetch = await gmailFetch(
         account,
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=full`
@@ -282,10 +402,45 @@ export async function POST(req: Request) {
       fullReads += 1;
 
       const msg = await msgRes.json();
-      const parsed = parseSpend(`${msg.snippet ?? ""}\n${bodyText(msg.payload)}`, subject);
-      if (!parsed) continue;
+      const parsed = await aiExtractSpend({ subject, from, snippet: msg.snippet ?? metadata.snippet ?? "", body: bodyText(msg.payload) });
+      if (!parsed) {
+        filteredOut += 1;
+        continue;
+      }
+      if (!parsed.transactionId) {
+        await createReviewItemOnce(currentUser.id, {
+          type: "gmail_spend_transaction_review",
+          title: `Gmail spend needs transaction ID: ${parsed.merchant}`,
+          detail: `${parsed.currency} ${parsed.amount.toFixed(2)} was not added because no transaction/reference ID was found. This prevents duplicate bank alerts from creating repeated spends.`,
+          priority: "high",
+          payload: { gmailMessageId: message.id, subject, merchant: parsed.merchant, amount: parsed.amount, currency: parsed.currency, last4: parsed.last4 || null },
+        });
+        filteredOut += 1;
+        continue;
+      }
+      const existingTransaction = await prisma.spend.findUnique({
+        where: { userId_transactionId: { userId: currentUser.id, transactionId: parsed.transactionId } },
+      });
+      if (existingTransaction) {
+        skippedDuplicates += 1;
+        continue;
+      }
+      const payment = await findPaymentAccount(currentUser.id, parsed.last4);
+      if (!parsed.last4 || (!payment.creditCardId && !payment.bankAccountId)) {
+        await createReviewItemOnce(currentUser.id, {
+          type: "gmail_spend_payment_review",
+          title: `Gmail spend needs card: ${parsed.merchant}`,
+          detail: parsed.last4
+            ? `${parsed.currency} ${parsed.amount.toFixed(2)} mentions card/account ${parsed.last4}, but it is not saved yet. Add the card/account last 4 digits before importing.`
+            : `${parsed.currency} ${parsed.amount.toFixed(2)} has no card/account last 4 digits, so it was not added to spends.`,
+          priority: "high",
+          payload: { gmailMessageId: message.id, transactionId: parsed.transactionId, subject, merchant: parsed.merchant, amount: parsed.amount, currency: parsed.currency, last4: parsed.last4 || null },
+        });
+        filteredOut += 1;
+        continue;
+      }
 
-      await prisma.spend.create({
+      const spend = await prisma.spend.create({
         data: {
           userId: currentUser.id,
           merchant: parsed.merchant,
@@ -296,10 +451,22 @@ export async function POST(req: Request) {
           emailSubject: STORE_GMAIL_METADATA ? subject : null,
           emailFrom: STORE_GMAIL_METADATA ? from : null,
           gmailMessageId: message.id,
-          notes: "Imported from Gmail. Raw email content was not stored.",
+          transactionId: parsed.transactionId,
+          bankAccountId: payment.bankAccountId,
+          creditCardId: payment.creditCardId,
+          notes: `Imported from Gmail${payment.matchedName ? ` and matched to ${payment.matchedName}` : ""}. Transaction ID: ${parsed.transactionId}. Raw email content was not stored.`,
           date: new Date(Number(msg.internalDate ?? Date.now())),
         },
       });
+      if (parsed.needsReview) {
+        await createReviewItemOnce(currentUser.id, {
+          type: "gmail_spend_review",
+          title: `Review Gmail spend: ${parsed.merchant}`,
+          detail: `${parsed.currency} ${parsed.amount.toFixed(2)} imported from Gmail may need a better merchant name.`,
+          priority: "normal",
+          payload: { spendId: spend.id, gmailMessageId: message.id, transactionId: parsed.transactionId, subject },
+        });
+      }
       imported += 1;
     }
 

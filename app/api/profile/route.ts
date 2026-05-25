@@ -28,7 +28,8 @@ export async function GET() {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const profile = await prisma.userProfile.findUnique({ where: { userId } });
-    return NextResponse.json({ profile });
+    const nameParts = splitName(user.name);
+    return NextResponse.json({ profile, user: { name: user.name, ...nameParts } });
   } catch (error: any) {
     return profileErrorResponse(error, "Failed to fetch profile");
   }
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const data = await req.json();
+    const firstName = typeof data.firstName === "string" ? data.firstName.trim() : "";
+    const lastName = typeof data.lastName === "string" ? data.lastName.trim() : "";
+    const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
     
     // Calculate TDEE and macros
     let tdee = 0;
@@ -91,8 +95,23 @@ export async function POST(req: Request) {
       update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
       create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
     });
-    return NextResponse.json({ profile });
+    const updatedUser = "firstName" in data || "lastName" in data
+      ? await prisma.user.update({
+          where: { id: userId },
+          data: { name: fullName || null },
+          select: { name: true },
+        })
+      : { name: user.name };
+    return NextResponse.json({ profile, user: { name: updatedUser.name, ...splitName(updatedUser.name) } });
   } catch (error: any) {
     return profileErrorResponse(error, "Failed to save profile");
   }
+}
+
+function splitName(name?: string | null) {
+  const parts = String(name ?? "").trim().split(/\s+/).filter(Boolean);
+  return {
+    firstName: parts[0] ?? "",
+    lastName: parts.slice(1).join(" "),
+  };
 }
