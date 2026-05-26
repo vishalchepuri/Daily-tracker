@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
-import { getFirebaseActionContinueUrl, getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
+import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { GoogleAuthProvider, sendEmailVerification, signInWithEmailAndPassword, signInWithPopup, type User } from "firebase/auth";
 
 export default function LoginPage() {
@@ -90,10 +90,7 @@ export default function LoginPage() {
         toast.error("Enter your email and password, then sign in once to resend the link.");
         return;
       }
-      await sendEmailVerification(user, {
-        url: getFirebaseActionContinueUrl("/login"),
-        handleCodeInApp: false,
-      });
+      await sendEmailVerification(user);
       toast.success("Verification email sent");
     } catch (error: any) {
       const message = error?.code === "auth/too-many-requests"

@@ -7,7 +7,7 @@ export default function PrivacyPage() {
         <div>
           <Link href="/" className="text-sm text-primary hover:underline">Dayza</Link>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight">Privacy Policy</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 17, 2026</p>
+          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 26, 2026</p>
         </div>
 
         <PolicySection title="Overview">
@@ -50,8 +50,16 @@ export default function PrivacyPage() {
           Dayza stores application data in a database and uses authentication controls to protect user accounts. OAuth tokens may be stored by the authentication system to perform connected Google features you request. No internet service can be guaranteed fully secure, but Dayza is designed to limit access to user-specific records.
         </PolicySection>
 
+        <PolicySection title="Development Risk Notice">
+          Dayza is currently in active development. Although the app uses authentication controls and service-provider security features, development-stage systems may contain bugs, configuration mistakes, or incomplete protections. Your data may be exposed, leaked, lost, corrupted, or deleted. Please do not provide sensitive, confidential, regulated, or mission-critical information.
+        </PolicySection>
+
         <PolicySection title="Retention and Deletion">
-          Dayza keeps your account data while your account is active or as needed to provide the service. You can delete your account from the Profile page. Account deletion removes user-specific records where supported by the app's database relationships. You can also revoke Google access from your Google Account permissions page.
+          Dayza keeps your account data while your account is active or as needed to provide the service. You can delete your account from the Profile page. Account deletion removes user-specific records where supported by the app's database relationships. Dayza may also delete an account and related data if we believe the account is unsafe, compromised, abusive, harmful, unlawful, risky to operate, or otherwise unsuitable for continued access to the service. You can also revoke Google access from your Google Account permissions page.
+        </PolicySection>
+
+        <PolicySection title="Your Backups">
+          You should keep independent backups of information that is important to you. Dayza should not be used as the only copy of workout history, financial records, medication information, reminders, images, chat history, or other important data.
         </PolicySection>
 
         <PolicySection title="Children">

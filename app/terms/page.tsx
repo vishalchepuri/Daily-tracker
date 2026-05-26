@@ -7,7 +7,7 @@ export default function TermsPage() {
         <div>
           <Link href="/" className="text-sm text-primary hover:underline">Dayza</Link>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight">Terms of Service</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 17, 2026</p>
+          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 26, 2026</p>
         </div>
 
         <TermsSection title="Acceptance of Terms">
@@ -20,6 +20,10 @@ export default function TermsPage() {
 
         <TermsSection title="Your Account">
           You are responsible for maintaining the security of your account and for all activity under your account. You agree to provide accurate information and not use Dayza for unlawful, abusive, or harmful purposes.
+        </TermsSection>
+
+        <TermsSection title="Development Status">
+          Dayza is currently in active development. Features, storage systems, security controls, and data handling processes may change. Because the app is still being developed, you should not enter sensitive, confidential, highly personal, regulated, or mission-critical information into Dayza.
         </TermsSection>
 
         <TermsSection title="Google and YouTube Access">
@@ -46,6 +50,10 @@ export default function TermsPage() {
           You retain responsibility for information you enter, upload, or connect to Dayza. Do not upload content you do not have rights to use or content that violates privacy, law, or platform rules.
         </TermsSection>
 
+        <TermsSection title="Backups and Reliance">
+          Dayza is provided as a temporary and evolving personal productivity tool. You should not rely on Dayza as your only record of important information. Please maintain independent backups of any data that is important to you.
+        </TermsSection>
+
         <TermsSection title="Third-Party Services">
           Dayza may rely on third-party services such as Google, YouTube, email delivery, hosting, database, storage, and AI providers. Your use of those services may also be governed by their own terms and policies.
         </TermsSection>
@@ -55,7 +63,11 @@ export default function TermsPage() {
         </TermsSection>
 
         <TermsSection title="Account Deletion">
-          You may delete your account from the Profile page where available. Deletion removes user-specific records where supported by the app's database relationships. Some provider logs or backups may persist for a limited time according to infrastructure provider policies.
+          You may delete your account from the Profile page where available. Deletion removes user-specific records where supported by the app's database relationships. Dayza may also suspend, restrict, or delete an account and its associated data if we believe the account is unsafe, compromised, abusive, harmful, unlawful, risky to operate, or otherwise unsuitable for continued access to the service. Some provider logs or backups may persist for a limited time according to infrastructure provider policies.
+        </TermsSection>
+
+        <TermsSection title="Data Loss">
+          Dayza is not responsible for loss, corruption, deletion, leakage, or unavailability of user data to the fullest extent permitted by law. This includes data loss caused by development changes, maintenance, migrations, security actions, account deletion, provider failures, or operational mistakes.
         </TermsSection>
 
         <TermsSection title="Changes to Terms">

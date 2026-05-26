@@ -3,13 +3,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User, Eye, EyeOff, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
-import { getFirebaseActionContinueUrl, getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
+import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { FirebaseError } from "firebase/app";
 import { GoogleAuthProvider, createUserWithEmailAndPassword, signInWithPopup, updateProfile, sendEmailVerification } from "firebase/auth";
 
@@ -73,12 +74,17 @@ export default function SignupPage() {
   const [loading, setLoading] = useState(false);
   const [signupStep, setSignupStep] = useState<"idle" | "creating" | "sending-verification">("idle");
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const router = useRouter();
   const nameError = name.trim() ? validateFullName(name) : null;
   const emailError = email.trim() ? validateEmail(email) : null;
   const passwordError = password ? validatePassword(password) : null;
 
   const handleGoogleSignup = async () => {
+    if (!acceptedTerms) {
+      toast.error("Please accept the Terms of Service and Privacy Policy.");
+      return;
+    }
     setGoogleLoading(true);
     try {
       const provider = new GoogleAuthProvider();
@@ -119,6 +125,10 @@ export default function SignupPage() {
       toast.error(fullPasswordError);
       return;
     }
+    if (!acceptedTerms) {
+      toast.error("Please accept the Terms of Service and Privacy Policy.");
+      return;
+    }
     setLoading(true);
     setSignupStep("creating");
     try {
@@ -145,10 +155,7 @@ export default function SignupPage() {
       await updateProfile(credential.user, { displayName: normalizedName });
       setSignupStep("sending-verification");
       if (!credential.user.emailVerified) {
-        await sendEmailVerification(credential.user, {
-          url: getFirebaseActionContinueUrl("/login"),
-          handleCodeInApp: false,
-        });
+        await sendEmailVerification(credential.user);
       }
       toast.success("Account created. Please verify your email before signing in.");
       router.replace(`/login?verifyEmail=${encodeURIComponent(normalizedEmail)}`);
@@ -170,12 +177,31 @@ export default function SignupPage() {
             <CardDescription>Start your muscle-building journey today</CardDescription>
           </CardHeader>
           <CardContent>
+            <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-background/50 p-3">
+              <Checkbox
+                id="terms"
+                checked={acceptedTerms}
+                onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                className="mt-0.5"
+              />
+              <Label htmlFor="terms" className="text-xs leading-5 text-muted-foreground">
+                I agree to the{" "}
+                <Link href="/terms" className="font-medium text-primary hover:underline">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link href="/privacy" className="font-medium text-primary hover:underline">
+                  Privacy Policy
+                </Link>
+                , including the development-stage data risk and backup notices.
+              </Label>
+            </div>
             <Button
               type="button"
               variant="outline"
               className="mb-4 w-full"
               onClick={handleGoogleSignup}
-              disabled={googleLoading}
+              disabled={googleLoading || loading}
             >
               <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>
               {googleLoading ? "Opening Google..." : "Continue with Google"}

@@ -1,12 +1,15 @@
 import { App, cert, getApps, initializeApp } from "firebase-admin/app";
 import { getStorage } from "firebase-admin/storage";
-import { readFileSync } from "fs";
+import { existsSync, readFileSync } from "fs";
 
 function parseServiceAccount() {
-  const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON
-    || (process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-      ? readFileSync(process.env.FIREBASE_SERVICE_ACCOUNT_PATH, "utf8")
-      : "");
+  let raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON ?? "";
+
+  if (!raw && process.env.FIREBASE_SERVICE_ACCOUNT_PATH && process.env.NODE_ENV !== "production") {
+    const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+    raw = existsSync(serviceAccountPath) ? readFileSync(serviceAccountPath, "utf8") : "";
+  }
+
   if (!raw) return null;
 
   const parsed = JSON.parse(raw);
@@ -19,6 +22,9 @@ function parseServiceAccount() {
 export function getFirebaseAdminApp(): App {
   if (!getApps().length) {
     const serviceAccount = parseServiceAccount();
+    if (!serviceAccount && process.env.NODE_ENV === "production") {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is required in production");
+    }
     initializeApp({
       ...(serviceAccount ? { credential: cert(serviceAccount) } : {}),
       ...(process.env.FIREBASE_STORAGE_BUCKET ? { storageBucket: process.env.FIREBASE_STORAGE_BUCKET } : {}),

@@ -37,6 +37,12 @@ export async function POST(req: Request) {
     });
     return res;
   } catch (error: any) {
+    if (error?.message === "FIREBASE_SERVICE_ACCOUNT_JSON is required in production") {
+      return NextResponse.json(
+        { error: "Server Firebase credentials are not configured. Add FIREBASE_SERVICE_ACCOUNT_JSON in Vercel." },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: error?.message ?? "Could not create Firebase session" }, { status: 401 });
   }
 }
