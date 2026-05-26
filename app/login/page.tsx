@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
-import { GoogleAuthProvider, sendEmailVerification, signInWithEmailAndPassword, signInWithPopup, type User } from "firebase/auth";
+import { sendEmailVerification, signInWithEmailAndPassword, type User } from "firebase/auth";
+import { getGoogleAuthErrorMessage, getPendingGoogleRedirectResult, signInWithGoogle } from "@/lib/firebase-google-auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -45,6 +46,31 @@ export default function LoginPage() {
     router.replace("/dashboard");
     return true;
   };
+
+  useEffect(() => {
+    if (!hasFirebaseClientConfig()) return;
+    let cancelled = false;
+    const finishGoogleRedirect = async () => {
+      try {
+        const credential = await getPendingGoogleRedirectResult();
+        if (!credential || cancelled) return;
+        setGoogleLoading(true);
+        const firebaseIdToken = await credential.user.getIdToken();
+        const started = await startAppSessionFromFirebase(firebaseIdToken);
+        if (!started && !cancelled) setGoogleLoading(false);
+      } catch (error: any) {
+        if (cancelled) return;
+        const message = getGoogleAuthErrorMessage(error);
+        setAuthError(message);
+        toast.error(message);
+        setGoogleLoading(false);
+      }
+    };
+    finishGoogleRedirect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,14 +133,13 @@ export default function LoginPage() {
     setAuthError(null);
     setGoogleLoading(true);
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const credential = await signInWithPopup(getFirebaseClientAuth(), provider);
+      const credential = await signInWithGoogle();
+      if (!credential) return;
       const firebaseIdToken = await credential.user.getIdToken();
       const started = await startAppSessionFromFirebase(firebaseIdToken);
       if (!started) setGoogleLoading(false);
     } catch (error: any) {
-      const message = error?.code === "auth/popup-closed-by-user" ? "Google sign-in cancelled" : "Google sign-in failed";
+      const message = getGoogleAuthErrorMessage(error);
       setAuthError(message);
       toast.error(message);
       setGoogleLoading(false);

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User, Eye, EyeOff, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { FirebaseError } from "firebase/app";
-import { GoogleAuthProvider, createUserWithEmailAndPassword, signInWithPopup, updateProfile, sendEmailVerification } from "firebase/auth";
+import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "firebase/auth";
+import { getGoogleAuthErrorMessage, getPendingGoogleRedirectResult, signInWithGoogle } from "@/lib/firebase-google-auth";
 
 function getSignupErrorMessage(error: unknown) {
   if (error instanceof FirebaseError) {
@@ -80,6 +81,46 @@ export default function SignupPage() {
   const emailError = email.trim() ? validateEmail(email) : null;
   const passwordError = password ? validatePassword(password) : null;
 
+  useEffect(() => {
+    if (!hasFirebaseClientConfig()) return;
+    let cancelled = false;
+    const finishGoogleRedirect = async () => {
+      try {
+        const credential = await getPendingGoogleRedirectResult();
+        if (!credential || cancelled) return;
+        setGoogleLoading(true);
+        const acceptedBeforeRedirect = window.sessionStorage.getItem("dayza_google_terms_accepted") === "true";
+        window.sessionStorage.removeItem("dayza_google_terms_accepted");
+        if (!acceptedBeforeRedirect) {
+          toast.error("Please accept the Terms of Service and Privacy Policy.");
+          setGoogleLoading(false);
+          return;
+        }
+        const firebaseIdToken = await credential.user.getIdToken();
+        const res = await fetch("/api/auth/firebase-session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken: firebaseIdToken }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          toast.error(data?.error ?? "Could not start app session");
+          setGoogleLoading(false);
+          return;
+        }
+        router.replace("/dashboard");
+      } catch (error: any) {
+        if (cancelled) return;
+        toast.error(getGoogleAuthErrorMessage(error));
+        setGoogleLoading(false);
+      }
+    };
+    finishGoogleRedirect();
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
+
   const handleGoogleSignup = async () => {
     if (!acceptedTerms) {
       toast.error("Please accept the Terms of Service and Privacy Policy.");
@@ -87,20 +128,26 @@ export default function SignupPage() {
     }
     setGoogleLoading(true);
     try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: "select_account" });
-      const credential = await signInWithPopup(getFirebaseClientAuth(), provider);
+      window.sessionStorage.setItem("dayza_google_terms_accepted", "true");
+      const credential = await signInWithGoogle();
+      if (!credential) return;
+      window.sessionStorage.removeItem("dayza_google_terms_accepted");
       const firebaseIdToken = await credential.user.getIdToken();
       const res = await fetch("/api/auth/firebase-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ idToken: firebaseIdToken }),
       });
-      if (!res.ok) toast.error("Could not start app session");
-      else router.replace("/dashboard");
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error ?? "Could not start app session");
+        setGoogleLoading(false);
+        return;
+      }
+      router.replace("/dashboard");
     } catch (error: any) {
-      toast.error(error?.code === "auth/popup-closed-by-user" ? "Google sign-in cancelled" : "Google sign-in failed");
-    } finally {
+      window.sessionStorage.removeItem("dayza_google_terms_accepted");
+      toast.error(getGoogleAuthErrorMessage(error));
       setGoogleLoading(false);
     }
   };
@@ -177,25 +224,6 @@ export default function SignupPage() {
             <CardDescription>Start your muscle-building journey today</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-background/50 p-3">
-              <Checkbox
-                id="terms"
-                checked={acceptedTerms}
-                onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
-                className="mt-0.5"
-              />
-              <Label htmlFor="terms" className="text-xs leading-5 text-muted-foreground">
-                I agree to the{" "}
-                <Link href="/terms" className="font-medium text-primary hover:underline">
-                  Terms of Service
-                </Link>{" "}
-                and{" "}
-                <Link href="/privacy" className="font-medium text-primary hover:underline">
-                  Privacy Policy
-                </Link>
-                , including the development-stage data risk and backup notices.
-              </Label>
-            </div>
             <Button
               type="button"
               variant="outline"
@@ -298,6 +326,24 @@ export default function SignupPage() {
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="terms"
+                  checked={acceptedTerms}
+                  onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                />
+                <Label htmlFor="terms" className="text-xs leading-4 text-muted-foreground">
+                  I accept{" "}
+                  <Link href="/terms" className="font-medium text-primary hover:underline">
+                    Terms & Conditions
+                  </Link>{" "}
+                  and{" "}
+                  <Link href="/privacy" className="font-medium text-primary hover:underline">
+                    Privacy Policy
+                  </Link>
+                  .
+                </Label>
               </div>
               <Button type="submit" className="w-full" loading={loading} disabled={loading}>
                 {signupStep === "creating"

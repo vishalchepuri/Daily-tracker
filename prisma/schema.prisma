@@ -109,7 +109,7 @@ model UserProfile {
   age           Int?
   weight        Float?   // in kg
   height        Float?   // in cm
-  gender        String?  // male, female
+  gender        String?  // male, female, other
   activityLevel String?  // sedentary, light, moderate, active, very_active
   goal          String?  // muscle_gain, fat_loss, maintain
   tdee          Float?
@@ -129,6 +129,8 @@ model UserProfile {
   targetMonthlySpend Float?
   healthLimitations String?
   foodAllergies String?
+  workoutFocusMuscles String?
+  workoutFocusGoal String?
   goalOutcome String?
   goalTimelineDays Int?
   goalTargetWeight Float?

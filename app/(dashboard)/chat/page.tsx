@@ -39,16 +39,27 @@ export default function ChatPage() {
   const recognitionRef = useRef<any>(null);
   const skipNextMessageLoadRef = useRef<string | null>(null);
 
+  const readJson = async (res: Response) => {
+    const text = await res.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text.slice(0, 180) };
+    }
+  };
+
   const loadMessages = useCallback(async (sessionId: string | null) => {
     setLoading(true);
     try {
       const url = sessionId ? `/api/chat?sessionId=${encodeURIComponent(sessionId)}` : "/api/chat";
       const res = await fetch(url);
-      const data = await res.json();
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data?.error ?? "Could not load chat messages");
       setMessages(data?.messages ?? []);
     } catch (error) {
       console.error(error);
-      toast.error("Could not load chat messages");
+      toast.error(error instanceof Error ? error.message : "Could not load chat messages");
     } finally {
       setLoading(false);
     }
@@ -60,14 +71,15 @@ export default function ChatPage() {
     try {
       const offset = reset ? 0 : historyOffset;
       const res = await fetch(`/api/chat/sessions?offset=${offset}&limit=10`);
-      const data = await res.json();
+      const data = await readJson(res);
+      if (!res.ok) throw new Error(data?.error ?? "Could not load chat sessions");
       const nextSessions = data?.sessions ?? [];
       setSessions((prev) => reset ? nextSessions : [...prev, ...nextSessions.filter((chat: any) => !prev.some((item: any) => item.id === chat.id))]);
       setHistoryOffset(data?.nextOffset ?? offset + nextSessions.length);
       setHistoryHasMore(Boolean(data?.hasMore));
     } catch (error) {
       console.error(error);
-      toast.error("Could not load chat sessions");
+      toast.error(error instanceof Error ? error.message : "Could not load chat sessions");
     } finally {
       setHistoryLoading(false);
       setHistoryLoaded(true);
@@ -102,7 +114,11 @@ export default function ChatPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
     });
-    const data = await res.json();
+    const data = await readJson(res);
+    if (!res.ok) {
+      toast.error(data?.error ?? "Could not start chat");
+      return null;
+    }
     if (data?.session?.id) {
       setSessions((prev) => [data.session, ...(prev ?? [])]);
       if (options.skipAutoLoad) skipNextMessageLoadRef.current = data.session.id;
@@ -121,23 +137,26 @@ export default function ChatPage() {
     setLastFailedMessage(null);
     const userMsg = outgoingText;
     const attachedImage = outgoingImage;
-    const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
-    if (!targetSessionId) {
-      toast.error("Could not start chat");
-      setStreaming(false);
-      return;
-    }
     setInput("");
     setImageDataUrl(null);
+    const assistantMessageId = `stream-${Date.now()}`;
     setMessages(prev => [...(prev ?? []), {
       role: "user",
       content: userMsg || "Analyze this image.",
       imageDataUrl: attachedImage,
       id: `temp-${Date.now()}`,
     }]);
-    setMessages(prev => [...(prev ?? []), { role: "assistant", content: "", id: `stream-${Date.now()}` }]);
+    setMessages(prev => [...(prev ?? []), { role: "assistant", content: "", id: assistantMessageId }]);
 
     try {
+      const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
+      if (!targetSessionId) {
+        setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
+        setMessages(prev => (prev ?? []).filter((message) => message.id !== assistantMessageId));
+        setStreaming(false);
+        return;
+      }
+
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

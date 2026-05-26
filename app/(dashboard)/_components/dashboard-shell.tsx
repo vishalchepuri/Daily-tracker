@@ -139,10 +139,6 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     weight: initialProfile?.weight ? String(initialProfile.weight) : "",
     height: initialProfile?.height ? String(initialProfile.height) : "",
     gender: initialProfile?.gender ?? "male",
-    activityLevel: initialProfile?.activityLevel ?? "moderate",
-    goal: initialProfile?.goal ?? "muscle_gain",
-    healthLimitations: initialProfile?.healthLimitations ?? "",
-    foodAllergies: initialProfile?.foodAllergies ?? "",
   });
   const pathname = usePathname();
   const router = useRouter();
@@ -176,10 +172,6 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           weight: parseFloat(profileForm.weight) || null,
           height: parseFloat(profileForm.height) || null,
           gender: profileForm.gender,
-          activityLevel: profileForm.activityLevel,
-          goal: profileForm.goal,
-          healthLimitations: profileForm.healthLimitations || "None",
-          foodAllergies: profileForm.foodAllergies || "None",
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -215,7 +207,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           </DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              These details help calculate accurate calories, macros, and coaching answers.
+              Add the basics now. Dayza Agent will ask goals, safety details, food preferences, and workout focus when needed.
             </p>
             {profileError && (
               <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -257,7 +249,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                 />
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Gender</Label>
                 <Select value={profileForm.gender} onValueChange={(value) => setProfileForm({ ...profileForm, gender: value })}>
@@ -265,52 +257,9 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                   <SelectContent>
                     <SelectItem value="male">Male</SelectItem>
                     <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div>
-                <Label>Activity</Label>
-                <Select value={profileForm.activityLevel} onValueChange={(value) => setProfileForm({ ...profileForm, activityLevel: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sedentary">Sedentary</SelectItem>
-                    <SelectItem value="light">Light</SelectItem>
-                    <SelectItem value="moderate">Moderate</SelectItem>
-                    <SelectItem value="active">Very Active</SelectItem>
-                    <SelectItem value="very_active">Extremely Active</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Goal</Label>
-                <Select value={profileForm.goal} onValueChange={(value) => setProfileForm({ ...profileForm, goal: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
-                    <SelectItem value="fat_loss">Fat Loss</SelectItem>
-                    <SelectItem value="maintain">Maintain</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Joint pain, injuries, surgeries</Label>
-                <Input
-                  value={profileForm.healthLimitations}
-                  onChange={(e) => setProfileForm({ ...profileForm, healthLimitations: e.target.value })}
-                  className="mt-1"
-                  placeholder="None, knee pain, shoulder surgery..."
-                />
-              </div>
-              <div>
-                <Label>Food allergies or avoided foods</Label>
-                <Input
-                  value={profileForm.foodAllergies}
-                  onChange={(e) => setProfileForm({ ...profileForm, foodAllergies: e.target.value })}
-                  className="mt-1"
-                  placeholder="None, peanuts, lactose..."
-                />
               </div>
             </div>
             <Button

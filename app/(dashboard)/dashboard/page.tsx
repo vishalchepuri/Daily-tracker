@@ -101,6 +101,7 @@ export default function DashboardPage() {
       const res = await fetch("/api/youtube/feed");
       const d = await res.json();
       if (res.ok) {
+        setYoutubeNeedsConnection(Boolean(d?.needsConnection));
         setYoutubeVideos(d.videos ?? []);
       } else {
         if (d?.needsConnection) {

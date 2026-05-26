@@ -84,6 +84,12 @@ export default function YtSummaryPage() {
         }
         return;
       }
+      if (data?.needsConnection) {
+        setNeedsConnection(true);
+        setSubscriptions([]);
+        setVideos([]);
+        return;
+      }
       setNeedsConnection(false);
       setYoutubeError(null);
       setSubscriptions(data.subscriptions ?? []);

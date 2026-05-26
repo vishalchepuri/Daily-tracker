@@ -82,7 +82,7 @@ export default function ProfilePage() {
   const [form, setForm] = useState({
     firstName: "", lastName: "",
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
-    healthLimitations: "", foodAllergies: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
+    healthLimitations: "", foodAllergies: "", workoutFocusMuscles: "", workoutFocusGoal: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
   });
 
   useEffect(() => {
@@ -106,6 +106,8 @@ export default function ProfilePage() {
           goal: p?.goal ?? "muscle_gain",
           healthLimitations: p?.healthLimitations ?? "",
           foodAllergies: p?.foodAllergies ?? "",
+          workoutFocusMuscles: p?.workoutFocusMuscles ?? "",
+          workoutFocusGoal: p?.workoutFocusGoal ?? "",
           goalOutcome: p?.goalOutcome ?? "",
           goalTimelineDays: String(p?.goalTimelineDays ?? ""),
           goalTargetWeight: String(p?.goalTargetWeight ?? ""),
@@ -163,6 +165,8 @@ export default function ProfilePage() {
           goal: form.goal,
           healthLimitations: form.healthLimitations || "None",
           foodAllergies: form.foodAllergies || "None",
+          workoutFocusMuscles: form.workoutFocusMuscles || null,
+          workoutFocusGoal: form.workoutFocusGoal || null,
           goalOutcome: form.goalOutcome || null,
           goalTimelineDays: parseInt(form.goalTimelineDays) || null,
           goalTargetWeight: parseFloat(form.goalTargetWeight) || null,
@@ -388,6 +392,7 @@ export default function ProfilePage() {
                   <SelectContent>
                     <SelectItem value="male">Male</SelectItem>
                     <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -421,6 +426,8 @@ export default function ProfilePage() {
             <div className="grid grid-cols-1 gap-4">
               <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
               <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
+              <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
+              <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>

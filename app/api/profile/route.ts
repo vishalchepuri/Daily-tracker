@@ -48,6 +48,17 @@ export async function POST(req: Request) {
     // Calculate TDEE and macros
     let tdee = 0;
     const { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies } = data;
+    const workoutFocusData: Record<string, string | null> = {};
+    if ("workoutFocusMuscles" in data) {
+      workoutFocusData.workoutFocusMuscles = typeof data.workoutFocusMuscles === "string" && data.workoutFocusMuscles.trim()
+        ? data.workoutFocusMuscles.trim()
+        : null;
+    }
+    if ("workoutFocusGoal" in data) {
+      workoutFocusData.workoutFocusGoal = typeof data.workoutFocusGoal === "string" && data.workoutFocusGoal.trim()
+        ? data.workoutFocusGoal.trim()
+        : null;
+    }
     const timelineData: Record<string, string | number | null> = {};
     if ("goalOutcome" in data) {
       timelineData.goalOutcome = typeof data.goalOutcome === "string" && data.goalOutcome.trim() ? data.goalOutcome.trim() : null;
@@ -71,9 +82,8 @@ export async function POST(req: Request) {
     }
     if (weight && height && age && gender) {
       // Mifflin-St Jeor
-      const bmr = gender === 'male'
-        ? 10 * weight + 6.25 * height - 5 * age + 5
-        : 10 * weight + 6.25 * height - 5 * age - 161;
+      const genderOffset = gender === "male" ? 5 : gender === "female" ? -161 : -78;
+      const bmr = 10 * weight + 6.25 * height - 5 * age + genderOffset;
       const multipliers: Record<string, number> = {
         sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9
       };
@@ -92,8 +102,8 @@ export async function POST(req: Request) {
 
     const profile = await prisma.userProfile.upsert({
       where: { userId },
-      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
-      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...workoutFocusData, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...workoutFocusData, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
     });
     const updatedUser = "firstName" in data || "lastName" in data
       ? await prisma.user.update({

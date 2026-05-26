@@ -39,8 +39,8 @@ export type FirestoreChatMessage = {
 };
 
 function db() {
-  getFirebaseAdminApp();
-  return getFirestore();
+  const app = getFirebaseAdminApp();
+  return getFirestore(app, process.env.FIRESTORE_DATABASE_ID || "(default)");
 }
 
 function toDate(value: unknown): Date {

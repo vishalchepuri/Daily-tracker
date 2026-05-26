@@ -144,7 +144,16 @@ export async function GET(req: Request) {
       userId,
       "https://www.googleapis.com/youtube/v3/subscriptions?part=snippet,contentDetails&mine=true&maxResults=50&order=alphabetical"
     );
-    if (!subscriptionsResult.ok) return NextResponse.json(subscriptionsResult.data, { status: subscriptionsResult.status });
+    if (!subscriptionsResult.ok) {
+      const payload = {
+        subscriptions: [],
+        videos: [],
+        sort: "publishedAt:desc",
+        ...subscriptionsResult.data,
+      };
+      const expectedConnectionIssue = subscriptionsResult.data?.needsConnection;
+      return NextResponse.json(payload, { status: expectedConnectionIssue ? 200 : subscriptionsResult.status });
+    }
 
     const subscriptions = (subscriptionsResult.data.items ?? []).map((item: any) => ({
       id: item.id,

@@ -16,6 +16,13 @@ const CHAT_SESSION_RETENTION_LIMIT = 7;
 const CHAT_MESSAGES_PER_SESSION_LIMIT = 10;
 const MAX_CHAT_IMAGE_BYTES = 2 * 1024 * 1024;
 
+function chatErrorMessage(error: any, fallback: string) {
+  if (error?.code === 5 || error?.code === "5") {
+    return "Firestore is not enabled for this Firebase project. Create the default Firestore database in Firebase Console.";
+  }
+  return error?.message ?? fallback;
+}
+
 type WorkoutExerciseWithExercise = {
   id: string;
   exercise: {
@@ -136,6 +143,11 @@ type AgentAction =
       type: "update_profile_safety";
       healthLimitations?: string;
       foodAllergies?: string;
+    }
+  | {
+      type: "update_workout_focus";
+      workoutFocusMuscles: string;
+      workoutFocusGoal?: "fat_loss" | "muscle_gain" | "core" | "cardio" | "strength" | "general";
     }
   | {
       type: "update_goal_timeline";
@@ -461,7 +473,57 @@ async function createMissingFriendMoneyLinks(userId: string, rawMessage: string,
 
 function isWorkoutPlanIntent(text: unknown) {
   if (typeof text !== "string") return false;
-  return includesAny(text, ["workout plan", "training plan", "gym plan", "exercise plan", "weekly split", "split plan"]);
+  return includesAny(text, [
+    "workout plan",
+    "training plan",
+    "gym plan",
+    "exercise plan",
+    "weekly split",
+    "split plan",
+    "fat loss",
+    "lose fat",
+    "muscle gain",
+    "build muscle",
+    "core workout",
+    "cardio plan",
+  ]);
+}
+
+function inferWorkoutFocusGoal(text: string, profileGoal?: string | null) {
+  const normalized = text.toLowerCase();
+  if (includesAny(normalized, ["fat loss", "lose fat", "weight loss", "cutting", "burn fat"])) return "fat_loss";
+  if (includesAny(normalized, ["muscle gain", "build muscle", "grow muscle", "bulk", "hypertrophy"])) return "muscle_gain";
+  if (includesAny(normalized, ["cardio", "endurance", "stamina", "conditioning"])) return "cardio";
+  if (includesAny(normalized, ["core", "abs", "belly", "stomach", "waist"])) return "core";
+  if (includesAny(normalized, ["strength", "stronger", "power"])) return "strength";
+  return profileGoal === "fat_loss" || profileGoal === "muscle_gain" ? profileGoal : "general";
+}
+
+function normalizeWorkoutFocusMuscles(text: string) {
+  const normalized = text.toLowerCase();
+  const focusMap: Array<[string, string[]]> = [
+    ["core", ["core", "abs", "belly", "stomach", "waist", "love handle", "midsection"]],
+    ["legs", ["leg", "legs", "quad", "quads", "hamstring", "hamstrings", "calf", "calves", "thigh", "thighs"]],
+    ["glutes", ["glute", "glutes", "butt", "hips"]],
+    ["chest", ["chest", "pec", "pecs"]],
+    ["back", ["back", "lats", "lat", "upper back"]],
+    ["shoulders", ["shoulder", "shoulders", "delts", "delt"]],
+    ["arms", ["arm", "arms", "bicep", "biceps", "tricep", "triceps", "forearm", "forearms"]],
+    ["full body", ["full body", "whole body", "overall", "all body"]],
+  ];
+  const found = focusMap
+    .filter(([, aliases]) => aliases.some((alias) => normalized.includes(alias)))
+    .map(([focus]) => focus);
+  return Array.from(new Set(found)).join(",");
+}
+
+function isWorkoutFocusAnswer(text: string) {
+  return Boolean(normalizeWorkoutFocusMuscles(text)) || includesAny(text, ["full body", "overall", "all body"]);
+}
+
+function lastAssistantAskedWorkoutFocus(messages: any[]) {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return Boolean(lastAssistant?.content && /which (body areas|muscles)|target (muscles|body)|focus (muscles|areas)/i.test(lastAssistant.content));
 }
 
 function isFoodPlanIntent(text: unknown) {
@@ -888,6 +950,18 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
     return { type: action.type, label: "Saved safety and food preferences", id: userId };
   }
 
+  if (action.type === "update_workout_focus") {
+    const workoutFocusMuscles = action.workoutFocusMuscles?.trim();
+    if (!workoutFocusMuscles) return null;
+    const workoutFocusGoal = action.workoutFocusGoal?.trim() || undefined;
+    await prisma.userProfile.upsert({
+      where: { userId },
+      update: { workoutFocusMuscles, workoutFocusGoal },
+      create: { userId, workoutFocusMuscles, workoutFocusGoal },
+    });
+    return { type: action.type, label: `Saved workout focus: ${workoutFocusMuscles}`, id: userId };
+  }
+
   if (action.type === "update_goal_timeline") {
     const goalTimelineDays = Math.round(toNumber(action.goalTimelineDays));
     const goalOutcome = action.goalOutcome?.trim();
@@ -1052,7 +1126,7 @@ export async function GET(req: Request) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error?.message ?? "Failed" }), { status: 500 });
+    return new Response(JSON.stringify({ error: chatErrorMessage(error, "Failed") }), { status: 500 });
   }
 }
 
@@ -1176,7 +1250,33 @@ export async function POST(req: Request) {
         listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
       ]);
 
-    if (isWorkoutPlanIntent(message) && !hasKnownAnswer(profile?.healthLimitations)) {
+    const workoutPlanningActive = isWorkoutPlanIntent(message) || lastAssistantAskedWorkoutFocus(recentChat);
+    const workoutFocusOverride: { workoutFocusMuscles?: string; workoutFocusGoal?: string } = {};
+    const workoutGoal = inferWorkoutFocusGoal(message, profile?.goal);
+    if (lastAssistantAskedWorkoutFocus(recentChat)) {
+      const workoutFocusMuscles = normalizeWorkoutFocusMuscles(message);
+      if (!workoutFocusMuscles) {
+        const content = "Which body areas or muscles should I prioritize for this workout plan? For example: core, legs, glutes, chest, back, shoulders, arms, or full body.";
+        await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+        await pruneChatRetention(userId);
+        return streamSingleMessage(content);
+      }
+      await prisma.userProfile.upsert({
+        where: { userId },
+        update: { workoutFocusMuscles, workoutFocusGoal: workoutGoal },
+        create: { userId, workoutFocusMuscles, workoutFocusGoal: workoutGoal },
+      });
+      workoutFocusOverride.workoutFocusMuscles = workoutFocusMuscles;
+      workoutFocusOverride.workoutFocusGoal = workoutGoal;
+    } else if (isWorkoutPlanIntent(message)) {
+      const goalLabel = workoutGoal === "fat_loss" ? "fat loss" : workoutGoal === "muscle_gain" ? "muscle gain" : workoutGoal;
+      const content = `Which body areas or muscles do you want to focus on most for ${goalLabel}? For example: core/belly, legs, glutes, chest, back, shoulders, arms, or full body.`;
+      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await pruneChatRetention(userId);
+      return streamSingleMessage(content);
+    }
+
+    if (workoutPlanningActive && !hasKnownAnswer(profile?.healthLimitations)) {
       const content =
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
       await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
@@ -1192,7 +1292,7 @@ export async function POST(req: Request) {
       return streamSingleMessage(content);
     }
 
-    if ((isWorkoutPlanIntent(message) || isFoodPlanIntent(message)) && !hasTimelineAnswer(profile?.goalTimelineDays) && !messageIncludesTimeline(message)) {
+    if ((workoutPlanningActive || isFoodPlanIntent(message)) && !hasTimelineAnswer(profile?.goalTimelineDays) && !messageIncludesTimeline(message)) {
       const content =
         "In how many days or weeks do you want to see changes, and what exact result are you aiming for? For example: visible muscle gain in 8 weeks, lose 4 kg in 10 weeks, or improve strength in 12 weeks.";
       await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
@@ -1215,6 +1315,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - create_workout_log: save a completed workout. Only use exercise IDs that appear in context.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
+- update_workout_focus: save workout focus muscles/body areas and the normalized workout goal after the user answers the workout focus question.
 - update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight only after they explicitly ask to save/update the profile goal or confirm/proceed with creating the plan.
 - create_workout_template: create a workout day after the user confirms a draft plan. You may use exerciseName for missing exercises; the app will create them first. Include warmups and stretches for every workout day.
 - remove_exercise_from_template: remove an exercise from an existing workout day/template.
@@ -1248,14 +1349,24 @@ Rules:
   - For 30-day plans, give Week 1, Week 2, Week 3, and Week 4 expectations.
   - For impossible requests like "lose 10kg in 3 weeks", reject the unsafe timeline and suggest a safer timeline based on profile.weight when available.
 - Workout plan safety flow:
-  1. If user asks for a workout plan and profile.healthLimitations is missing, first ask whether they have joint pain, previous fractures, surgeries, injuries, or medical restrictions. Do not draft yet.
-  2. When they answer, save it with update_profile_safety.
-  3. If goal timeline is missing, ask the timeline question before plan days/focus.
-  4. Ask how many days they prefer: 3, 4, 5, or custom.
-  5. Ask whether they want full body or particular muscle focus. If particular muscles, ask which muscles.
-  6. Draft only a short weekly split with the realistic timeline and ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
+  1. For every workout plan, fat loss, muscle gain, core, cardio, or strength request, the user must provide target muscles/body focus before drafting. If the app already asked and the user answered, save it with update_workout_focus.
+  2. If user asks for a workout plan and profile.healthLimitations is missing, ask whether they have joint pain, previous fractures, surgeries, injuries, or medical restrictions. Do not draft yet.
+  3. When they answer, save it with update_profile_safety.
+  4. If goal timeline is missing, ask the timeline question before plan days.
+  5. Ask how many days they prefer: 3, 4, 5, or custom.
+  6. Draft only a short weekly split with the realistic timeline and saved workoutFocusMuscles/workoutFocusGoal. Ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
   7. If they request changes, update the draft and ask for confirmation again.
   8. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
+- Strict workout focus rules:
+  - Treat profile.workoutFocusMuscles as mandatory priority for plan structure, exercise selection, warmups, and template muscleGroups.
+  - If profile.gender is female, bias defaults toward lower-body/glutes/core stability and joint-friendly volume, unless the saved focus says otherwise.
+  - If profile.gender is male, bias defaults toward upper-body strength/hypertrophy and balanced posterior-chain work, unless the saved focus says otherwise.
+  - If profile.gender is other or unspecified, use balanced defaults and ask clarifying preference questions when needed.
+  - Never let gender override the user's saved focus muscles. User focus always wins.
+  - Fat loss plans must include conditioning/cardio and calorie-burning structure while still training the selected focus areas hard.
+  - Muscle gain plans must prioritize hypertrophy volume, progressive overload, and at least 2 direct exercises for each selected focus muscle where practical.
+  - Core/cardio plans must still honor selected focus muscles and include appropriate core/cardio blocks.
+  - If focus includes belly/stomach/waist, normalize it to core and explain that targeted fat loss is not physiologically guaranteed, while training core and using cardio/nutrition to support overall fat loss.
 - Warm-up and stretch rules for workout plans:
   - Every saved workout template must include warmups and stretches.
   - Warmups should usually include 5-10 minutes of light cardio plus dynamic mobility for that day's joints/muscles.
@@ -1264,6 +1375,8 @@ Rules:
   - Do not count warmups or stretches as the required 2 strength exercises per muscle; they are separate prep/recovery items.
 - Exercise selection rules for workout plans:
   - When drafting a plan with exercises, include at least 2 exercises for each muscle/focus listed on that day.
+  - Every selected workoutFocusMuscles area must appear directly in the weekly split unless healthLimitations make it unsafe; if unsafe, explain the safer substitution.
+  - For fat loss focus areas, combine direct strength exercises for those areas with cardio/conditioning instead of pretending fat can be reduced only from one body part.
   - Keep exercises simple, effective, and easy to perform with common gym equipment.
   - Prefer reliable basics over novelty: machine presses, dumbbell presses, rows, pulldowns, lateral raises, curls, pushdowns, leg press, Romanian deadlift, hip thrust, leg curl, calf raise, planks, cable woodchops.
   - Avoid overcomplicating with too many advanced or high-skill movements unless the user specifically asks.
@@ -1368,6 +1481,7 @@ Available action examples:
 {"type":"create_workout_log","templateName":"Push Day","duration":60,"notes":"Good session","exercises":[{"exerciseId":"barbell-bench-press","setNumber":1,"reps":8,"weight":70}]}
 {"type":"update_wellness_targets","targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetLiftVolume":25000,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
+{"type":"update_workout_focus","workoutFocusMuscles":"core,legs","workoutFocusGoal":"fat_loss"}
 {"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User confirmed saving/creating the plan with visible muscle gain in 8 weeks."}
 {"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","warmups":[{"name":"Light cardio","duration":"5-7 min","notes":"Easy treadmill, bike, or cross-trainer"},{"name":"Shoulder and elbow mobility","duration":"3-5 min","notes":"Arm circles, band pull-aparts, light pushdowns"}],"stretches":[{"name":"Chest doorway stretch","duration":"30-45 sec each side","notes":"Pain-free range only"},{"name":"Triceps and shoulder stretch","duration":"30 sec each","notes":"No elbow pinching"}],"exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
 {"type":"remove_exercise_from_template","templateName":"Monday - Chest","exerciseName":"Skull Crushers"}
@@ -1377,8 +1491,9 @@ Available action examples:
 {"type":"update_diet_plan","planName":"Muscle Gain Diet","meals":[{"mealType":"Breakfast","title":"Oats and eggs","foods":["Oats","Eggs"],"calories":520,"protein":32,"carbs":55,"fat":18}]}
 {"type":"delete_diet_plan","planName":"Muscle Gain Diet"}`;
 
+    const profileContext = profile ? { ...profile, ...workoutFocusOverride } : workoutFocusOverride;
     const context = {
-      profile,
+      profile: profileContext,
       todayFoodLogs,
       recentWorkouts,
       recentProgress,
@@ -1496,6 +1611,6 @@ Available action examples:
       },
     });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error?.message ?? "Chat failed" }), { status: 500 });
+    return new Response(JSON.stringify({ error: chatErrorMessage(error, "Chat failed") }), { status: 500 });
   }
 }
