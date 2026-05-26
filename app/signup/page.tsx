@@ -147,7 +147,7 @@ export default function SignupPage() {
       if (!credential.user.emailVerified) {
         await sendEmailVerification(credential.user, {
           url: `${window.location.origin}/login`,
-          handleCodeInApp: false,
+          handleCodeInApp: true,
         });
       }
       toast.success("Account created. Please verify your email before signing in.");

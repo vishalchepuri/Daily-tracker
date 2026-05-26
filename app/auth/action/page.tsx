@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { applyActionCode, confirmPasswordReset, verifyPasswordResetCode } from "firebase/auth";
 import { CheckCircle2, KeyRound, MailCheck, XCircle } from "lucide-react";
 import { BrandLogo } from "@/components/brand-logo";
@@ -16,11 +16,12 @@ type ActionState = "loading" | "ready" | "success" | "error";
 
 export default function AuthActionPage() {
   const searchParams = useSearchParams();
-  const mode = searchParams.get("mode");
-  const oobCode = searchParams.get("oobCode");
-  const continueUrl = searchParams.get("continueUrl") || "/login";
+  const router = useRouter();
   const [state, setState] = useState<ActionState>("loading");
   const [message, setMessage] = useState("Checking link...");
+  const [continueUrl, setContinueUrl] = useState("/login");
+  const [mode, setMode] = useState<string | null>(null);
+  const [oobCode, setOobCode] = useState<string | null>(null);
   const [accountEmail, setAccountEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -28,20 +29,30 @@ export default function AuthActionPage() {
 
   useEffect(() => {
     let cancelled = false;
+
     async function handleAction() {
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get("mode");
+      const oobCode = params.get("oobCode");
+      const continueUrl = params.get("continueUrl") || "/login";
+
+      setMode(mode);
+      setOobCode(oobCode);
+      setContinueUrl(continueUrl);
+
       if (!mode || !oobCode) {
         setState("error");
         setMessage("This email link is missing required details.");
         return;
       }
 
-      const auth = getFirebaseClientAuth();
       try {
+        const auth = getFirebaseClientAuth();
         if (mode === "verifyEmail") {
           await applyActionCode(auth, oobCode);
           if (cancelled) return;
           setState("success");
-          setMessage("Your email has been verified. You can sign in now.");
+          setMessage("Your email has been verified. Redirecting to login...");
           return;
         }
 
@@ -56,10 +67,11 @@ export default function AuthActionPage() {
 
         setState("error");
         setMessage("This email action is not supported.");
-      } catch {
+      } catch (error: unknown) {
         if (cancelled) return;
         setState("error");
-        setMessage("This email link is invalid or expired. Please request a new one.");
+        const message = error instanceof Error ? error.message : "This email link is invalid or expired. Please request a new one.";
+        setMessage(message);
       }
     }
 
@@ -67,7 +79,20 @@ export default function AuthActionPage() {
     return () => {
       cancelled = true;
     };
-  }, [mode, oobCode]);
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mode = params.get("mode");
+
+    if (state !== "success" || mode !== "verifyEmail") return;
+
+    const timer = setTimeout(() => {
+      router.replace(continueUrl);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [state, continueUrl, router]);
 
   const resetPassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -88,9 +113,10 @@ export default function AuthActionPage() {
       await confirmPasswordReset(getFirebaseClientAuth(), oobCode, password);
       setState("success");
       setMessage("Your password has been updated. You can sign in now.");
-    } catch {
+    } catch (error: unknown) {
       setState("error");
-      setMessage("Could not reset the password. Please request a new reset link.");
+      const message = error instanceof Error ? error.message : "Could not reset the password. Please request a new reset link.";
+      setMessage(message);
     } finally {
       setSubmitting(false);
     }

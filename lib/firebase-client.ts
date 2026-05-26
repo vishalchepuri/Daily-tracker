@@ -23,9 +23,22 @@ export function hasFirebaseClientConfig() {
 }
 
 export function getFirebaseClientAuth() {
-  if (!hasFirebaseClientConfig()) {
-    throw new Error("Firebase Auth client config is missing");
+  const apps = getApps();
+  if (apps.length) {
+    return getAuth(apps[0]);
   }
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+
+  if (!hasFirebaseClientConfig()) {
+    const missingKeys = Object.entries(firebaseConfig)
+      .filter(([, value]) => !value)
+      .map(([key]) => key)
+      .join(", ");
+
+    throw new Error(
+      `Firebase Auth client config is missing: ${missingKeys || "unknown"}`
+    );
+  }
+
+  const app = initializeApp(firebaseConfig);
   return getAuth(app);
 }

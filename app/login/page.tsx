@@ -86,8 +86,8 @@ export default function LoginPage() {
         return;
       }
       await sendEmailVerification(user, {
-        url: `${window.location.origin}/auth/action`,
-        handleCodeInApp: false,
+        url: `${window.location.origin}/login`,
+        handleCodeInApp: true,
       });
       toast.success("Verification email sent");
     } catch (error: any) {
@@ -145,7 +145,7 @@ export default function LoginPage() {
               <div className="h-px bg-border" />
             </div>
             <form onSubmit={handleLogin} className="space-y-4">
-              {verifyEmail ? (
+              {verifyEmail && !authError ? (
                 <div className="space-y-3 rounded-lg border border-primary/20 bg-primary/10 p-3 text-sm text-primary">
                   <p>Check {verifyEmail} and verify your email before signing in.</p>
                   <Button
