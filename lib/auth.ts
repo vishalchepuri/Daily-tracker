@@ -40,16 +40,19 @@ export async function requireCurrentUser() {
     const email = normalizeEmail(decoded.email);
     if (!email) return null;
 
+    const emailVerifiedAt = decoded.email_verified ? new Date() : undefined;
     const user = await prisma.user.upsert({
       where: { email },
       update: {
         name: decoded.name ?? undefined,
         image: decoded.picture ?? undefined,
+        ...(emailVerifiedAt ? { emailVerified: emailVerifiedAt } : {}),
       },
       create: {
         email,
         name: decoded.name ?? email.split("@")[0],
         image: decoded.picture ?? null,
+        ...(emailVerifiedAt ? { emailVerified: emailVerifiedAt } : {}),
       },
       select: { id: true, email: true, name: true, image: true },
     });

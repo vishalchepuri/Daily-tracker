@@ -7,6 +7,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Activity,
   AlertTriangle,
@@ -36,6 +45,19 @@ import { WeeklyReportPanel } from "../_components/weekly-report-panel";
 import { ProgressPanel } from "../_components/progress-panel";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
 
+const RESET_FEATURE_OPTIONS = [
+  { id: "profile", label: "Profile", detail: "Body stats, goals, targets, safety notes, Telegram link settings" },
+  { id: "nutrition", label: "Nutrition", detail: "Food logs, water logs, and diet plans" },
+  { id: "workouts", label: "Workouts", detail: "Workout programs, workout history, sets, and PR history" },
+  { id: "spends", label: "Spends", detail: "Spends, cards, bank accounts, finance profile, lend and borrow entries" },
+  { id: "reminders", label: "Reminders", detail: "Reminder lists and reminder items" },
+  { id: "medications", label: "Medications", detail: "Medication schedules and medication logs" },
+  { id: "progress", label: "Progress", detail: "Progress measurements and progress photo records" },
+  { id: "agent", label: "Agent Chats", detail: "Chat sessions, messages, and chat attachments" },
+  { id: "reviews", label: "Reviews & Reports", detail: "Review inbox items and issue reports" },
+  { id: "integrations", label: "Integrations", detail: "Connected OAuth accounts and Telegram link settings" },
+] as const;
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [activityItems, setActivityItems] = useState<any[]>([]);
@@ -52,6 +74,10 @@ export default function ProfilePage() {
   const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetFeatures, setResetFeatures] = useState<string[]>([]);
+  const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
@@ -173,6 +199,50 @@ export default function ProfilePage() {
       window.location.href = "/signup";
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const toggleResetFeature = (feature: string, checked: boolean) => {
+    setResetFeatures((current) => {
+      if (checked) return Array.from(new Set([...current, feature]));
+      return current.filter((item) => item !== feature);
+    });
+  };
+
+  const toggleAllResetFeatures = (checked: boolean) => {
+    setResetFeatures(checked ? RESET_FEATURE_OPTIONS.map((feature) => feature.id) : []);
+  };
+
+  const handleResetSelectedData = async () => {
+    if (resetFeatures.length === 0) {
+      toast.error("Select at least one feature to reset");
+      return;
+    }
+    if (resetConfirm !== "RESET") {
+      toast.error("Type RESET to confirm");
+      return;
+    }
+    setResetting(true);
+    try {
+      const res = await fetch("/api/profile/reset-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ features: resetFeatures }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to reset selected data");
+        return;
+      }
+      toast.success("Selected feature data reset");
+      setResetOpen(false);
+      setResetConfirm("");
+      setResetFeatures([]);
+      window.location.reload();
+    } catch {
+      toast.error("Failed to reset selected data");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -618,6 +688,25 @@ export default function ProfilePage() {
         </TabsContent>
 
         <TabsContent value="danger" className="space-y-6">
+      <FadeIn delay={0.25}>
+        <Card className="border-amber-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-500">
+              <RefreshCw className="h-5 w-5" />
+              Reset Feature Data
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Choose one or more features to clear. This keeps your account and login intact.
+            </p>
+            <Button type="button" variant="outline" onClick={() => setResetOpen(true)}>
+              <RefreshCw className="mr-2 h-4 w-4" />
+              Reset Selected Features
+            </Button>
+          </CardContent>
+        </Card>
+      </FadeIn>
       <FadeIn delay={0.3}>
         <Card className="border-destructive/30">
           <CardHeader>
@@ -643,6 +732,68 @@ export default function ProfilePage() {
       </FadeIn>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={resetOpen} onOpenChange={(open) => !resetting && setResetOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Feature Data</DialogTitle>
+            <DialogDescription>
+              Select the features you want to clear. This cannot be undone, but it will not delete your account.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <label className="flex items-start gap-3 rounded-lg border border-border bg-muted/30 p-3">
+              <Checkbox
+                checked={resetFeatures.length === RESET_FEATURE_OPTIONS.length}
+                onCheckedChange={(checked) => toggleAllResetFeatures(checked === true)}
+                className="mt-0.5"
+              />
+              <span className="min-w-0">
+                <span className="block font-semibold">All features</span>
+                <span className="block text-sm text-muted-foreground">Clear every feature group below while keeping the account.</span>
+              </span>
+            </label>
+            <div className="grid max-h-[45svh] gap-2 overflow-y-auto pr-1 ios-scroll">
+              {RESET_FEATURE_OPTIONS.map((feature) => (
+                <label key={feature.id} className="flex items-start gap-3 rounded-lg border border-border p-3">
+                  <Checkbox
+                    checked={resetFeatures.includes(feature.id)}
+                    onCheckedChange={(checked) => toggleResetFeature(feature.id, checked === true)}
+                    className="mt-0.5"
+                  />
+                  <span className="min-w-0">
+                    <span className="block font-medium">{feature.label}</span>
+                    <span className="block text-sm text-muted-foreground">{feature.detail}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            <div>
+              <Label>Type RESET to confirm</Label>
+              <Input
+                value={resetConfirm}
+                onChange={(e) => setResetConfirm(e.target.value)}
+                className="mt-1"
+                placeholder="RESET"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setResetOpen(false)} disabled={resetting}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleResetSelectedData}
+              loading={resetting}
+              disabled={resetFeatures.length === 0 || resetConfirm !== "RESET" || resetting}
+            >
+              Reset Data
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { listFirestoreChatSessions, pruneFirestoreChatRetention } from "@/lib/firestore-chat";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -68,43 +69,10 @@ async function runRetentionCleanup() {
   "use server";
   const admin = await requireAdminUser();
   if (!admin) return;
-  const now = new Date();
-  const imageCutoff = new Date(now.getTime() - 5 * 86_400_000);
   const users = await prisma.user.findMany({ select: { id: true }, take: 500 });
 
   for (const user of users) {
-    const sessions = await prisma.chatSession.findMany({
-      where: { userId: user.id },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true },
-    });
-    const oldSessionIds = sessions.slice(7).map((session) => session.id);
-    if (oldSessionIds.length) {
-      await prisma.chatSession.deleteMany({ where: { userId: user.id, id: { in: oldSessionIds } } });
-    }
-
-    for (const session of sessions.slice(0, 7)) {
-      const oldMessages = await prisma.chatMessage.findMany({
-        where: { userId: user.id, sessionId: session.id },
-        orderBy: { createdAt: "desc" },
-        skip: 10,
-        select: { id: true },
-      });
-      const oldMessageIds = oldMessages.map((message) => message.id);
-      if (!oldMessageIds.length) continue;
-      await prisma.chatAttachment.deleteMany({ where: { userId: user.id, messageId: { in: oldMessageIds } } });
-      await prisma.chatMessage.deleteMany({ where: { userId: user.id, id: { in: oldMessageIds } } });
-    }
-
-    await prisma.chatAttachment.updateMany({
-      where: {
-        userId: user.id,
-        deletedAt: null,
-        imageData: { not: null },
-        OR: [{ expiresAt: { lte: now } }, { createdAt: { lt: imageCutoff } }],
-      },
-      data: { imageData: null, deletedAt: now },
-    });
+    await pruneFirestoreChatRetention(user.id, 7, 10);
   }
 
   revalidatePath("/admin");
@@ -114,7 +82,7 @@ export default async function AdminPage() {
   const admin = await requireAdminUser();
   if (!admin) redirect("/dashboard");
 
-  const [users, totals, spendTotals, moneyLinkTotals, issueReports, recentSpends, activeChatUsers, recentWorkoutLogs, pendingExercises] = await Promise.all([
+  const [users, totals, spendTotals, moneyLinkTotals, issueReports, recentSpends, recentWorkoutLogs, pendingExercises] = await Promise.all([
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -138,7 +106,6 @@ export default async function AdminPage() {
         },
         _count: {
           select: {
-            chatMessages: true,
             workoutLogs: true,
             workoutTemplates: true,
             foodLogs: true,
@@ -172,12 +139,6 @@ export default async function AdminPage() {
       take: 8,
       select: { id: true, merchant: true, amount: true, currency: true, source: true, createdAt: true, user: { select: { name: true, email: true } } },
     }),
-    prisma.chatMessage.groupBy({
-      by: ["userId"],
-      _count: { id: true },
-      orderBy: { _count: { id: "desc" } },
-      take: 5,
-    }),
     prisma.workoutLog.findMany({
       orderBy: { createdAt: "desc" },
       take: 6,
@@ -197,7 +158,6 @@ export default async function AdminPage() {
   const openIssues = issueReports.filter((issue) => issue.status === "open").length;
   const totalActivity = users.reduce((sum, user) => (
     sum +
-    user._count.chatMessages +
     user._count.workoutLogs +
     user._count.foodLogs +
     user._count.spends +
@@ -205,14 +165,19 @@ export default async function AdminPage() {
     user._count.medications +
     user._count.progressEntries
   ), 0);
-  const activeChatUserIds = new Set(activeChatUsers.map((entry) => entry.userId));
-  const topActiveUsers = users
-    .filter((user) => activeChatUserIds.has(user.id))
-    .map((user) => ({
-      ...user,
-      chatCount: activeChatUsers.find((entry) => entry.userId === user.id)?._count.id ?? 0,
-    }))
-    .sort((a, b) => b.chatCount - a.chatCount);
+  const usersWithChatCounts = await Promise.all(
+    users.map(async (user) => {
+      const sessions = await listFirestoreChatSessions(user.id, 0, 7).catch(() => []);
+      return {
+        ...user,
+        chatCount: sessions.reduce((sum, session) => sum + (session.messageCount ?? 0), 0),
+      };
+    })
+  );
+  const topActiveUsers = usersWithChatCounts
+    .filter((user) => user.chatCount > 0)
+    .sort((a, b) => b.chatCount - a.chatCount)
+    .slice(0, 5);
   const reviewQueue = [
     ...pendingExercises.map((exercise) => ({
       id: exercise.id,
@@ -467,11 +432,11 @@ export default async function AdminPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => {
+              {usersWithChatCounts.map((user) => {
                 const providers = user.accounts.map((account) => account.provider);
                 const profileReady = Boolean(user.profile?.age && user.profile?.weight && user.profile?.height);
                 const totalActivity =
-                  user._count.chatMessages +
+                  user.chatCount +
                   user._count.workoutLogs +
                   user._count.foodLogs +
                   user._count.spends +
@@ -504,7 +469,7 @@ export default async function AdminPage() {
                     <TableCell>
                       <div className="grid gap-1 text-xs text-muted-foreground">
                         <span>{totalActivity} total records</span>
-                        <span>{user._count.chatMessages} chats, {user._count.spends} spends</span>
+                        <span>{user.chatCount} chats, {user._count.spends} spends</span>
                         <span>{user._count.workoutLogs} workouts, {user._count.foodLogs} meals</span>
                       </div>
                     </TableCell>

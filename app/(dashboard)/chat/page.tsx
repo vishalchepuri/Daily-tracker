@@ -31,6 +31,7 @@ export default function ChatPage() {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
+  const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
   const [listening, setListening] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -244,6 +245,28 @@ export default function ChatPage() {
     reader.readAsDataURL(file);
   }, []);
 
+  const loadAttachmentImage = useCallback(async (messageId: string, attachment: any) => {
+    if (!activeSessionId || !attachment?.id || attachment?.url || attachment?.deleted) return;
+    setLoadingAttachmentId(attachment.id);
+    try {
+      const params = new URLSearchParams({ sessionId: activeSessionId, attachmentId: attachment.id });
+      const res = await fetch(`/api/chat/attachments?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error ?? "Could not load image");
+      setMessages((prev) => prev.map((message) => {
+        if (message.id !== messageId) return message;
+        return {
+          ...message,
+          attachments: (message.attachments ?? []).map((item: any) => item.id === attachment.id ? { ...item, ...data } : item),
+        };
+      }));
+    } catch (error: any) {
+      toast.error(error?.message ?? "Could not load image");
+    } finally {
+      setLoadingAttachmentId(null);
+    }
+  }, [activeSessionId]);
+
   const toggleVoiceInput = useCallback(() => {
     if (streaming) return;
 
@@ -449,9 +472,19 @@ export default function ChatPage() {
                     className="mb-2 max-h-48 w-full rounded-md object-cover"
                   />
                 )}
+                {!msg?.imageDataUrl && !msg?.attachments?.[0]?.url && msg?.attachments?.[0]?.hasImage && (
+                  <button
+                    type="button"
+                    className="mb-2 flex w-full items-center justify-center rounded-md border border-dashed border-border bg-background/40 px-3 py-4 text-xs text-muted-foreground hover:bg-background"
+                    onClick={() => loadAttachmentImage(msg.id, msg.attachments[0])}
+                    disabled={loadingAttachmentId === msg.attachments[0].id}
+                  >
+                    {loadingAttachmentId === msg.attachments[0].id ? "Loading image..." : "Tap to load image"}
+                  </button>
+                )}
                 {!msg?.imageDataUrl && msg?.attachments?.[0]?.deleted && (
                   <div className="mb-2 rounded-md border border-dashed border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
-                    {msg.attachments[0].deletedReason || "Image deleted from database"}
+                    {msg.attachments[0].deletedReason || "Image expired"}
                   </div>
                 )}
                 {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}

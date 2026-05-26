@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { listRecentAssistantChatMessages } from "@/lib/firestore-chat";
 
 function formatAmount(currency: string | null | undefined, value: number | null | undefined) {
   if (value == null) return undefined;
@@ -60,12 +61,7 @@ export async function GET() {
         take: 12,
         select: { id: true, status: true, scheduledFor: true, createdAt: true, medication: { select: { name: true } } },
       }),
-      prisma.chatMessage.findMany({
-        where: { userId, role: "assistant", createdAt: { gte: activitySince } },
-        orderBy: { createdAt: "desc" },
-        take: 10,
-        select: { id: true, content: true, createdAt: true },
-      }),
+      listRecentAssistantChatMessages(userId, activitySince, 10),
     ]);
 
     const items = [

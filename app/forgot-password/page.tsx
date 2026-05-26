@@ -21,6 +21,7 @@ export default function ForgotPasswordPage() {
     try {
       await sendPasswordResetEmail(getFirebaseClientAuth(), email.trim().toLowerCase(), {
         url: `${window.location.origin}/login`,
+        handleCodeInApp: false,
       });
       toast.success("Password reset email sent");
     } catch {

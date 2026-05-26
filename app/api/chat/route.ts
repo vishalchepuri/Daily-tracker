@@ -2,6 +2,14 @@ export const dynamic = "force-dynamic";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import {
+  addFirestoreChatAttachment,
+  addFirestoreChatMessage,
+  getOrCreateFirestoreChatSession,
+  listFirestoreChatMessages,
+  pruneFirestoreChatRetention,
+} from "@/lib/firestore-chat";
+import { uploadBuffer } from "@/lib/s3";
 
 const CHAT_IMAGE_RETENTION_DAYS = 5;
 const CHAT_SESSION_RETENTION_LIMIT = 7;
@@ -273,50 +281,11 @@ function attachmentUrl(attachment: any, now: Date) {
 }
 
 async function getOrCreateChatSession(userId: string, sessionId?: string | null, titleSeed?: string) {
-  if (sessionId) {
-    const existing = await prisma.chatSession.findFirst({ where: { id: sessionId, userId } });
-    if (existing) return existing;
-  }
-
-  const title = titleSeed?.trim()
-    ? titleSeed.trim().replace(/\s+/g, " ").slice(0, 48)
-    : "New chat";
-  return prisma.chatSession.create({ data: { userId, title } });
+  return getOrCreateFirestoreChatSession(userId, sessionId, titleSeed);
 }
 
 async function pruneChatRetention(userId: string) {
-  const sessions = await prisma.chatSession.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true },
-  });
-
-  const keptSessionIds = sessions.slice(0, CHAT_SESSION_RETENTION_LIMIT).map((session) => session.id);
-  const oldSessionIds = sessions.slice(CHAT_SESSION_RETENTION_LIMIT).map((session) => session.id);
-
-  if (oldSessionIds.length > 0) {
-    await prisma.chatSession.deleteMany({ where: { userId, id: { in: oldSessionIds } } });
-  }
-
-  for (const sessionId of keptSessionIds) {
-    const oldMessages = await prisma.chatMessage.findMany({
-      where: { userId, sessionId },
-      orderBy: { createdAt: "desc" },
-      skip: CHAT_MESSAGES_PER_SESSION_LIMIT,
-      select: { id: true },
-    });
-    const oldMessageIds = oldMessages.map((message) => message.id);
-    if (oldMessageIds.length === 0) continue;
-
-    await prisma.chatAttachment.deleteMany({ where: { userId, messageId: { in: oldMessageIds } } });
-    await prisma.chatMessage.deleteMany({ where: { userId, id: { in: oldMessageIds } } });
-  }
-
-  const now = new Date();
-  await prisma.chatAttachment.updateMany({
-    where: { userId, deletedAt: null, expiresAt: { lte: now }, imageData: { not: null } },
-    data: { imageData: null, deletedAt: now },
-  });
+  await pruneFirestoreChatRetention(userId, CHAT_SESSION_RETENTION_LIMIT, CHAT_MESSAGES_PER_SESSION_LIMIT);
 }
 
 function slugify(value: string) {
@@ -1076,30 +1045,9 @@ export async function GET(req: Request) {
     const sessionId = searchParams.get("sessionId");
     const chatSession = sessionId ? await getOrCreateChatSession(userId, sessionId) : null;
     await pruneChatRetention(userId);
-    const now = new Date();
-    const messages = await prisma.chatMessage.findMany({
-      where: chatSession ? { userId, sessionId: chatSession.id } : { userId, sessionId: null },
-      include: { attachments: true },
-      orderBy: { createdAt: "desc" },
-      take: CHAT_MESSAGES_PER_SESSION_LIMIT,
-    });
-    const messagesWithUrls = await Promise.all(
-      messages.reverse().map(async (message) => ({
-        ...message,
-        attachments: await Promise.all(
-          message.attachments.map(async (attachment) => {
-            const rendered = attachmentUrl(attachment, now);
-            return {
-              ...attachment,
-              imageData: undefined,
-              url: rendered.url,
-              deleted: rendered.deleted,
-              deletedReason: rendered.deletedReason,
-            };
-          })
-        ),
-      }))
-    );
+    const messagesWithUrls = chatSession
+      ? await listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT)
+      : [];
     return new Response(JSON.stringify({ session: chatSession, messages: messagesWithUrls }), {
       headers: { "Content-Type": "application/json" },
     });
@@ -1131,13 +1079,11 @@ export async function POST(req: Request) {
     }
 
     const chatSession = await getOrCreateChatSession(userId, sessionId, message || "Image chat");
-    const userMessage = await prisma.chatMessage.create({
-      data: {
-        userId,
-        sessionId: chatSession.id,
-        role: "user",
-        content: hasImage ? `${message || "Analyze this food photo."}\n[Food photo attached]` : message,
-      },
+    const userMessage = await addFirestoreChatMessage({
+      userId,
+      sessionId: chatSession.id,
+      role: "user",
+      content: hasImage ? `${message || "Analyze this food photo."}\n[Image attached]` : message,
     });
 
     if (hasImage) {
@@ -1147,15 +1093,19 @@ export async function POST(req: Request) {
           if (parsedImage.buffer.byteLength > MAX_CHAT_IMAGE_BYTES) {
             throw new Error("Image is too large. Please upload an image under 2 MB.");
           }
-          await prisma.chatAttachment.create({
-            data: {
-              userId,
-              sessionId: chatSession.id,
-              messageId: userMessage.id,
-              mimeType: parsedImage.mimeType,
-              imageData: parsedImage.buffer,
-              expiresAt: chatImageExpiry(),
-            },
+          const cloudStoragePath = await uploadBuffer(
+            `chat-${userMessage.id}.${parsedImage.extension}`,
+            parsedImage.mimeType,
+            parsedImage.buffer,
+            `uploads/chat/${userId}`
+          );
+          await addFirestoreChatAttachment({
+            userId,
+            sessionId: chatSession.id,
+            messageId: userMessage.id,
+            mimeType: parsedImage.mimeType,
+            cloudStoragePath,
+            expiresAt: chatImageExpiry(),
           });
         } catch (error) {
           console.error("Chat image upload failed", error);
@@ -1223,18 +1173,13 @@ export async function POST(req: Request) {
           orderBy: [{ settled: "asc" }, { date: "desc" }],
           take: 10,
         }),
-        prisma.chatMessage.findMany({
-          where: { userId, sessionId: chatSession.id },
-          orderBy: { createdAt: "desc" },
-          take: CHAT_MESSAGES_PER_SESSION_LIMIT,
-        }),
+        listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
       ]);
 
     if (isWorkoutPlanIntent(message) && !hasKnownAnswer(profile?.healthLimitations)) {
       const content =
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
-      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
-      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
@@ -1242,8 +1187,7 @@ export async function POST(req: Request) {
     if (isFoodPlanIntent(message) && !hasKnownAnswer(profile?.foodAllergies)) {
       const content =
         "Before I suggest a food or meal plan, do you have any food allergies, intolerances, or foods you avoid? If none, say “none.”";
-      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
-      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
@@ -1251,8 +1195,7 @@ export async function POST(req: Request) {
     if ((isWorkoutPlanIntent(message) || isFoodPlanIntent(message)) && !hasTimelineAnswer(profile?.goalTimelineDays) && !messageIncludesTimeline(message)) {
       const content =
         "In how many days or weeks do you want to see changes, and what exact result are you aiming for? For example: visible muscle gain in 8 weeks, lose 4 kg in 10 weeks, or improve strength in 12 weeks.";
-      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content } });
-      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
@@ -1478,7 +1421,7 @@ Available action examples:
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: `Dashboard context:\n${JSON.stringify(context)}` },
-          ...recentChat.reverse().map((m: any) => ({
+          ...recentChat.map((m: any) => ({
             role: m.role === "assistant" ? "assistant" : "user",
             content: m.content ?? "",
           })),
@@ -1515,8 +1458,7 @@ Available action examples:
         actionLabel: "Add card last 4",
         payload: { action, rawMessage: message },
       });
-      await prisma.chatMessage.create({ data: { userId, sessionId: chatSession.id, role: "assistant", content: blocker } });
-      await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content: blocker });
       await pruneChatRetention(userId);
       return streamSingleMessage(blocker);
     }
@@ -1534,10 +1476,7 @@ Available action examples:
         : "";
     const fullContent = `${agentResult.response ?? "Done."}${actionSummary}`;
 
-    await prisma.chatMessage.create({
-      data: { userId, sessionId: chatSession.id, role: "assistant", content: fullContent },
-    });
-    await prisma.chatSession.update({ where: { id: chatSession.id }, data: { updatedAt: new Date() } });
+    await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content: fullContent });
     await pruneChatRetention(userId);
 
     const stream = new ReadableStream({

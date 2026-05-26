@@ -2,10 +2,15 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
-import { deleteFile } from "@/lib/s3";
+import {
+  createFirestoreChatSession,
+  deleteFirestoreChatSession,
+  listFirestoreChatSessions,
+  pruneFirestoreChatRetention,
+} from "@/lib/firestore-chat";
 
 const CHAT_SESSION_RETENTION_LIMIT = 7;
+const CHAT_MESSAGES_PER_SESSION_LIMIT = 10;
 
 async function getUserId() {
   const user = await requireCurrentUser();
@@ -13,16 +18,7 @@ async function getUserId() {
 }
 
 async function pruneOldChatSessions(userId: string) {
-  const oldSessions = await prisma.chatSession.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-    skip: CHAT_SESSION_RETENTION_LIMIT,
-    select: { id: true },
-  });
-  const oldSessionIds = oldSessions.map((session) => session.id);
-  if (oldSessionIds.length > 0) {
-    await prisma.chatSession.deleteMany({ where: { userId, id: { in: oldSessionIds } } });
-  }
+  await pruneFirestoreChatRetention(userId, CHAT_SESSION_RETENTION_LIMIT, CHAT_MESSAGES_PER_SESSION_LIMIT);
 }
 
 export async function GET(req: Request) {
@@ -37,22 +33,18 @@ export async function GET(req: Request) {
   const requestedLimit = Math.min(30, Math.max(5, Number(searchParams.get("limit") ?? 10) || 10));
   const limit = Math.min(requestedLimit, CHAT_SESSION_RETENTION_LIMIT - offset);
 
-  const sessions = await prisma.chatSession.findMany({
-    where: { userId },
-    include: {
-      _count: { select: { messages: true } },
-      messages: { orderBy: { createdAt: "desc" }, take: 1, select: { content: true } },
-    },
-    orderBy: { updatedAt: "desc" },
-    skip: offset,
-    take: limit + 1,
-  });
+  const sessions = await listFirestoreChatSessions(userId, offset, limit);
+  const sessionsForClient = sessions.map((session) => ({
+    ...session,
+    _count: { messages: session.messageCount ?? 0 },
+    messages: session.lastMessage ? [{ content: session.lastMessage }] : [],
+  }));
 
-  const returnedCount = Math.min(sessions.length, limit);
+  const returnedCount = Math.min(sessionsForClient.length, limit);
   return NextResponse.json({
-    sessions: sessions.slice(0, limit),
+    sessions: sessionsForClient.slice(0, limit),
     nextOffset: offset + returnedCount,
-    hasMore: sessions.length > limit && offset + returnedCount < CHAT_SESSION_RETENTION_LIMIT,
+    hasMore: sessionsForClient.length > limit && offset + returnedCount < CHAT_SESSION_RETENTION_LIMIT,
   });
 }
 
@@ -62,7 +54,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const title = typeof body.title === "string" && body.title.trim() ? body.title.trim().slice(0, 48) : "New chat";
-  const chat = await prisma.chatSession.create({ data: { userId, title } });
+  const chat = await createFirestoreChatSession(userId, title);
   await pruneOldChatSessions(userId);
   return NextResponse.json({ session: chat });
 }
@@ -75,20 +67,7 @@ export async function DELETE(req: Request) {
   const sessionId = searchParams.get("sessionId");
   if (!sessionId) return NextResponse.json({ error: "sessionId is required" }, { status: 400 });
 
-  const chat = await prisma.chatSession.findFirst({
-    where: { id: sessionId, userId },
-    include: { attachments: true },
-  });
-  if (!chat) return NextResponse.json({ error: "Chat not found" }, { status: 404 });
-
-  for (const attachment of chat.attachments) {
-    if (attachment.cloudStoragePath && attachment.kind !== "telegram_photo") {
-      await deleteFile(attachment.cloudStoragePath).catch((error) => {
-        console.error("Failed to delete chat attachment", attachment.cloudStoragePath, error);
-      });
-    }
-  }
-
-  await prisma.chatSession.delete({ where: { id: sessionId } });
+  const deleted = await deleteFirestoreChatSession(userId, sessionId);
+  if (!deleted) return NextResponse.json({ error: "Chat not found" }, { status: 404 });
   return NextResponse.json({ ok: true });
 }

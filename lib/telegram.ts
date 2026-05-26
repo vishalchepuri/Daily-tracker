@@ -1,4 +1,10 @@
 import { prisma } from "@/lib/db";
+import {
+  addFirestoreChatAttachment,
+  addFirestoreChatMessage,
+  createFirestoreChatSession,
+  listFirestoreChatSessions,
+} from "@/lib/firestore-chat";
 
 export async function sendTelegramMessage(chatId: string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -135,29 +141,24 @@ async function logDietMeal(userId: string, text: string) {
 }
 
 async function getTelegramSession(userId: string) {
-  const existing = await prisma.chatSession.findFirst({
-    where: { userId, title: "Telegram Bot" },
-    orderBy: { updatedAt: "desc" },
-  });
+  const sessions = await listFirestoreChatSessions(userId, 0, 7);
+  const existing = sessions.find((session) => session.title === "Telegram Bot");
   if (existing) return existing;
-  return prisma.chatSession.create({ data: { userId, title: "Telegram Bot" } });
+  return createFirestoreChatSession(userId, "Telegram Bot");
 }
 
 async function saveTelegramChat(userId: string, role: "user" | "assistant", content: string, attachmentFileId?: string | null) {
   const session = await getTelegramSession(userId);
-  const message = await prisma.chatMessage.create({ data: { userId, sessionId: session.id, role, content: `[Telegram] ${content}` } });
+  const message = await addFirestoreChatMessage({ userId, sessionId: session.id, role, content: `[Telegram] ${content}` });
   if (attachmentFileId) {
-    await prisma.chatAttachment.create({
-      data: {
-        userId,
-        sessionId: session.id,
-        messageId: message.id,
-        kind: "telegram_photo",
-        cloudStoragePath: attachmentFileId,
-      },
+    await addFirestoreChatAttachment({
+      userId,
+      sessionId: session.id,
+      messageId: message.id,
+      kind: "telegram_photo",
+      cloudStoragePath: attachmentFileId,
     });
   }
-  await prisma.chatSession.update({ where: { id: session.id }, data: { updatedAt: new Date() } });
 }
 
 async function telegramPhotoDataUrl(fileId: string) {

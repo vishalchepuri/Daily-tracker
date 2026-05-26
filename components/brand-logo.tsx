@@ -7,9 +7,9 @@ type BrandLogoProps = {
 };
 
 const sizes = {
-  sm: { mark: "h-9 w-9", text: "text-lg" },
-  md: { mark: "h-10 w-10", text: "text-2xl" },
-  lg: { mark: "h-12 w-12", text: "text-3xl" },
+  sm: { mark: "h-9 w-9", text: "text-lg", px: 36, icon: 24 },
+  md: { mark: "h-10 w-10", text: "text-2xl", px: 40, icon: 27 },
+  lg: { mark: "h-12 w-12", text: "text-3xl", px: 48, icon: 33 },
 };
 
 export function BrandLogo({ size = "md", showText = true, className }: BrandLogoProps) {
@@ -22,11 +22,20 @@ export function BrandLogo({ size = "md", showText = true, className }: BrandLogo
           "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#06101d] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14),0_10px_30px_rgba(34,197,94,0.2)]",
           currentSize.mark
         )}
+        style={{ width: currentSize.px, height: currentSize.px }}
         aria-hidden="true"
       >
         <div className="absolute inset-0 bg-[linear-gradient(145deg,#052e2b_0%,#047857_48%,#22c55e_100%)]" />
         <div className="absolute inset-[3px] rounded-[11px] bg-[#020817]/18" />
-        <svg viewBox="0 0 64 64" className="relative h-[68%] w-[68%]" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <svg
+          viewBox="0 0 64 64"
+          className="relative h-[68%] w-[68%]"
+          width={currentSize.icon}
+          height={currentSize.icon}
+          style={{ width: currentSize.icon, height: currentSize.icon }}
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
           <defs>
             <linearGradient id="logo-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
               <stop offset="0%" stopColor="#10B981" />

@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-storage";
+import { getBlockedEmailMessage, isBlockedEmailDomain } from "@/lib/email-domain-guard";
 
 const SESSION_COOKIE_NAME = "dayza_firebase_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -14,6 +15,13 @@ export async function POST(req: Request) {
     const auth = getAuth(getFirebaseAdminApp());
     const decoded = await auth.verifyIdToken(idToken);
     if (!decoded?.uid) return NextResponse.json({ error: "Invalid Firebase token" }, { status: 401 });
+    if (decoded.email && isBlockedEmailDomain(decoded.email)) {
+      return NextResponse.json({ error: getBlockedEmailMessage(decoded.email) }, { status: 403 });
+    }
+    const signInProvider = decoded.firebase?.sign_in_provider;
+    if (signInProvider === "password" && !decoded.email_verified) {
+      return NextResponse.json({ error: "Email address is not verified" }, { status: 401 });
+    }
 
     const sessionCookie = await auth.createSessionCookie(idToken, {
       expiresIn: SESSION_MAX_AGE_SECONDS * 1000,
