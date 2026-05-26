@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
-import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
+import { getFirebaseActionContinueUrl, getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { GoogleAuthProvider, sendEmailVerification, signInWithEmailAndPassword, signInWithPopup, type User } from "firebase/auth";
 
 export default function LoginPage() {
@@ -85,8 +85,9 @@ export default function LoginPage() {
         toast.error("Enter your email and password, then sign in once to resend the link.");
         return;
       }
+      const verificationEmail = user.email ?? email.trim().toLowerCase();
       await sendEmailVerification(user, {
-        url: `${window.location.origin}/login`,
+        url: getFirebaseActionContinueUrl(`/login?verifyEmail=${encodeURIComponent(verificationEmail)}`),
         handleCodeInApp: true,
       });
       toast.success("Verification email sent");

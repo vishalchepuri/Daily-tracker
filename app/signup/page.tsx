@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
-import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
+import { getFirebaseActionContinueUrl, getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { FirebaseError } from "firebase/app";
 import { GoogleAuthProvider, createUserWithEmailAndPassword, signInWithPopup, updateProfile, sendEmailVerification } from "firebase/auth";
 
@@ -146,7 +146,7 @@ export default function SignupPage() {
       setSignupStep("sending-verification");
       if (!credential.user.emailVerified) {
         await sendEmailVerification(credential.user, {
-          url: `${window.location.origin}/login`,
+          url: getFirebaseActionContinueUrl(`/login?verifyEmail=${encodeURIComponent(normalizedEmail)}`),
           handleCodeInApp: true,
         });
       }

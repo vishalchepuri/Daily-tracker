@@ -13,6 +13,14 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
+export function getFirebaseActionContinueUrl(path = "/login") {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    || (typeof window !== "undefined" ? window.location.origin : "");
+
+  if (!baseUrl) return path;
+  return new URL(path, baseUrl).toString();
+}
+
 export function hasFirebaseClientConfig() {
   return Boolean(
     firebaseConfig.apiKey &&
