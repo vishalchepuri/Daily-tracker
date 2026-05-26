@@ -18,7 +18,8 @@ export function getFirebaseActionContinueUrl(path = "/login") {
     || (typeof window !== "undefined" ? window.location.origin : "");
 
   if (!baseUrl) return path;
-  return new URL(path, baseUrl).toString();
+  const url = new URL(path, baseUrl);
+  return `${url.origin}${url.pathname}`;
 }
 
 export function hasFirebaseClientConfig() {

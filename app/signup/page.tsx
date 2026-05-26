@@ -146,8 +146,8 @@ export default function SignupPage() {
       setSignupStep("sending-verification");
       if (!credential.user.emailVerified) {
         await sendEmailVerification(credential.user, {
-          url: getFirebaseActionContinueUrl(`/login?verifyEmail=${encodeURIComponent(normalizedEmail)}`),
-          handleCodeInApp: true,
+          url: getFirebaseActionContinueUrl("/login"),
+          handleCodeInApp: false,
         });
       }
       toast.success("Account created. Please verify your email before signing in.");

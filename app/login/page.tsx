@@ -85,10 +85,9 @@ export default function LoginPage() {
         toast.error("Enter your email and password, then sign in once to resend the link.");
         return;
       }
-      const verificationEmail = user.email ?? email.trim().toLowerCase();
       await sendEmailVerification(user, {
-        url: getFirebaseActionContinueUrl(`/login?verifyEmail=${encodeURIComponent(verificationEmail)}`),
-        handleCodeInApp: true,
+        url: getFirebaseActionContinueUrl("/login"),
+        handleCodeInApp: false,
       });
       toast.success("Verification email sent");
     } catch (error: any) {
