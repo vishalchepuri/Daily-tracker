@@ -27,7 +27,7 @@ function getSignupErrorMessage(error: unknown) {
       case "auth/network-request-failed":
         return "Network error while creating the account. Please try again.";
       default:
-        return error.message || "Signup failed";
+        return `${error.code}: ${error.message || "Signup failed"}`;
     }
   }
   return "Signup failed";
@@ -209,7 +209,6 @@ export default function SignupPage() {
                     className={`pl-10 ${nameError ? "border-destructive pr-10 text-destructive focus-visible:ring-destructive" : ""}`}
                     minLength={2}
                     maxLength={60}
-                    pattern="[A-Za-z][A-Za-z .'-]*[A-Za-z]"
                     autoComplete="name"
                     required
                   />

@@ -15,9 +15,9 @@ const firebaseConfig = {
 
 export function getFirebaseActionContinueUrl(path = "/login") {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    || "https://dayza.site"
     || (typeof window !== "undefined" ? window.location.origin : "");
 
-  if (!baseUrl) return path;
   const url = new URL(path, baseUrl);
   return `${url.origin}${url.pathname}`;
 }

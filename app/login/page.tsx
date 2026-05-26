@@ -68,7 +68,12 @@ export default function LoginPage() {
       const started = await startAppSessionFromFirebase(firebaseIdToken);
       if (!started) setLoading(false);
     } catch (err: any) {
-      const message = err?.code === "auth/invalid-credential" ? "Invalid email or password" : "Login failed";
+      let message = "Login failed";
+      if (err?.code === "auth/invalid-credential") {
+        message = "User doesn't exist. Please create an account.";
+      } else if (err?.code === "auth/too-many-requests") {
+        message = "Too many login attempts. Please try again later.";
+      }
       setAuthError(message);
       toast.error(message);
       setLoading(false);
