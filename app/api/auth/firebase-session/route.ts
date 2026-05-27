@@ -3,9 +3,22 @@ import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-storage";
 import { getBlockedEmailMessage, isBlockedEmailDomain } from "@/lib/email-domain-guard";
+import { prisma } from "@/lib/db";
 
 const SESSION_COOKIE_NAME = "dayza_firebase_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+function shouldUseSecureCookie(req: Request) {
+  const host = req.headers.get("host") ?? "";
+  const forwardedProto = req.headers.get("x-forwarded-proto") ?? "";
+  const requestProto = new URL(req.url).protocol.replace(":", "");
+  const isLocalhost = /(^localhost(:\d+)?$)|(^127\.0\.0\.1(:\d+)?$)|(^\[::1\](:\d+)?$)/i.test(host);
+  return !isLocalhost && (process.env.NODE_ENV === "production" || forwardedProto.split(",")[0]?.trim() === "https" || requestProto === "https");
+}
+
+function normalizeEmail(email?: string | null) {
+  return email?.trim().toLowerCase() || null;
+}
 
 export async function POST(req: Request) {
   try {
@@ -22,6 +35,38 @@ export async function POST(req: Request) {
     if (signInProvider === "password" && !decoded.email_verified) {
       return NextResponse.json({ error: "Email address is not verified" }, { status: 401 });
     }
+    const email = normalizeEmail(decoded.email);
+    if (!email) return NextResponse.json({ error: "Firebase account does not include an email address" }, { status: 401 });
+
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: {
+        name: decoded.name ?? undefined,
+      },
+      create: {
+        email,
+        name: decoded.name ?? email.split("@")[0],
+      },
+      select: { id: true },
+    });
+
+    if (signInProvider === "google.com") {
+      await prisma.account.upsert({
+        where: {
+          provider_providerAccountId: {
+            provider: "google",
+            providerAccountId: decoded.uid,
+          },
+        },
+        update: { userId: user.id },
+        create: {
+          userId: user.id,
+          type: "oauth",
+          provider: "google",
+          providerAccountId: decoded.uid,
+        },
+      });
+    }
 
     const sessionCookie = await auth.createSessionCookie(idToken, {
       expiresIn: SESSION_MAX_AGE_SECONDS * 1000,
@@ -30,7 +75,7 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ ok: true });
     res.cookies.set(SESSION_COOKIE_NAME, sessionCookie, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: shouldUseSecureCookie(req),
       sameSite: "lax",
       path: "/",
       maxAge: SESSION_MAX_AGE_SECONDS,
@@ -47,11 +92,11 @@ export async function POST(req: Request) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(req: Request) {
   const res = NextResponse.json({ ok: true });
   res.cookies.set(SESSION_COOKIE_NAME, "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: shouldUseSecureCookie(req),
     sameSite: "lax",
     path: "/",
     maxAge: 0,

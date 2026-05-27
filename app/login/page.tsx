@@ -30,6 +30,7 @@ export default function LoginPage() {
     const res = await fetch("/api/auth/firebase-session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify({ idToken: firebaseIdToken }),
     });
     if (!res.ok) {
@@ -44,6 +45,7 @@ export default function LoginPage() {
     }
     setAuthError(null);
     router.replace("/dashboard");
+    router.refresh();
     return true;
   };
 

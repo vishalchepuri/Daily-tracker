@@ -100,6 +100,7 @@ export default function SignupPage() {
         const res = await fetch("/api/auth/firebase-session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
           body: JSON.stringify({ idToken: firebaseIdToken }),
         });
         if (!res.ok) {
@@ -109,6 +110,7 @@ export default function SignupPage() {
           return;
         }
         router.replace("/dashboard");
+        router.refresh();
       } catch (error: any) {
         if (cancelled) return;
         toast.error(getGoogleAuthErrorMessage(error));
@@ -136,6 +138,7 @@ export default function SignupPage() {
       const res = await fetch("/api/auth/firebase-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ idToken: firebaseIdToken }),
       });
       if (!res.ok) {
@@ -145,6 +148,7 @@ export default function SignupPage() {
         return;
       }
       router.replace("/dashboard");
+      router.refresh();
     } catch (error: any) {
       window.sessionStorage.removeItem("dayza_google_terms_accepted");
       toast.error(getGoogleAuthErrorMessage(error));
