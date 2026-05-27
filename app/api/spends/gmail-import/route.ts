@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import { createReviewItemOnce } from "@/lib/firestore-app-data";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
@@ -258,28 +259,6 @@ async function gmailFetch(account: any, url: string) {
 
   res = await fetch(url, { headers: { Authorization: `Bearer ${refreshed.access_token}` } });
   return { res, account: refreshed };
-}
-
-async function createReviewItemOnce(userId: string, data: { type: string; title: string; detail?: string; priority?: string; payload?: any }) {
-  const existing = await prisma.reviewItem.findFirst({
-    where: {
-      userId,
-      status: "open",
-      type: data.type,
-      title: data.title,
-    },
-  });
-  if (existing) return existing;
-  return prisma.reviewItem.create({
-    data: {
-      userId,
-      type: data.type,
-      title: data.title,
-      detail: data.detail ?? null,
-      priority: data.priority ?? "normal",
-      payload: data.payload ?? undefined,
-    },
-  });
 }
 
 export async function POST(req: Request) {

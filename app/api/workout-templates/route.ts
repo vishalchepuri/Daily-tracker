@@ -10,10 +10,19 @@ export async function GET() {
     const userId = user.id;
     const templates = await prisma.workoutTemplate.findMany({
       where: { userId },
-      include: { exercises: { include: { exercise: true }, orderBy: { orderIndex: "asc" } } },
+      include: {
+        exercises: {
+          orderBy: { orderIndex: "asc" },
+          include: {
+            exercise: {
+              select: { id: true, name: true, muscleGroup: true, equipment: true, category: true, status: true },
+            },
+          },
+        },
+      },
       orderBy: { createdAt: "asc" },
     });
-    return NextResponse.json({ templates });
+    return NextResponse.json({ templates }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=120" } });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }

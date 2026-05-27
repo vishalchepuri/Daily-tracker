@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
+import { dayzaFetch } from "@/lib/firebase-session-client";
 
 declare global {
   interface Window {
@@ -53,7 +54,7 @@ export default function ChatPage() {
     setLoading(true);
     try {
       const url = sessionId ? `/api/chat?sessionId=${encodeURIComponent(sessionId)}` : "/api/chat";
-      const res = await fetch(url);
+      const res = await dayzaFetch(url);
       const data = await readJson(res);
       if (!res.ok) throw new Error(data?.error ?? "Could not load chat messages");
       setMessages(data?.messages ?? []);
@@ -70,7 +71,7 @@ export default function ChatPage() {
     setHistoryLoading(true);
     try {
       const offset = reset ? 0 : historyOffset;
-      const res = await fetch(`/api/chat/sessions?offset=${offset}&limit=10`);
+      const res = await dayzaFetch(`/api/chat/sessions?offset=${offset}&limit=10`);
       const data = await readJson(res);
       if (!res.ok) throw new Error(data?.error ?? "Could not load chat sessions");
       const nextSessions = data?.sessions ?? [];
@@ -109,7 +110,7 @@ export default function ChatPage() {
   }, [messages]);
 
   const createChatSession = useCallback(async (title = "New chat", options: { clearMessages?: boolean; skipAutoLoad?: boolean } = {}) => {
-    const res = await fetch("/api/chat/sessions", {
+    const res = await dayzaFetch("/api/chat/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title }),
@@ -157,7 +158,7 @@ export default function ChatPage() {
         return;
       }
 
-      const res = await fetch("/api/chat", {
+      const res = await dayzaFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMsg, imageDataUrl: attachedImage, sessionId: targetSessionId }),
@@ -237,7 +238,7 @@ export default function ChatPage() {
 
   const deleteChat = useCallback(async (sessionId: string) => {
     if (!confirm("Delete this chat and its images permanently?")) return;
-    const res = await fetch(`/api/chat/sessions?sessionId=${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+    const res = await dayzaFetch(`/api/chat/sessions?sessionId=${encodeURIComponent(sessionId)}`, { method: "DELETE" });
     if (!res.ok) {
       toast.error("Could not delete chat");
       return;
@@ -269,7 +270,7 @@ export default function ChatPage() {
     setLoadingAttachmentId(attachment.id);
     try {
       const params = new URLSearchParams({ sessionId: activeSessionId, attachmentId: attachment.id });
-      const res = await fetch(`/api/chat/attachments?${params.toString()}`);
+      const res = await dayzaFetch(`/api/chat/attachments?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error ?? "Could not load image");
       setMessages((prev) => prev.map((message) => {

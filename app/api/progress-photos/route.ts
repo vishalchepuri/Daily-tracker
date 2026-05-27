@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { createProgressPhotoMetadata, listProgressPhotoMetadata } from "@/lib/firestore-app-data";
 import { getFileUrl } from "@/lib/s3";
 
 export async function GET() {
@@ -9,10 +9,7 @@ export async function GET() {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
-    const photos = await prisma.progressPhoto.findMany({
-      where: { userId },
-      orderBy: { date: "desc" },
-    });
+    const photos = await listProgressPhotoMetadata(userId);
     const photosWithUrls = await Promise.all(
       (photos ?? []).map(async (p: any) => ({
         ...p,
@@ -31,15 +28,7 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const data = await req.json();
-    const photo = await prisma.progressPhoto.create({
-      data: {
-        userId,
-        cloudStoragePath: data.cloudStoragePath,
-        isPublic: data.isPublic ?? false,
-        label: data.label ?? null,
-        date: data.date ? new Date(data.date) : new Date(),
-      },
-    });
+    const photo = await createProgressPhotoMetadata(userId, data);
     return NextResponse.json({ photo });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

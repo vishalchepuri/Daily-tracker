@@ -22,7 +22,6 @@ model User {
   workoutLogs   WorkoutLog[]
   workoutTemplates WorkoutTemplate[]
   progressEntries ProgressEntry[]
-  progressPhotos ProgressPhoto[]
   spends        Spend[]
   financeProfile FinanceProfile?
   bankAccounts   BankAccount[]
@@ -32,10 +31,8 @@ model User {
   reminders     Reminder[]
   medications   Medication[]
   medicationLogs MedicationLog[]
-  issueReports  IssueReport[]
   submittedExercises Exercise[] @relation("SubmittedExercises")
   reviewedExercises Exercise[] @relation("ReviewedExercises")
-  reviewItems   ReviewItem[]
 }
 
 model Account {
@@ -113,6 +110,8 @@ model Exercise {
     exerciseLogs  ExerciseLog[]
     @@index([status, createdAt])
     @@index([submittedById])
+    @@index([muscleGroup, status, name])
+    @@index([status, name])
   }
 
 model WorkoutTemplate {
@@ -129,6 +128,7 @@ model WorkoutTemplate {
   exercises     WorkoutExercise[]
   createdAt     DateTime @default(now())
   @@index([userId])
+  @@index([userId, createdAt])
 }
 
 model WorkoutExercise {
@@ -141,6 +141,7 @@ model WorkoutExercise {
   orderIndex      Int      @default(0)
   workoutTemplate WorkoutTemplate @relation(fields: [workoutTemplateId], references: [id], onDelete: Cascade)
   exercise        Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+  @@index([workoutTemplateId, orderIndex])
 }
 
 model WorkoutLog {
@@ -168,6 +169,7 @@ model ExerciseLog {
   workoutLog    WorkoutLog @relation(fields: [workoutLogId], references: [id], onDelete: Cascade)
   exercise      Exercise   @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
   @@index([workoutLogId])
+  @@index([exerciseId])
 }
 
 model FoodLog {
@@ -223,18 +225,6 @@ model ProgressEntry {
   thighs        Float?   // in cm
   notes         String?
   createdAt     DateTime @default(now())
-  @@index([userId, date])
-}
-
-model ProgressPhoto {
-  id               String   @id @default(cuid())
-  userId           String
-  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date             DateTime @default(now())
-  cloudStoragePath String
-  isPublic         Boolean  @default(false)
-  label            String?  // front, side, back
-  createdAt        DateTime @default(now())
   @@index([userId, date])
 }
 
@@ -326,24 +316,6 @@ model MoneyLink {
   @@index([userId, type, settled])
 }
 
-model ReviewItem {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String
-  title     String
-  detail    String?
-  status    String   @default("open")
-  priority  String   @default("normal")
-  actionLabel String?
-  payload   Json?
-  resolvedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@index([userId, status, createdAt])
-  @@index([userId, type])
-}
-
 model ReminderList {
   id        String   @id @default(cuid())
   userId    String
@@ -422,20 +394,4 @@ model TelegramBotState {
   id        String   @id @default("default")
   offset    Int      @default(0)
   updatedAt DateTime @updatedAt
-}
-
-model IssueReport {
-  id        String   @id @default(cuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  name      String?
-  email     String?
-  page      String?
-  category  String   @default("issue")
-  message   String
-  status    String   @default("open")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  @@index([userId, createdAt])
-  @@index([status, createdAt])
 }

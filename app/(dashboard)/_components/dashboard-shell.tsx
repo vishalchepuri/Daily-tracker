@@ -15,7 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
-import { signOutOfDayza } from "@/lib/firebase-session-client";
+import { ensureDayzaSession, signOutOfDayza } from "@/lib/firebase-session-client";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -152,6 +152,12 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
   }, [pathname, prefersReducedMotion]);
+
+  useEffect(() => {
+    ensureDayzaSession().then((repaired) => {
+      if (repaired) router.refresh();
+    }).catch(() => null);
+  }, [router]);
 
   const goToFeature = (href: string) => {
     setSidebarOpen(false);

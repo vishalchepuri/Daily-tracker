@@ -51,7 +51,24 @@ export async function getDashboardData(userId: string) {
     safeService(null, () =>
       prisma.workoutLog.findFirst({
         where: { userId, date: { gte: startOfDay, lte: endOfDay } },
-        include: { exerciseLogs: { include: { exercise: true } } },
+        select: {
+          id: true,
+          templateName: true,
+          duration: true,
+          date: true,
+          notes: true,
+          exerciseLogs: {
+            select: {
+              id: true,
+              exerciseId: true,
+              setNumber: true,
+              reps: true,
+              weight: true,
+              exercise: { select: { id: true, name: true, muscleGroup: true } },
+            },
+            take: 12,
+          },
+        },
       })
     ),
     safeService([], () => prisma.progressEntry.findMany({ where: { userId }, orderBy: { date: "desc" }, take: 7 })),

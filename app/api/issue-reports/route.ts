@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
+import { createIssueReport } from "@/lib/firestore-app-data";
 
 function cleanText(value: unknown, maxLength: number) {
   if (typeof value !== "string") return null;
@@ -19,16 +19,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Please describe the issue a little more." }, { status: 400 });
     }
 
-    const report = await prisma.issueReport.create({
-      data: {
-        userId: user?.id ?? null,
-        name: cleanText(body.name, 120),
-        email: cleanText(body.email, 180)?.toLowerCase() ?? user?.email ?? null,
-        page: cleanText(body.page, 200),
-        category: cleanText(body.category, 40) ?? "issue",
-        message,
-      },
-      select: { id: true },
+    const report = await createIssueReport({
+      userId: user?.id ?? null,
+      name: cleanText(body.name, 120),
+      email: cleanText(body.email, 180)?.toLowerCase() ?? user?.email ?? null,
+      page: cleanText(body.page, 200),
+      category: cleanText(body.category, 40) ?? "issue",
+      message,
     });
 
     return NextResponse.json({ ok: true, id: report.id });

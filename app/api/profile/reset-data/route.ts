@@ -1,10 +1,10 @@
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { requireCurrentUser } from "@/lib/auth";
 import { deleteAllFirestoreChatData } from "@/lib/firestore-chat";
+import { deleteIssueReportsForUser, deleteProgressPhotoMetadata, deleteReviewItemsForUser } from "@/lib/firestore-app-data";
 
 const RESET_FEATURES = [
   "profile",
@@ -27,26 +27,24 @@ function normalizeFeatures(value: unknown): ResetFeature[] {
   return Array.from(new Set(value.map(String).filter((item) => allowed.has(item)))) as ResetFeature[];
 }
 
-async function resetFeature(tx: Prisma.TransactionClient, userId: string, feature: ResetFeature): Promise<Record<string, number>> {
+async function resetFeature(userId: string, feature: ResetFeature): Promise<Record<string, number>> {
   if (feature === "profile") {
-    const result = await tx.userProfile.deleteMany({ where: { userId } });
+    const result = await prisma.userProfile.deleteMany({ where: { userId } });
     return { userProfile: result.count };
   }
 
   if (feature === "nutrition") {
-    const [foodLogs, waterLogs, dietPlans] = await Promise.all([
-      tx.foodLog.deleteMany({ where: { userId } }),
-      tx.waterLog.deleteMany({ where: { userId } }),
-      tx.dietPlan.deleteMany({ where: { userId } }),
-    ]);
+    const foodLogs = await prisma.foodLog.deleteMany({ where: { userId } });
+    const waterLogs = await prisma.waterLog.deleteMany({ where: { userId } });
+    const dietPlans = await prisma.dietPlan.deleteMany({ where: { userId } });
     return { foodLogs: foodLogs.count, waterLogs: waterLogs.count, dietPlans: dietPlans.count };
   }
 
   if (feature === "workouts") {
-    const exerciseLogs = await tx.exerciseLog.deleteMany({ where: { workoutLog: { userId } } });
-    const workoutLogs = await tx.workoutLog.deleteMany({ where: { userId } });
-    const workoutExercises = await tx.workoutExercise.deleteMany({ where: { workoutTemplate: { userId } } });
-    const workoutTemplates = await tx.workoutTemplate.deleteMany({ where: { userId } });
+    const exerciseLogs = await prisma.exerciseLog.deleteMany({ where: { workoutLog: { userId } } });
+    const workoutLogs = await prisma.workoutLog.deleteMany({ where: { userId } });
+    const workoutExercises = await prisma.workoutExercise.deleteMany({ where: { workoutTemplate: { userId } } });
+    const workoutTemplates = await prisma.workoutTemplate.deleteMany({ where: { userId } });
     return {
       exerciseLogs: exerciseLogs.count,
       workoutLogs: workoutLogs.count,
@@ -56,11 +54,11 @@ async function resetFeature(tx: Prisma.TransactionClient, userId: string, featur
   }
 
   if (feature === "spends") {
-    const spends = await tx.spend.deleteMany({ where: { userId } });
-    const moneyLinks = await tx.moneyLink.deleteMany({ where: { userId } });
-    const financeProfile = await tx.financeProfile.deleteMany({ where: { userId } });
-    const bankAccounts = await tx.bankAccount.deleteMany({ where: { userId } });
-    const creditCards = await tx.creditCard.deleteMany({ where: { userId } });
+    const spends = await prisma.spend.deleteMany({ where: { userId } });
+    const moneyLinks = await prisma.moneyLink.deleteMany({ where: { userId } });
+    const financeProfile = await prisma.financeProfile.deleteMany({ where: { userId } });
+    const bankAccounts = await prisma.bankAccount.deleteMany({ where: { userId } });
+    const creditCards = await prisma.creditCard.deleteMany({ where: { userId } });
     return {
       spends: spends.count,
       moneyLinks: moneyLinks.count,
@@ -71,23 +69,21 @@ async function resetFeature(tx: Prisma.TransactionClient, userId: string, featur
   }
 
   if (feature === "reminders") {
-    const reminders = await tx.reminder.deleteMany({ where: { userId } });
-    const reminderLists = await tx.reminderList.deleteMany({ where: { userId } });
+    const reminders = await prisma.reminder.deleteMany({ where: { userId } });
+    const reminderLists = await prisma.reminderList.deleteMany({ where: { userId } });
     return { reminders: reminders.count, reminderLists: reminderLists.count };
   }
 
   if (feature === "medications") {
-    const medicationLogs = await tx.medicationLog.deleteMany({ where: { userId } });
-    const medications = await tx.medication.deleteMany({ where: { userId } });
+    const medicationLogs = await prisma.medicationLog.deleteMany({ where: { userId } });
+    const medications = await prisma.medication.deleteMany({ where: { userId } });
     return { medicationLogs: medicationLogs.count, medications: medications.count };
   }
 
   if (feature === "progress") {
-    const [progressEntries, progressPhotos] = await Promise.all([
-      tx.progressEntry.deleteMany({ where: { userId } }),
-      tx.progressPhoto.deleteMany({ where: { userId } }),
-    ]);
-    return { progressEntries: progressEntries.count, progressPhotos: progressPhotos.count };
+    const progressEntries = await prisma.progressEntry.deleteMany({ where: { userId } });
+    const progressPhotos = await deleteProgressPhotoMetadata(userId);
+    return { progressEntries: progressEntries.count, progressPhotos };
   }
 
   if (feature === "agent") {
@@ -97,19 +93,17 @@ async function resetFeature(tx: Prisma.TransactionClient, userId: string, featur
 
   if (feature === "reviews") {
     const [reviewItems, issueReports] = await Promise.all([
-      tx.reviewItem.deleteMany({ where: { userId } }),
-      tx.issueReport.deleteMany({ where: { userId } }),
+      deleteReviewItemsForUser(userId),
+      deleteIssueReportsForUser(userId),
     ]);
-    return { reviewItems: reviewItems.count, issueReports: issueReports.count };
+    return { reviewItems, issueReports };
   }
 
-  const [accounts, profileUpdate] = await Promise.all([
-    tx.account.deleteMany({ where: { userId } }),
-    tx.userProfile.updateMany({
+  const accounts = await prisma.account.deleteMany({ where: { userId } });
+  const profileUpdate = await prisma.userProfile.updateMany({
       where: { userId },
       data: { telegramChatId: null, telegramEnabled: false },
-    }),
-  ]);
+  });
   return { connectedAccounts: accounts.count, telegramProfiles: profileUpdate.count };
 }
 
@@ -124,13 +118,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Select at least one feature to reset" }, { status: 400 });
     }
 
-    const deleted = await prisma.$transaction(async (tx) => {
-      const results: Record<string, Record<string, number>> = {};
-      for (const feature of features) {
-        results[feature] = await resetFeature(tx, user.id, feature);
-      }
-      return results;
-    });
+    const deleted: Record<string, Record<string, number>> = {};
+    for (const feature of features) {
+      deleted[feature] = await resetFeature(user.id, feature);
+    }
 
     return NextResponse.json({ ok: true, features, deleted });
   } catch (error: any) {

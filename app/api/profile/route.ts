@@ -22,12 +22,83 @@ function profileErrorResponse(error: any, fallback: string) {
   );
 }
 
+async function getProfileWithRawPlanningFields(userId: string) {
+  const profile = await prisma.userProfile.findUnique({ where: { userId } });
+  const rows = await prisma.$queryRaw<Array<{
+    workoutFocusMuscles: string | null;
+    workoutFocusGoal: string | null;
+    goalOutcome: string | null;
+    goalTimelineDays: number | null;
+    goalTargetWeight: number | null;
+  }>>`
+    SELECT "workoutFocusMuscles", "workoutFocusGoal", "goalOutcome", "goalTimelineDays", "goalTargetWeight"
+    FROM "UserProfile"
+    WHERE "userId" = ${userId}
+    LIMIT 1
+  `;
+  const planningFields = rows[0] ?? {};
+  return profile ? { ...profile, ...planningFields } : null;
+}
+
+async function ensureProfileRow(userId: string) {
+  await prisma.userProfile.upsert({
+    where: { userId },
+    update: {},
+    create: { userId },
+  });
+}
+
+async function saveRawPlanningFields(userId: string, data: {
+  workoutFocusMuscles?: string | null;
+  workoutFocusGoal?: string | null;
+  goalOutcome?: string | null;
+  goalTimelineDays?: number | null;
+  goalTargetWeight?: number | null;
+}) {
+  await ensureProfileRow(userId);
+  if ("workoutFocusMuscles" in data) {
+    await prisma.$executeRaw`
+      UPDATE "UserProfile"
+      SET "workoutFocusMuscles" = ${data.workoutFocusMuscles ?? null}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  }
+  if ("workoutFocusGoal" in data) {
+    await prisma.$executeRaw`
+      UPDATE "UserProfile"
+      SET "workoutFocusGoal" = ${data.workoutFocusGoal ?? null}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  }
+  if ("goalOutcome" in data) {
+    await prisma.$executeRaw`
+      UPDATE "UserProfile"
+      SET "goalOutcome" = ${data.goalOutcome ?? null}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  }
+  if ("goalTimelineDays" in data) {
+    await prisma.$executeRaw`
+      UPDATE "UserProfile"
+      SET "goalTimelineDays" = ${data.goalTimelineDays ?? null}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  }
+  if ("goalTargetWeight" in data) {
+    await prisma.$executeRaw`
+      UPDATE "UserProfile"
+      SET "goalTargetWeight" = ${data.goalTargetWeight ?? null}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  }
+}
+
 export async function GET() {
   try {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
-    const profile = await prisma.userProfile.findUnique({ where: { userId } });
+    const profile = await getProfileWithRawPlanningFields(userId);
     const nameParts = splitName(user.name);
     return NextResponse.json({ profile, user: { name: user.name, ...nameParts } });
   } catch (error: any) {
@@ -100,10 +171,12 @@ export async function POST(req: Request) {
     const targetFiber = Math.round(goal === "fat_loss" ? 35 : 30);
     const targetWaterMl = Math.round(weight ? weight * 35 : 3000);
 
-    const profile = await prisma.userProfile.upsert({
+    await saveRawPlanningFields(userId, { ...workoutFocusData, ...timelineData });
+
+    const profileResult = await prisma.userProfile.upsert({
       where: { userId },
-      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...workoutFocusData, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
-      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...workoutFocusData, ...timelineData, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
     });
     const updatedUser = "firstName" in data || "lastName" in data
       ? await prisma.user.update({
@@ -112,6 +185,7 @@ export async function POST(req: Request) {
           select: { name: true },
         })
       : { name: user.name };
+    const profile = { ...profileResult, ...(await getProfileWithRawPlanningFields(userId)) };
     return NextResponse.json({ profile, user: { name: updatedUser.name, ...splitName(updatedUser.name) } });
   } catch (error: any) {
     return profileErrorResponse(error, "Failed to save profile");

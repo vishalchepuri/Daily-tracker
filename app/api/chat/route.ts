@@ -10,6 +10,8 @@ import {
   pruneFirestoreChatRetention,
 } from "@/lib/firestore-chat";
 import { uploadBuffer } from "@/lib/s3";
+import { createReviewItemOnce } from "@/lib/firestore-app-data";
+import { BODY_PART_REFERENCE, GYM_TRAINING_SPLITS } from "@/lib/workout-split-library";
 
 const CHAT_IMAGE_RETENTION_DAYS = 5;
 const CHAT_SESSION_RETENTION_LIMIT = 7;
@@ -297,7 +299,15 @@ async function getOrCreateChatSession(userId: string, sessionId?: string | null,
 }
 
 async function pruneChatRetention(userId: string) {
-  await pruneFirestoreChatRetention(userId, CHAT_SESSION_RETENTION_LIMIT, CHAT_MESSAGES_PER_SESSION_LIMIT);
+  await pruneFirestoreChatRetention(userId, CHAT_SESSION_RETENTION_LIMIT, CHAT_MESSAGES_PER_SESSION_LIMIT).catch((error) => {
+    console.error("Firestore chat retention cleanup failed", error);
+  });
+}
+
+async function saveAssistantMessageBestEffort(userId: string, sessionId: string, content: string) {
+  await addFirestoreChatMessage({ userId, sessionId, role: "assistant", content }).catch((error) => {
+    console.error("Could not save assistant chat message", error);
+  });
 }
 
 function slugify(value: string) {
@@ -489,6 +499,30 @@ function isWorkoutPlanIntent(text: unknown) {
   ]);
 }
 
+function isSimpleGreeting(text: unknown) {
+  if (typeof text !== "string") return false;
+  const normalized = text
+    .trim()
+    .toLowerCase()
+    .replace(/[!.,?]+/g, "")
+    .replace(/\s+/g, " ");
+  if (!normalized) return false;
+  return [
+    "hi",
+    "hii",
+    "hiii",
+    "hello",
+    "hey",
+    "hey there",
+    "hello there",
+    "hi there",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "namaste",
+  ].includes(normalized);
+}
+
 function inferWorkoutFocusGoal(text: string, profileGoal?: string | null) {
   const normalized = text.toLowerCase();
   if (includesAny(normalized, ["fat loss", "lose fat", "weight loss", "cutting", "burn fat"])) return "fat_loss";
@@ -502,19 +536,48 @@ function inferWorkoutFocusGoal(text: string, profileGoal?: string | null) {
 function normalizeWorkoutFocusMuscles(text: string) {
   const normalized = text.toLowerCase();
   const focusMap: Array<[string, string[]]> = [
-    ["core", ["core", "abs", "belly", "stomach", "waist", "love handle", "midsection"]],
-    ["legs", ["leg", "legs", "quad", "quads", "hamstring", "hamstrings", "calf", "calves", "thigh", "thighs"]],
+    ["abs", ["abs", "abdominal", "belly", "stomach", "waist", "love handle", "midsection"]],
+    ["obliques", ["oblique", "obliques", "side abs"]],
+    ["core", ["core", "core stability"]],
+    ["quadriceps", ["quadriceps", "quad", "quads", "front thigh", "front thighs"]],
+    ["hamstrings", ["hamstring", "hamstrings", "back thigh", "back thighs"]],
     ["glutes", ["glute", "glutes", "butt", "hips"]],
+    ["calves", ["calf", "calves"]],
+    ["lower back", ["lower back", "erectors", "spinal erectors"]],
     ["chest", ["chest", "pec", "pecs"]],
     ["back", ["back", "lats", "lat", "upper back"]],
+    ["front shoulders", ["front shoulder", "front shoulders", "front delt", "front delts", "anterior delt", "anterior delts"]],
+    ["mid shoulders", ["mid shoulder", "mid shoulders", "side delt", "side delts", "lateral delt", "lateral delts"]],
+    ["rear deltoids", ["rear delt", "rear delts", "rear deltoid", "rear deltoids"]],
     ["shoulders", ["shoulder", "shoulders", "delts", "delt"]],
-    ["arms", ["arm", "arms", "bicep", "biceps", "tricep", "triceps", "forearm", "forearms"]],
+    ["biceps", ["bicep", "biceps"]],
+    ["triceps", ["tricep", "triceps"]],
+    ["forearms", ["forearm", "forearms", "grip"]],
+    ["arms", ["arm", "arms"]],
+    ["legs", ["leg", "legs", "thigh", "thighs", "lower body"]],
     ["full body", ["full body", "whole body", "overall", "all body"]],
   ];
   const found = focusMap
-    .filter(([, aliases]) => aliases.some((alias) => normalized.includes(alias)))
-    .map(([focus]) => focus);
-  return Array.from(new Set(found)).join(",");
+    .map(([focus, aliases]) => {
+      const indexes = aliases
+        .map((alias) => normalized.indexOf(alias))
+        .filter((index) => index >= 0);
+      return indexes.length ? { focus, index: Math.min(...indexes) } : null;
+    })
+    .filter((item): item is { focus: string; index: number } => Boolean(item))
+    .sort((a, b) => a.index - b.index)
+    .map((item) => item.focus);
+  const unique = Array.from(new Set(found));
+  if (unique.includes("full body")) return "full body";
+  if (unique.some((focus) => ["biceps", "triceps", "forearms"].includes(focus))) {
+    const broadArmsIndex = unique.indexOf("arms");
+    if (broadArmsIndex >= 0) unique.splice(broadArmsIndex, 1);
+  }
+  if (unique.some((focus) => ["quadriceps", "hamstrings", "glutes", "calves"].includes(focus))) {
+    const broadLegsIndex = unique.indexOf("legs");
+    if (broadLegsIndex >= 0) unique.splice(broadLegsIndex, 1);
+  }
+  return unique.join(",");
 }
 
 function isWorkoutFocusAnswer(text: string) {
@@ -524,6 +587,18 @@ function isWorkoutFocusAnswer(text: string) {
 function lastAssistantAskedWorkoutFocus(messages: any[]) {
   const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
   return Boolean(lastAssistant?.content && /which (body areas|muscles)|target (muscles|body)|focus (muscles|areas)/i.test(lastAssistant.content));
+}
+
+function findRecentWorkoutFocusMuscles(messages: any[]) {
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const assistant = messages[index];
+    const user = messages[index + 1];
+    if (assistant?.role !== "assistant" || user?.role !== "user") continue;
+    if (!/which (body areas|muscles)|target (muscles|body)|focus (muscles|areas)/i.test(assistant.content ?? "")) continue;
+    const focus = normalizeWorkoutFocusMuscles(user.content ?? "");
+    if (focus) return focus;
+  }
+  return "";
 }
 
 function lastAssistantAskedWorkoutSafety(messages: any[]) {
@@ -540,9 +615,88 @@ function conversationHasJointStrengtheningChoice(messages: any[]) {
   return messages.some((message) => /joint strengthening exercises/i.test(message.content ?? ""));
 }
 
+function conversationWantsJointStrengthening(messages: any[]) {
+  for (let index = messages.length - 2; index >= 0; index -= 1) {
+    const assistant = messages[index];
+    const user = messages[index + 1];
+    if (assistant?.role !== "assistant" || user?.role !== "user") continue;
+    if (!/joint strengthening exercises/i.test(assistant.content ?? "")) continue;
+    return isAffirmativeAnswer(user.content);
+  }
+  return false;
+}
+
 function isAffirmativeAnswer(text: unknown) {
   if (typeof text !== "string") return false;
   return /(^|\b)(yes|yeah|yep|sure|ok|okay|add|include|please|do it|proceed)(\b|$)/i.test(text);
+}
+
+async function saveHealthLimitations(userId: string, healthLimitations: string) {
+  const value = healthLimitations.trim();
+  if (!value) return null;
+  return prisma.userProfile.upsert({
+    where: { userId },
+    update: { healthLimitations: value },
+    create: { userId, healthLimitations: value },
+  });
+}
+
+async function saveWorkoutFocus(userId: string, workoutFocusMuscles: string, workoutFocusGoal?: string) {
+  const value = workoutFocusMuscles.trim();
+  const goal = workoutFocusGoal?.trim() || null;
+  if (!value) return null;
+  try {
+    return await prisma.userProfile.upsert({
+      where: { userId },
+      update: { workoutFocusMuscles: value, workoutFocusGoal: goal },
+      create: { userId, workoutFocusMuscles: value, workoutFocusGoal: goal },
+    });
+  } catch (error) {
+    console.error("Prisma workout focus upsert failed, falling back to raw SQL", error);
+  }
+  await prisma.userProfile.upsert({
+    where: { userId },
+    update: {},
+    create: { userId },
+  });
+  await prisma.$executeRaw`
+    UPDATE "UserProfile"
+    SET "workoutFocusMuscles" = ${value},
+        "workoutFocusGoal" = ${goal},
+        "updatedAt" = NOW()
+    WHERE "userId" = ${userId}
+  `;
+  return prisma.userProfile.findUnique({ where: { userId } });
+}
+
+async function saveGoalTimeline(userId: string, goalOutcome: string, goalTimelineDays: number, goalTargetWeight?: number) {
+  const outcome = goalOutcome.trim();
+  const days = Math.round(goalTimelineDays);
+  const target = goalTargetWeight == null || !Number.isFinite(goalTargetWeight) || goalTargetWeight <= 0 ? null : goalTargetWeight;
+  if (!outcome || days <= 0) return null;
+  try {
+    return await prisma.userProfile.upsert({
+      where: { userId },
+      update: { goalOutcome: outcome, goalTimelineDays: days, goalTargetWeight: target },
+      create: { userId, goalOutcome: outcome, goalTimelineDays: days, goalTargetWeight: target },
+    });
+  } catch (error) {
+    console.error("Prisma goal timeline upsert failed, falling back to raw SQL", error);
+  }
+  await prisma.userProfile.upsert({
+    where: { userId },
+    update: {},
+    create: { userId },
+  });
+  await prisma.$executeRaw`
+    UPDATE "UserProfile"
+    SET "goalOutcome" = ${outcome},
+        "goalTimelineDays" = ${days},
+        "goalTargetWeight" = ${target},
+        "updatedAt" = NOW()
+    WHERE "userId" = ${userId}
+  `;
+  return prisma.userProfile.findUnique({ where: { userId } });
 }
 
 function isFoodPlanIntent(text: unknown) {
@@ -627,6 +781,74 @@ async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?:
   });
 }
 
+function getJointStrengtheningExercises(healthLimitations?: string | null, templateFocus = "") {
+  const limitations = (healthLimitations ?? "").toLowerCase();
+  const focus = templateFocus.toLowerCase();
+  const isLowerDay = includesAny(focus, ["lower", "leg", "quad", "hamstring", "glute", "calf"]);
+  const isUpperDay = includesAny(focus, ["upper", "chest", "shoulder", "back", "bicep", "tricep", "arm", "forearm"]);
+  const exercises: Array<{ exerciseName: string; muscleGroup: string; sets: number; reps: string; restSeconds: number }> = [];
+  if (isLowerDay && includesAny(limitations, ["knee", "leg", "ankle", "hip"])) {
+    exercises.push(
+      { exerciseName: "Joint Strength - Terminal Knee Extension", muscleGroup: "legs", sets: 2, reps: "12-15 each side", restSeconds: 45 },
+      { exerciseName: "Joint Strength - Wall Sit Hold", muscleGroup: "legs", sets: 2, reps: "20-30 sec", restSeconds: 45 }
+    );
+  }
+  if (isUpperDay && includesAny(limitations, ["elbow", "wrist", "forearm", "arm"])) {
+    exercises.push(
+      { exerciseName: "Joint Strength - Wrist Curl And Extension", muscleGroup: "arms", sets: 2, reps: "12-15 each side", restSeconds: 45 },
+      { exerciseName: "Joint Strength - Forearm Pronation Supination", muscleGroup: "arms", sets: 2, reps: "12-15 each side", restSeconds: 45 }
+    );
+  }
+  if (isUpperDay && includesAny(limitations, ["shoulder"])) {
+    exercises.push(
+      { exerciseName: "Joint Strength - Band External Rotation", muscleGroup: "shoulders", sets: 2, reps: "12-15 each side", restSeconds: 45 },
+      { exerciseName: "Joint Strength - Scapular Wall Slide", muscleGroup: "shoulders", sets: 2, reps: "10-12", restSeconds: 45 }
+    );
+  }
+  if (exercises.length) return exercises.slice(0, 2);
+  if (isUpperDay) {
+    return [
+      { exerciseName: "Joint Strength - Forearm Pronation Supination", muscleGroup: "arms", sets: 2, reps: "12-15 each side", restSeconds: 45 },
+    ];
+  }
+  if (isLowerDay) {
+    return [
+      { exerciseName: "Joint Strength - Terminal Knee Extension", muscleGroup: "legs", sets: 2, reps: "12-15 each side", restSeconds: 45 },
+    ];
+  }
+  return [
+    { exerciseName: "Joint Strength - Controlled Isometric Hold", muscleGroup: "core", sets: 2, reps: "20-30 sec", restSeconds: 45 },
+  ];
+}
+
+function capWorkoutTemplateExercises(
+  action: Extract<AgentAction, { type: "create_workout_template" }>,
+  exercises: NonNullable<Extract<AgentAction, { type: "create_workout_template" }>["exercises"]>
+) {
+  const text = `${action.name} ${action.muscleGroups ?? ""}`.toLowerCase();
+  const lowerDay = includesAny(text, ["lower", "legs", "quad", "hamstring", "glute", "calf"]);
+  const highVolumeDay = includesAny(text, ["high volume", "hypertrophy", "accessory"]) && includesAny(text, ["forced", "aggressive", "advanced"]);
+  const maxMainExercises = highVolumeDay ? 8 : lowerDay ? 6 : 7;
+  return exercises.slice(0, maxMainExercises);
+}
+
+function isUpperBodyPriorityFocus(value?: string | null) {
+  const parts = String(value ?? "")
+    .toLowerCase()
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return false;
+  const firstLowerIndex = parts.findIndex((part) => ["legs", "glutes", "quadriceps", "hamstrings", "calves"].includes(part));
+  const firstUpperIndex = parts.findIndex((part) => ["chest", "shoulders", "back", "biceps", "triceps", "forearms", "arms"].includes(part));
+  return firstUpperIndex >= 0 && (firstLowerIndex === -1 || firstUpperIndex < firstLowerIndex);
+}
+
+function isLowerBodyTemplate(action: Extract<AgentAction, { type: "create_workout_template" }>) {
+  const text = `${action.name} ${action.muscleGroups ?? ""}`.toLowerCase();
+  return includesAny(text, ["lower", "legs", "leg", "quad", "hamstring", "glute", "calf", "calves"]);
+}
+
 function inferSpendPaymentSource(text: string, action: Extract<AgentAction, { type: "create_spend_log" }>) {
   const sourceText = `${text}\n${action.notes ?? ""}`.replace(/\s+/g, " ");
   const bankMatch = sourceText.match(/\b(HDFC|ICICI|SBI|Axis|Kotak|Yes Bank|IDFC|IndusInd|Federal|Canara|Punjab National|Bank of Baroda)\b(?:\s+Bank)?/i);
@@ -678,30 +900,12 @@ async function getCreditCardSpendBlocker(userId: string, action: Extract<AgentAc
   return "Before I log this credit card spend, please tell me the last 4 digits of the card. I will not save this transaction until you confirm the card ending digits.";
 }
 
-async function createReviewItemOnce(userId: string, data: { type: string; title: string; detail?: string; priority?: string; actionLabel?: string; payload?: any }) {
-  const existing = await prisma.reviewItem.findFirst({
-    where: {
-      userId,
-      status: "open",
-      type: data.type,
-      title: data.title,
-    },
-  });
-  if (existing) return existing;
-  return prisma.reviewItem.create({
-    data: {
-      userId,
-      type: data.type,
-      title: data.title,
-      detail: data.detail ?? null,
-      priority: data.priority ?? "normal",
-      actionLabel: data.actionLabel ?? null,
-      payload: data.payload ?? undefined,
-    },
-  });
-}
-
-async function executeAgentAction(userId: string, action: AgentAction, rawMessage = "") {
+async function executeAgentAction(
+  userId: string,
+  action: AgentAction,
+  rawMessage = "",
+  options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null } = {}
+) {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
     return {
@@ -977,11 +1181,7 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
     const workoutFocusMuscles = action.workoutFocusMuscles?.trim();
     if (!workoutFocusMuscles) return null;
     const workoutFocusGoal = action.workoutFocusGoal?.trim() || undefined;
-    await prisma.userProfile.upsert({
-      where: { userId },
-      update: { workoutFocusMuscles, workoutFocusGoal },
-      create: { userId, workoutFocusMuscles, workoutFocusGoal },
-    });
+    await saveWorkoutFocus(userId, workoutFocusMuscles, workoutFocusGoal);
     return { type: action.type, label: `Saved workout focus: ${workoutFocusMuscles}`, id: userId };
   }
 
@@ -994,17 +1194,44 @@ async function executeAgentAction(userId: string, action: AgentAction, rawMessag
       goalTimelineDays,
       goalTargetWeight: action.goalTargetWeight == null ? undefined : toNumber(action.goalTargetWeight),
     };
-    await prisma.userProfile.upsert({
-      where: { userId },
-      update: data,
-      create: { userId, ...data },
-    });
+    await saveGoalTimeline(userId, data.goalOutcome, data.goalTimelineDays, data.goalTargetWeight);
     return { type: action.type, label: `Saved ${goalOutcome} timeline for ${goalTimelineDays} days`, id: userId };
   }
 
   if (action.type === "create_workout_template") {
+    if (isUpperBodyPriorityFocus(options.workoutFocusMuscles) && isLowerBodyTemplate(action)) {
+      const existingLowerTemplates = await prisma.workoutTemplate.count({
+        where: {
+          userId,
+          OR: [
+            { name: { contains: "lower", mode: "insensitive" } },
+            { name: { contains: "leg", mode: "insensitive" } },
+            { muscleGroups: { contains: "legs", mode: "insensitive" } },
+          ],
+        },
+      });
+      if (existingLowerTemplates >= 1) {
+        return {
+          type: action.type,
+          label: `Skipped ${action.name}: upper-body priority plans should only have one lower-body day unless legs are the priority`,
+          id: action.name,
+        };
+      }
+    }
+
+    const plannedExercises = capWorkoutTemplateExercises(action, action.exercises ?? []);
+    if (options.userWantsJointStrengthening) {
+      const existingNames = new Set(plannedExercises.map((item) => String(item.exerciseName ?? "").toLowerCase()));
+      const templateFocus = `${action.name} ${action.muscleGroups ?? ""}`;
+      for (const jointExercise of getJointStrengtheningExercises(options.healthLimitations, templateFocus)) {
+        if (!existingNames.has(jointExercise.exerciseName.toLowerCase())) {
+          plannedExercises.push(jointExercise);
+        }
+      }
+    }
+
     const exerciseRows = [];
-    for (const [index, item] of (action.exercises ?? []).entries()) {
+    for (const [index, item] of plannedExercises.entries()) {
       const exercise = await findOrCreateExercise(item, userId);
       exerciseRows.push({
         exerciseId: exercise.id,
@@ -1183,6 +1410,13 @@ export async function POST(req: Request) {
       content: hasImage ? `${message || "Analyze this food photo."}\n[Image attached]` : message,
     });
 
+    if (!hasImage && isSimpleGreeting(message)) {
+      const content = "Hi! How can I help you today?";
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
+      await pruneChatRetention(userId);
+      return streamSingleMessage(content);
+    }
+
     if (hasImage) {
       const parsedImage = parseDataImageUrl(imageDataUrl);
       if (parsedImage) {
@@ -1280,40 +1514,50 @@ export async function POST(req: Request) {
       lastAssistantAskedJointStrengthening(recentChat);
     const workoutFocusOverride: { workoutFocusMuscles?: string; workoutFocusGoal?: string } = {};
     const workoutGoal = inferWorkoutFocusGoal(message, profile?.goal);
+    const recentWorkoutFocusMuscles = findRecentWorkoutFocusMuscles(recentChat);
+    const knownWorkoutFocusMuscles = profile?.workoutFocusMuscles || recentWorkoutFocusMuscles;
+    const answeredWorkoutSafety = lastAssistantAskedWorkoutSafety(recentChat);
+    const healthLimitationsOverride = answeredWorkoutSafety && typeof message === "string" && message.trim()
+      ? message.trim()
+      : undefined;
+    if (healthLimitationsOverride) {
+      await saveHealthLimitations(userId, healthLimitationsOverride);
+    }
     if (lastAssistantAskedWorkoutFocus(recentChat)) {
       const workoutFocusMuscles = normalizeWorkoutFocusMuscles(message);
       if (!workoutFocusMuscles) {
         const content = "Which body areas or muscles should I prioritize for this workout plan? For example: core, legs, glutes, chest, back, shoulders, arms, or full body.";
-        await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+        await saveAssistantMessageBestEffort(userId, chatSession.id, content);
         await pruneChatRetention(userId);
         return streamSingleMessage(content);
       }
-      await prisma.userProfile.upsert({
-        where: { userId },
-        update: { workoutFocusMuscles, workoutFocusGoal: workoutGoal },
-        create: { userId, workoutFocusMuscles, workoutFocusGoal: workoutGoal },
-      });
+      await saveWorkoutFocus(userId, workoutFocusMuscles, workoutGoal);
       workoutFocusOverride.workoutFocusMuscles = workoutFocusMuscles;
       workoutFocusOverride.workoutFocusGoal = workoutGoal;
-    } else if (isWorkoutPlanIntent(message)) {
+    } else if (isWorkoutPlanIntent(message) && !knownWorkoutFocusMuscles) {
       const goalLabel = workoutGoal === "fat_loss" ? "fat loss" : workoutGoal === "muscle_gain" ? "muscle gain" : workoutGoal;
       const content = `Which body areas or muscles do you want to focus on most for ${goalLabel}? For example: core/belly, legs, glutes, chest, back, shoulders, arms, or full body.`;
-      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
+    } else if (isWorkoutPlanIntent(message) && knownWorkoutFocusMuscles) {
+      await saveWorkoutFocus(userId, knownWorkoutFocusMuscles, workoutGoal);
+      workoutFocusOverride.workoutFocusMuscles = knownWorkoutFocusMuscles;
+      workoutFocusOverride.workoutFocusGoal = workoutGoal;
     }
 
-    if (workoutPlanningActive && !hasKnownAnswer(profile?.healthLimitations)) {
+    if (workoutPlanningActive && !hasKnownAnswer(profile?.healthLimitations) && !healthLimitationsOverride) {
       const content =
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
-      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
 
-    const currentOrSavedLimitations = lastAssistantAskedWorkoutSafety(recentChat)
-      ? message
-      : profile?.healthLimitations ?? (conversationMentionsJointSensitive(recentChat) ? "joint pain mentioned in chat" : undefined);
+    const currentOrSavedLimitations =
+      healthLimitationsOverride ??
+      profile?.healthLimitations ??
+      (conversationMentionsJointSensitive(recentChat) ? "joint pain mentioned in chat" : undefined);
     if (
       workoutPlanningActive &&
       isJointSensitive(currentOrSavedLimitations) &&
@@ -1322,7 +1566,7 @@ export async function POST(req: Request) {
     ) {
       const content =
         "Do you want me to add joint strengthening exercises alongside each workout day, so you can build joint strength in parallel with the main plan?";
-      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
@@ -1330,7 +1574,7 @@ export async function POST(req: Request) {
     if (isFoodPlanIntent(message) && !hasKnownAnswer(profile?.foodAllergies)) {
       const content =
         "Before I suggest a food or meal plan, do you have any food allergies, intolerances, or foods you avoid? If none, say “none.”";
-      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
@@ -1338,7 +1582,7 @@ export async function POST(req: Request) {
     if ((workoutPlanningActive || isFoodPlanIntent(message)) && !hasTimelineAnswer(profile?.goalTimelineDays) && !messageIncludesTimeline(message)) {
       const content =
         "In how many days or weeks do you want to see changes, and what exact result are you aiming for? For example: visible muscle gain in 8 weeks, lose 4 kg in 10 weeks, or improve strength in 12 weeks.";
-      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
     }
@@ -1396,18 +1640,28 @@ Rules:
   2. If user asks for a workout plan and profile.healthLimitations is missing, ask whether they have joint pain, previous fractures, surgeries, injuries, or medical restrictions. Do not draft yet.
   3. When they answer, save it with update_profile_safety.
   4. If goal timeline is missing, ask the timeline question before plan days.
-  5. Ask how many days they prefer: 3, 4, 5, or custom.
+  5. Ask how many days they prefer: 3, 4, 5, 6, or custom.
   6. Draft only a short weekly split with the realistic timeline and saved workoutFocusMuscles/workoutFocusGoal. Ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
   7. If they request changes, update the draft and ask for confirmation again.
   8. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
 - Strict workout focus rules:
   - Treat profile.workoutFocusMuscles as mandatory priority for plan structure, exercise selection, warmups, and template muscleGroups.
+  - profile.workoutFocusMuscles is ordered by the user's priority. Preserve that order when choosing split days and exercise volume.
+  - Use the Training Split Library from context as the source of truth for workout day body-part targets.
+  - If the user says "full body", use the full_body split for the requested day count when available. Full body means push-focused upper body, pull-focused upper body, and lower-body coverage across the week, not random exercises.
+  - If the user names specific muscles, choose or adapt the split whose day targets directly include those exact muscles. The named muscles must appear as primary or direct targets in the draft and saved templates.
+  - Respect the user's priority order. If chest, shoulders, back, biceps, triceps, arms, or forearms appear before legs, glutes, quadriceps, hamstrings, or calves, the split is upper-body priority.
+  - For a 4-day upper-body priority plan, use 3 upper-body days and only 1 lower-body maintenance day. Do not create two lower-body days unless the user explicitly prioritizes legs, glutes, thighs, hamstrings, quadriceps, calves, or asks for full body/lower-body focus.
+  - For the user's saved focus "chest, shoulders, biceps, triceps, back, legs, forearms, core", the correct 4-day structure is: Upper Push, Upper Pull, Lower Maintenance, Upper Hypertrophy/Arms/Core.
+  - Split the ordered priority list across the number of days the user chooses. Earlier muscles get primary placement and slightly more weekly volume. Later muscles get maintenance/support volume.
+  - Do not replace exact requested muscles with only broad categories. For example, quadriceps means quadriceps, hamstrings means hamstrings, glutes means glutes, rear deltoids means rear deltoids, forearms means forearms, and abs/obliques/core should be placed intentionally.
+  - When a requested muscle is a sub-part, include exercises for that sub-part where practical: rear deltoids need rear-delt rows/face pulls/reverse flys; forearms need curls/carries/grip work; calves need calf raises; quadriceps need quad-dominant work; hamstrings need hinge/curl work; glutes need hip extension/abduction work.
   - If profile.gender is female, bias defaults toward lower-body/glutes/core stability and joint-friendly volume, unless the saved focus says otherwise.
   - If profile.gender is male, bias defaults toward upper-body strength/hypertrophy and balanced posterior-chain work, unless the saved focus says otherwise.
   - If profile.gender is other or unspecified, use balanced defaults and ask clarifying preference questions when needed.
   - Never let gender override the user's saved focus muscles. User focus always wins.
   - Fat loss plans must include conditioning/cardio and calorie-burning structure while still training the selected focus areas hard.
-  - Muscle gain plans must prioritize hypertrophy volume, progressive overload, and at least 2 direct exercises for each selected focus muscle where practical.
+  - Muscle gain plans must prioritize hypertrophy volume and progressive overload while staying recoverable.
   - Core/cardio plans must still honor selected focus muscles and include appropriate core/cardio blocks.
   - If focus includes belly/stomach/waist, normalize it to core and explain that targeted fat loss is not physiologically guaranteed, while training core and using cardio/nutrition to support overall fat loss.
 - Warm-up and stretch rules for workout plans:
@@ -1417,20 +1671,29 @@ Rules:
   - If the user has joint pain or injury limitations, make warmups specific and gentle, and do not prescribe painful stretches.
   - Do not count warmups or stretches as the required 2 strength exercises per muscle; they are separate prep/recovery items.
 - Exercise selection rules for workout plans:
-  - When drafting a plan with exercises, include at least 2 exercises for each muscle/focus listed on that day.
+  - Keep workout volume recoverable. Do not create marathon sessions.
+  - Across the full week, each selected muscle/body area should receive at least 2 and at most 4 direct exercises.
+  - Use 2 weekly direct exercises for maintenance/lower-priority muscles, 3 for high-priority muscles, and 4 only when the user explicitly forces high volume or says they really want high intensity/advanced volume.
+  - Never exceed 4 direct exercises per selected muscle across the weekly plan.
+  - For 4-day muscle-gain plans, each saved workout day should usually have 5-7 main exercises. Use 8 main exercises only if the user explicitly asks for high volume or forces the agent to make it harder. Lower maintenance days should have 4-6 main exercises.
+  - Never create more than 8 main exercises in one workout day.
+  - Do not include 2 exercises for every selected muscle on every day. Across the week, prioritize the selected muscles; within one day, use 1-2 primary compounds plus 2-4 accessories.
+  - For chest/shoulders/arms/back priority, rotate emphasis across days instead of training every upper-body muscle with multiple exercises on the same day.
   - Every selected workoutFocusMuscles area must appear directly in the weekly split unless healthLimitations make it unsafe; if unsafe, explain the safer substitution.
   - For fat loss focus areas, combine direct strength exercises for those areas with cardio/conditioning instead of pretending fat can be reduced only from one body part.
   - Keep exercises simple, effective, and easy to perform with common gym equipment.
   - Prefer reliable basics over novelty: machine presses, dumbbell presses, rows, pulldowns, lateral raises, curls, pushdowns, leg press, Romanian deadlift, hip thrust, leg curl, calf raise, planks, cable woodchops.
   - Avoid overcomplicating with too many advanced or high-skill movements unless the user specifically asks.
-  - Sets/reps should be practical: mostly 3 sets of 8-12 reps, isolation 10-15 reps, core 30-60 seconds or 10-15 reps.
+  - Sets/reps should be practical: mostly 2-3 sets of 8-12 reps, isolation 10-15 reps, core 30-60 seconds or 10-15 reps. Use 4 sets only for one top priority compound on that day.
+  - With joint pain, reduce total volume first. Prefer moderate effort, controlled tempo, pain-free range, and no forced reps.
   - If healthLimitations exist, choose pain-free alternatives first. Health compatibility is more important than the default split.
   - Do not include an exercise that conflicts with known pain/surgery/fracture context unless you clearly provide a safer modification.
 - Joint-aware plan rules:
   - If profile.healthLimitations mentions joint pain, elbow pain, knee pain, fractures, surgery, or injuries, the workout draft must visibly adapt to that limitation.
   - When the user reports joint pain, ask whether they want joint strengthening exercises added alongside each workout day before drafting the plan.
   - If context.userWantsJointStrengthening is true, treat that as the user's confirmation to include joint strengthening blocks.
-  - If the user says yes to joint strengthening, include a separate "Joint strengthening" block on every workout day, matched to the affected joint and the day's training. Keep it short: 2-4 low-load, pain-free exercises, usually 1-3 sets of 10-15 reps or 20-45 second holds.
+  - If the user says yes to joint strengthening, include a separate "Joint strengthening" block on every workout day, matched to the affected joint and the day's training. Keep it very short: 1-2 low-load, pain-free exercises, usually 1-2 sets of 10-15 reps or 20-45 second holds.
+  - Do not add knee joint-strength exercises to every upper-body day unless the user asked for daily knee rehab. On upper-body days, use elbow/shoulder/wrist-friendly joint work. On lower-body days, use knee/ankle/hip-friendly joint work.
   - Joint strengthening blocks are in addition to the main workout exercises. Do not count them toward the required main strength exercises for the focus muscles.
   - Use joint strengthening choices such as terminal knee extensions, wall sits, Spanish squat holds, calf raises, tibialis raises, band external rotations, scapular wall slides, face pulls, wrist curls/extensions, pronation/supination, ankle band inversions/eversion, glute bridges, clamshells, and controlled isometrics.
   - If the user says no to joint strengthening, still make the main workout joint-friendly and include the safety note.
@@ -1440,22 +1703,11 @@ Rules:
   - If the limitation is vague, ask how long the pain has been present and whether it flares at the beginning or end of workouts before finalizing.
   - Treat generated exercises as adjustable options, not fixed laws. If an exercise hurts, offer swaps before saving the final plan.
 - Use these weekly split presets unless the user asks for custom or modifications:
+${JSON.stringify(GYM_TRAINING_SPLITS)}
+Body part reference:
+${JSON.stringify(BODY_PART_REFERENCE)}
+Additional cardio/general rules:
 ${JSON.stringify({
-  muscle_gain: {
-    "3_day_split": { Monday: ["Chest", "Triceps", "Shoulders"], Tuesday: "Rest", Wednesday: ["Back", "Biceps", "Forearms"], Thursday: "Rest", Friday: ["Quads", "Hamstrings", "Calves"], Saturday: "Rest", Sunday: "Rest" },
-    "4_day_split": { Monday: ["Chest", "Triceps"], Tuesday: ["Back", "Biceps"], Wednesday: "Rest", Thursday: ["Shoulders", "Abs"], Friday: ["Quads", "Hamstrings", "Calves"], Saturday: "Rest", Sunday: "Rest" },
-    "5_day_split": { Monday: ["Chest"], Tuesday: ["Back"], Wednesday: ["Shoulders"], Thursday: ["Legs"], Friday: ["Arms", "Abs"], Saturday: "Rest", Sunday: "Rest" },
-  },
-  fat_loss: {
-    "3_day_split": { Monday: ["Full Body", "Cardio"], Tuesday: "Rest", Wednesday: ["Full Body", "Cardio"], Thursday: "Rest", Friday: ["Full Body", "Cardio"], Saturday: "Rest", Sunday: "Rest" },
-    "4_day_split": { Monday: ["Upper Body", "HIIT"], Tuesday: ["Lower Body", "Abs"], Wednesday: "Rest", Thursday: ["Upper Body", "HIIT"], Friday: ["Lower Body", "Abs"], Saturday: "Rest", Sunday: "Rest" },
-    "5_day_split": { Monday: ["Push Muscles", "Cardio"], Tuesday: ["Pull Muscles", "Cardio"], Wednesday: ["Legs", "Abs"], Thursday: ["Full Body Circuit"], Friday: ["Steady State Cardio", "Abs"], Saturday: "Rest", Sunday: "Rest" },
-  },
-  strength: {
-    "3_day_split": { Monday: ["Squat", "Bench Press", "Accessory Muscles"], Tuesday: "Rest", Wednesday: ["Deadlift", "Overhead Press", "Accessory Muscles"], Thursday: "Rest", Friday: ["Squat", "Bench Press", "Power Cleans"], Saturday: "Rest", Sunday: "Rest" },
-    "4_day_split": { Monday: ["Bench Press", "Chest", "Triceps"], Tuesday: ["Deadlift", "Back", "Biceps"], Wednesday: "Rest", Thursday: ["Overhead Press", "Shoulders", "Abs"], Friday: ["Squat", "Quads", "Hamstrings"], Saturday: "Rest", Sunday: "Rest" },
-    "5_day_split": { Monday: ["Max Effort Upper Body"], Tuesday: ["Max Effort Lower Body"], Wednesday: "Rest", Thursday: ["Dynamic Effort Upper Body"], Friday: ["Dynamic Effort Lower Body"], Saturday: ["Accessory Movements", "Grip Strength"], Sunday: "Rest" },
-  },
   general_fitness_cardio: {
     "3_day_split": { Monday: ["Full Body Strength"], Tuesday: "Rest", Wednesday: ["Zone 2 Cardio", "Endurance"], Thursday: "Rest", Friday: ["Mobility", "Light Resistance Training"], Saturday: "Rest", Sunday: "Rest" },
     "4_day_split": { Monday: ["Cardio Intervals"], Tuesday: ["Upper Body Strength"], Wednesday: "Rest", Thursday: ["Lower Body Strength"], Friday: ["Long Distance Cardio"], Saturday: "Rest", Sunday: "Rest" },
@@ -1540,7 +1792,9 @@ Available action examples:
 {"type":"update_diet_plan","planName":"Muscle Gain Diet","meals":[{"mealType":"Breakfast","title":"Oats and eggs","foods":["Oats","Eggs"],"calories":520,"protein":32,"carbs":55,"fat":18}]}
 {"type":"delete_diet_plan","planName":"Muscle Gain Diet"}`;
 
-    const profileContext = profile ? { ...profile, ...workoutFocusOverride } : workoutFocusOverride;
+    const profileContext = profile
+      ? { ...profile, ...workoutFocusOverride, ...(healthLimitationsOverride ? { healthLimitations: healthLimitationsOverride } : {}) }
+      : { ...workoutFocusOverride, ...(healthLimitationsOverride ? { healthLimitations: healthLimitationsOverride } : {}) };
     const context = {
       profile: profileContext,
       todayFoodLogs,
@@ -1555,7 +1809,9 @@ Available action examples:
       creditCards,
       moneyLinks,
       requiresJointAwarePlan: isJointSensitive(profile?.healthLimitations) || isJointSensitive(message) || conversationMentionsJointSensitive(recentChat),
-      userWantsJointStrengthening: lastAssistantAskedJointStrengthening(recentChat) && isAffirmativeAnswer(message),
+      userWantsJointStrengthening:
+        (lastAssistantAskedJointStrengthening(recentChat) && isAffirmativeAnswer(message)) ||
+        conversationWantsJointStrengthening(recentChat),
       today: today.toISOString(),
     };
     const userContent = hasImage
@@ -1623,13 +1879,17 @@ Available action examples:
         actionLabel: "Add card last 4",
         payload: { action, rawMessage: message },
       });
-      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content: blocker });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, blocker);
       await pruneChatRetention(userId);
       return streamSingleMessage(blocker);
     }
     const actionResults = [];
     for (const action of actions) {
-      const result = await executeAgentAction(userId, action, message);
+      const result = await executeAgentAction(userId, action, message, {
+        healthLimitations: context.profile?.healthLimitations,
+        userWantsJointStrengthening: context.userWantsJointStrengthening,
+        workoutFocusMuscles: context.profile?.workoutFocusMuscles,
+      });
       if (result) actionResults.push(result);
     }
     const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
@@ -1641,7 +1901,7 @@ Available action examples:
         : "";
     const fullContent = `${agentResult.response ?? "Done."}${actionSummary}`;
 
-    await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content: fullContent });
+    await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent);
     await pruneChatRetention(userId);
 
     const stream = new ReadableStream({
@@ -1661,6 +1921,7 @@ Available action examples:
       },
     });
   } catch (error: any) {
+    console.error("Dayza chat route failed", error);
     return new Response(JSON.stringify({ error: chatErrorMessage(error, "Chat failed") }), { status: 500 });
   }
 }

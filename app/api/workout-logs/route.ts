@@ -12,11 +12,15 @@ export async function GET(req: Request) {
     const limit = parseInt(searchParams.get("limit") ?? "30");
     const logs = await prisma.workoutLog.findMany({
       where: { userId },
-      include: { exerciseLogs: { include: { exercise: true } } },
+      include: {
+        exerciseLogs: {
+          include: { exercise: { select: { id: true, name: true, muscleGroup: true } } },
+        },
+      },
       orderBy: { date: "desc" },
-      take: limit,
+      take: Math.min(Math.max(limit, 1), 100),
     });
-    return NextResponse.json({ logs });
+    return NextResponse.json({ logs }, { headers: { "Cache-Control": "private, max-age=20, stale-while-revalidate=90" } });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }

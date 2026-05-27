@@ -17,10 +17,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal } from "lucide-react";
+import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal, Youtube } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
+import { dayzaFetch } from "@/lib/firebase-session-client";
 
 const PersonalRecordsTab = dynamic(() => import('./_components/personal-records').then(m => ({ default: m.PersonalRecordsTab })), { ssr: false, loading: () => <div className="h-48 bg-muted animate-pulse rounded-lg" /> });
 
@@ -75,11 +76,19 @@ function parseRoutineItems(value?: string | null): RoutineItem[] {
   }
 }
 
+function getExerciseYoutubeSearchUrl(exerciseName?: string | null) {
+  const name = String(exerciseName ?? "").trim();
+  const query = name ? `${name} exercise proper form` : "exercise proper form";
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+
 export default function WorkoutsPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [exercises, setExercises] = useState<any[]>([]);
   const [workoutLogs, setWorkoutLogs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [exercisesLoading, setExercisesLoading] = useState(true);
+  const [logsLoading, setLogsLoading] = useState(true);
   const [logDialogOpen, setLogDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
   const [logEntries, setLogEntries] = useState<any[]>([]);
@@ -108,20 +117,27 @@ export default function WorkoutsPage() {
   const [templateForm, setTemplateForm] = useState(blankTemplateForm);
 
   const loadData = useCallback(async () => {
-    try {
-      const [tRes, eRes, lRes] = await Promise.all([
-        fetch("/api/workout-templates"),
-        fetch("/api/exercises"),
-        fetch("/api/workout-logs?limit=100"),
-      ]);
-      const tData = await tRes.json();
-      const eData = await eRes.json();
-      const lData = await lRes.json();
-      setTemplates(tData?.templates ?? []);
-      setExercises(eData?.exercises ?? []);
-      setWorkoutLogs(lData?.logs ?? []);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
+    setTemplatesLoading(true);
+    setExercisesLoading(true);
+    setLogsLoading(true);
+
+    dayzaFetch("/api/workout-templates")
+      .then((res) => res.json())
+      .then((data) => setTemplates(data?.templates ?? []))
+      .catch((err) => console.error(err))
+      .finally(() => setTemplatesLoading(false));
+
+    dayzaFetch("/api/exercises?compact=1")
+      .then((res) => res.json())
+      .then((data) => setExercises(data?.exercises ?? []))
+      .catch((err) => console.error(err))
+      .finally(() => setExercisesLoading(false));
+
+    dayzaFetch("/api/workout-logs?limit=50")
+      .then((res) => res.json())
+      .then((data) => setWorkoutLogs(data?.logs ?? []))
+      .catch((err) => console.error(err))
+      .finally(() => setLogsLoading(false));
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -188,7 +204,7 @@ export default function WorkoutsPage() {
   };
 
   const fetchReplacementExercise = async (exercise: any, usedIds: string[], usedNames: string[]) => {
-    const res = await fetch("/api/workouts/replace-exercise", {
+    const res = await dayzaFetch("/api/workouts/replace-exercise", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -229,7 +245,7 @@ export default function WorkoutsPage() {
     }));
 
     try {
-      const res = await fetch("/api/workout-templates", {
+      const res = await dayzaFetch("/api/workout-templates", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -289,7 +305,7 @@ export default function WorkoutsPage() {
 
   const handleLogWorkout = async () => {
     try {
-      const res = await fetch("/api/workout-logs", {
+      const res = await dayzaFetch("/api/workout-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -362,7 +378,7 @@ export default function WorkoutsPage() {
     }
     setFinishingWorkout(true);
     try {
-      const res = await fetch("/api/workout-logs", {
+      const res = await dayzaFetch("/api/workout-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -420,7 +436,7 @@ export default function WorkoutsPage() {
     if (!name || addingChoiceExercise) return;
     setAddingChoiceExercise(true);
     try {
-      const res = await fetch("/api/exercises", {
+      const res = await dayzaFetch("/api/exercises", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -458,7 +474,7 @@ export default function WorkoutsPage() {
       return;
     }
     try {
-      const res = await fetch("/api/exercises", {
+      const res = await dayzaFetch("/api/exercises", {
         method: exerciseForm.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(exerciseForm),
@@ -482,7 +498,7 @@ export default function WorkoutsPage() {
     if (!confirmed) return;
 
     try {
-      const res = await fetch("/api/exercises", {
+      const res = await dayzaFetch("/api/exercises", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: exercise.id }),
@@ -568,7 +584,7 @@ export default function WorkoutsPage() {
       return;
     }
     try {
-      const res = await fetch("/api/workout-templates", {
+      const res = await dayzaFetch("/api/workout-templates", {
         method: templateForm.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(templateForm),
@@ -592,7 +608,7 @@ export default function WorkoutsPage() {
     if (!confirmed) return;
 
     try {
-      const res = await fetch("/api/workout-templates", {
+      const res = await dayzaFetch("/api/workout-templates", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: template.id }),
@@ -617,7 +633,7 @@ export default function WorkoutsPage() {
 
     setDeletingWorkoutLogId(log.id);
     try {
-      const res = await fetch(`/api/workout-logs?id=${log.id}`, { method: "DELETE" });
+      const res = await dayzaFetch(`/api/workout-logs?id=${log.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) {
         toast.error(data?.error ?? "Failed to delete workout");
@@ -730,8 +746,6 @@ export default function WorkoutsPage() {
     setLogDialogOpen(true);
   };
 
-  if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}</div>;
-
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
@@ -785,7 +799,10 @@ export default function WorkoutsPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">Current exercise</p>
-                    <h3 className="mt-1 break-words text-lg font-semibold">{currentExercise?.exercise?.name ?? "Exercise"}</h3>
+                    <div className="mt-1 flex min-w-0 items-start gap-2">
+                      <h3 className="min-w-0 flex-1 break-words text-lg font-semibold">{currentExercise?.exercise?.name ?? "Exercise"}</h3>
+                      <ExerciseYoutubeLink exerciseName={currentExercise?.exercise?.name} />
+                    </div>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Target: {currentExercise?.sets ?? 3} sets x {currentExercise?.reps ?? "8-12"} reps
                     </p>
@@ -998,7 +1015,10 @@ export default function WorkoutsPage() {
             <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {workoutStats.topPrs.map((record: any) => (
                 <div key={record.exerciseName} className="rounded-lg border border-primary/20 bg-background/70 p-3">
-                  <p className="truncate text-sm font-semibold">{record.exerciseName}</p>
+                  <div className="flex min-w-0 items-start gap-2">
+                    <p className="min-w-0 flex-1 truncate text-sm font-semibold">{record.exerciseName}</p>
+                    <ExerciseYoutubeLink exerciseName={record.exerciseName} className="h-7 w-7" />
+                  </div>
                   <p className="mt-1 font-mono text-lg font-bold">{record.weight}kg x {record.reps}</p>
                   <p className="text-xs text-muted-foreground">
                     {new Date(record.date ?? Date.now()).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
@@ -1020,6 +1040,11 @@ export default function WorkoutsPage() {
 
         <TabsContent value="programs" className="space-y-4">
           <FadeIn>
+            {templatesLoading ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {[1, 2].map((i) => <div key={i} className="h-48 animate-pulse rounded-lg bg-muted" />)}
+              </div>
+            ) : null}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {(templates ?? []).map((t: any) => (
                 <Card key={t?.id} className="hover:shadow-lg transition-shadow">
@@ -1046,11 +1071,12 @@ export default function WorkoutsPage() {
                     </div>
                     <div className="space-y-1 mb-4">
                       {(t?.exercises ?? []).map((we: any) => (
-                        <div key={we?.id} className="grid grid-cols-[auto_1fr_auto] items-center gap-3 py-1 text-sm">
+                        <div key={we?.id} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 py-1 text-sm">
                           <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => replaceProgramExercise(t, we)} title="Replace exercise">
                             <Shuffle className="h-3.5 w-3.5" />
                           </Button>
                           <span className="min-w-0 break-words">{we?.exercise?.name}</span>
+                          <ExerciseYoutubeLink exerciseName={we?.exercise?.name} className="h-7 w-7" />
                           <span className="text-muted-foreground font-mono">{we?.sets} × {we?.reps}</span>
                         </div>
                       ))}
@@ -1062,6 +1088,11 @@ export default function WorkoutsPage() {
                 </Card>
               ))}
             </div>
+            {!templatesLoading && templates.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                No workout programs yet.
+              </div>
+            ) : null}
           </FadeIn>
         </TabsContent>
 
@@ -1090,12 +1121,18 @@ export default function WorkoutsPage() {
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {exercisesLoading ? [1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-28 animate-pulse rounded-lg bg-muted" />
+            )) : null}
             {(filteredExercises ?? []).map((ex: any) => (
               <Card key={ex?.id} className="overflow-hidden">
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between">
-                    <div>
-                      <h4 className="font-medium">{ex?.name}</h4>
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-start gap-2">
+                        <h4 className="min-w-0 font-medium">{ex?.name}</h4>
+                        <ExerciseYoutubeLink exerciseName={ex?.name} className="h-7 w-7" />
+                      </div>
                       <div className="flex gap-2 mt-1">
                         <Badge variant="outline" className="text-xs capitalize">{ex?.muscleGroup}</Badge>
                         {ex?.equipment && <Badge variant="secondary" className="text-xs capitalize">{ex.equipment}</Badge>}
@@ -1152,7 +1189,11 @@ export default function WorkoutsPage() {
               </SelectContent>
             </Select>
           </div>
-          {(filteredWorkoutLogs ?? [])?.length === 0 ? (
+          {logsLoading ? (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {[1, 2, 3, 4].map((i) => <div key={i} className="h-40 animate-pulse rounded-lg bg-muted" />)}
+            </div>
+          ) : (filteredWorkoutLogs ?? [])?.length === 0 ? (
             <div className="text-center py-12">
               <Dumbbell className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-muted-foreground">No workouts logged yet</p>
@@ -1251,7 +1292,10 @@ export default function WorkoutsPage() {
                 {selectedHistoryGroups.map((group: any) => (
                   <div key={group.exerciseId} className="rounded-lg border border-border p-3">
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <h4 className="min-w-0 break-words font-semibold">{group.exerciseName}</h4>
+                      <div className="flex min-w-0 flex-1 items-start gap-2">
+                        <h4 className="min-w-0 flex-1 break-words font-semibold">{group.exerciseName}</h4>
+                        <ExerciseYoutubeLink exerciseName={group.exerciseName} className="h-7 w-7" />
+                      </div>
                       <Badge variant="outline" className="shrink-0">{group.sets.length} sets</Badge>
                     </div>
                     <div className="grid gap-2">
@@ -1500,7 +1544,10 @@ export default function WorkoutsPage() {
               {(logEntries ?? []).map((entry: any, idx: number) => (
                 <div key={idx} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{entry?.exerciseName}</p>
+                    <div className="flex min-w-0 items-start gap-2">
+                      <p className="min-w-0 flex-1 truncate text-sm font-medium">{entry?.exerciseName}</p>
+                      <ExerciseYoutubeLink exerciseName={entry?.exerciseName} className="h-7 w-7" />
+                    </div>
                     <p className="text-xs text-muted-foreground">Set {entry?.setNumber}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1623,6 +1670,24 @@ function RoutineEditor({
         </div>
       ))}
     </div>
+  );
+}
+
+function ExerciseYoutubeLink({ exerciseName, className = "h-8 w-8" }: { exerciseName?: string | null; className?: string }) {
+  const name = String(exerciseName ?? "").trim();
+  if (!name) return null;
+  return (
+    <a
+      href={getExerciseYoutubeSearchUrl(name)}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-500 ${className}`}
+      title={`Search ${name} on YouTube`}
+      aria-label={`Search ${name} on YouTube`}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <Youtube className="h-4 w-4" />
+    </a>
   );
 }
 

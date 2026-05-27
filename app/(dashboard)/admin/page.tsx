@@ -4,6 +4,7 @@ import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell,
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { listFirestoreChatSessions, pruneFirestoreChatRetention } from "@/lib/firestore-chat";
+import { listRecentIssueReports } from "@/lib/firestore-app-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -128,11 +129,7 @@ export default async function AdminPage() {
       _count: { id: true },
       _sum: { amount: true },
     }),
-    prisma.issueReport.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      include: { user: { select: { name: true, email: true } } },
-    }),
+    listRecentIssueReports(8),
     prisma.spend.findMany({
       orderBy: { createdAt: "desc" },
       take: 8,
@@ -194,8 +191,8 @@ export default async function AdminPage() {
         type: "Issue",
         title: issue.category,
         detail: issue.message,
-        user: issue.user?.name || issue.user?.email || issue.email || "Anonymous",
-        createdAt: issue.createdAt,
+        user: issue.name || issue.email || "Anonymous",
+        createdAt: new Date(issue.createdAt ?? Date.now()),
         kind: "issue" as const,
       })),
   ]
