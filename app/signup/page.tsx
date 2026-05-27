@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Mail, Lock, User, Eye, EyeOff, Info } from "lucide-react";
+import { Mail, Lock, User, Eye, EyeOff, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -180,7 +180,15 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="app-viewport flex items-center justify-center overflow-y-auto bg-gradient-to-br from-background via-background to-secondary/20 p-4 ios-scroll">
+    <div className="app-viewport relative flex items-center justify-center overflow-y-auto bg-gradient-to-br from-background via-background to-secondary/20 p-4 ios-scroll">
+      {googleLoading ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+          <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium text-foreground shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            Opening Google sign-in...
+          </div>
+        </div>
+      ) : null}
       <div className="w-full max-w-md">
         <BrandLogo className="mb-8 justify-center" />
         <Card>
@@ -227,6 +235,7 @@ export default function SignupPage() {
                     value={name}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
                     className={`pl-10 ${nameError ? "border-destructive pr-10 text-destructive focus-visible:ring-destructive" : ""}`}
+                    disabled={googleLoading}
                     minLength={2}
                     maxLength={60}
                     autoComplete="name"
@@ -256,6 +265,7 @@ export default function SignupPage() {
                     value={email}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                     className={`pl-10 ${emailError ? "border-destructive pr-10 text-destructive focus-visible:ring-destructive" : ""}`}
+                    disabled={googleLoading}
                     autoComplete="email"
                     required
                   />
@@ -284,11 +294,12 @@ export default function SignupPage() {
                     value={password}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value)}
                     className={`pl-10 pr-10 ${passwordError ? "border-destructive pr-16 text-destructive focus-visible:ring-destructive" : ""}`}
+                    disabled={googleLoading}
                     minLength={6}
                     autoComplete="new-password"
                     required
                   />
-                  <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  <button type="button" onClick={() => setShowPassword(!showPassword)} disabled={googleLoading} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50">
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
@@ -298,6 +309,7 @@ export default function SignupPage() {
                   id="terms"
                   checked={acceptedTerms}
                   onCheckedChange={(checked) => setAcceptedTerms(checked === true)}
+                  disabled={googleLoading}
                 />
                 <Label htmlFor="terms" className="text-xs leading-4 text-muted-foreground">
                   I accept{" "}
@@ -311,7 +323,7 @@ export default function SignupPage() {
                   .
                 </Label>
               </div>
-              <Button type="submit" className="w-full" loading={loading} disabled={loading}>
+              <Button type="submit" className="w-full" loading={loading} disabled={loading || googleLoading}>
                 {signupStep === "creating"
                   ? "Creating account..."
                   : signupStep === "sending-verification"
