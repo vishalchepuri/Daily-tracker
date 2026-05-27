@@ -61,6 +61,9 @@ function addDays(date: Date, days: number) {
 export default function RemindersPage() {
   const [reminders, setReminders] = useState<any[]>([]);
   const [lists, setLists] = useState<any[]>([]);
+  const [remindersNextOffset, setRemindersNextOffset] = useState(0);
+  const [remindersHasMore, setRemindersHasMore] = useState(false);
+  const [loadingMoreReminders, setLoadingMoreReminders] = useState(false);
   const [filter, setFilter] = useState("today");
   const [loading, setLoading] = useState(true);
   const [reminderOpen, setReminderOpen] = useState(false);
@@ -71,30 +74,55 @@ export default function RemindersPage() {
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
 
   const loadData = async () => {
-    try {
-      const [reminderRes, listRes, telegramRes] = await Promise.all([
-        fetch("/api/reminders"),
-        fetch("/api/reminder-lists"),
-        fetch("/api/telegram-settings"),
-      ]);
-      const reminderData = await reminderRes.json();
-      const listData = await listRes.json();
-      const telegramData = await telegramRes.json();
-      setReminders(reminderData?.reminders ?? []);
-      setLists(listData?.lists ?? []);
-      setTelegramForm({
-        telegramChatId: telegramData?.telegramChatId ?? "",
-        telegramEnabled: Boolean(telegramData?.telegramEnabled),
-        botConfigured: Boolean(telegramData?.botConfigured),
-      });
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true);
+    fetch("/api/reminders?offset=0&limit=30")
+      .then((res) => res.ok ? res.json() : { reminders: [] })
+      .then((data) => {
+        setReminders(data?.reminders ?? []);
+        setRemindersNextOffset(data?.nextOffset ?? (data?.reminders ?? []).length);
+        setRemindersHasMore(Boolean(data?.hasMore));
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+
+    fetch("/api/reminder-lists")
+      .then((res) => res.ok ? res.json() : { lists: [] })
+      .then((data) => setLists(data?.lists ?? []))
+      .catch(console.error);
+
+    fetch("/api/telegram-settings")
+      .then((res) => res.ok ? res.json() : {})
+      .then((telegramData: any) => {
+        setTelegramForm({
+          telegramChatId: telegramData?.telegramChatId ?? "",
+          telegramEnabled: Boolean(telegramData?.telegramEnabled),
+          botConfigured: Boolean(telegramData?.botConfigured),
+        });
+      })
+      .catch(console.error);
   };
 
   useEffect(() => { loadData(); }, []);
+
+  const loadMoreReminders = async () => {
+    if (loadingMoreReminders || !remindersHasMore) return;
+    setLoadingMoreReminders(true);
+    try {
+      const res = await fetch(`/api/reminders?offset=${remindersNextOffset}&limit=30`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to load more reminders");
+        return;
+      }
+      setReminders((prev) => [...prev, ...(data?.reminders ?? [])]);
+      setRemindersNextOffset(data?.nextOffset ?? remindersNextOffset + (data?.reminders ?? []).length);
+      setRemindersHasMore(Boolean(data?.hasMore));
+    } catch {
+      toast.error("Failed to load more reminders");
+    } finally {
+      setLoadingMoreReminders(false);
+    }
+  };
 
   const smartCounts = useMemo(() => {
     const todayStart = new Date();
@@ -294,8 +322,6 @@ export default function RemindersPage() {
       .slice(0, 5);
   }, [reminders]);
 
-  if (loading) return <div className="space-y-4">{[1,2,3].map((i) => <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />)}</div>;
-
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
@@ -464,6 +490,11 @@ export default function RemindersPage() {
                     </div>
                   </div>
                 ))}
+                {remindersHasMore && (
+                  <Button type="button" variant="outline" className="w-full" onClick={loadMoreReminders} loading={loadingMoreReminders} disabled={loadingMoreReminders}>
+                    Load more reminders
+                  </Button>
+                )}
               </div>
             )}
           </CardContent>

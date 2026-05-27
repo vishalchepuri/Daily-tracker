@@ -32,6 +32,9 @@ const mealSuggestions = [
 export default function NutritionPage() {
   const [foodLogs, setFoodLogs] = useState<any[]>([]);
   const [dietPlans, setDietPlans] = useState<any[]>([]);
+  const [dietNextOffset, setDietNextOffset] = useState(0);
+  const [dietHasMore, setDietHasMore] = useState(false);
+  const [loadingMoreDietPlans, setLoadingMoreDietPlans] = useState(false);
   const [waterLogs, setWaterLogs] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -68,34 +71,41 @@ export default function NutritionPage() {
   });
 
   const loadData = useCallback(async () => {
-    try {
-      const [logsResult, profileResult, waterResult, dietResult] = await Promise.allSettled([
-        fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}`).then((res) => res.ok ? res.json() : { logs: [] }),
-        fetch("/api/profile").then((res) => res.ok ? res.json() : { profile: null }),
-        fetch("/api/water-logs").then((res) => res.ok ? res.json() : { logs: [] }),
-        fetch("/api/diet-plans").then((res) => res.ok ? res.json() : { plans: [] }),
-      ]);
-      const logsData = logsResult.status === "fulfilled" ? logsResult.value : { logs: [] };
-      const profileData = profileResult.status === "fulfilled" ? profileResult.value : { profile: null };
-      const waterData = waterResult.status === "fulfilled" ? waterResult.value : { logs: [] };
-      const dietData = dietResult.status === "fulfilled" ? dietResult.value : { plans: [] };
-      setFoodLogs(logsData?.logs ?? []);
-      setWaterLogs(waterData?.logs ?? []);
-      setDietPlans(dietData?.plans ?? []);
-      setProfile(profileData?.profile);
-      setTargetForm({
-        targetCalories: String(profileData?.profile?.targetCalories ?? 2500),
-        targetProtein: String(profileData?.profile?.targetProtein ?? 150),
-        targetCarbs: String(profileData?.profile?.targetCarbs ?? 300),
-        targetFat: String(profileData?.profile?.targetFat ?? 70),
-        targetFiber: String(profileData?.profile?.targetFiber ?? 30),
-        targetWaterMl: String(profileData?.profile?.targetWaterMl ?? 3000),
-      });
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true);
+    fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}`)
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setFoodLogs(data?.logs ?? []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+
+    fetch("/api/profile")
+      .then((res) => res.ok ? res.json() : { profile: null })
+      .then((profileData: any) => {
+        setProfile(profileData?.profile);
+        setTargetForm({
+          targetCalories: String(profileData?.profile?.targetCalories ?? 2500),
+          targetProtein: String(profileData?.profile?.targetProtein ?? 150),
+          targetCarbs: String(profileData?.profile?.targetCarbs ?? 300),
+          targetFat: String(profileData?.profile?.targetFat ?? 70),
+          targetFiber: String(profileData?.profile?.targetFiber ?? 30),
+          targetWaterMl: String(profileData?.profile?.targetWaterMl ?? 3000),
+        });
+      })
+      .catch(console.error);
+
+    fetch("/api/water-logs")
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setWaterLogs(data?.logs ?? []))
+      .catch(console.error);
+
+    fetch("/api/diet-plans?offset=0&limit=10")
+      .then((res) => res.ok ? res.json() : { plans: [] })
+      .then((data) => {
+        setDietPlans(data?.plans ?? []);
+        setDietNextOffset(data?.nextOffset ?? (data?.plans ?? []).length);
+        setDietHasMore(Boolean(data?.hasMore));
+      })
+      .catch(console.error);
   }, [selectedDate]);
 
   useEffect(() => { loadData(); }, [loadData]);
@@ -120,6 +130,26 @@ export default function NutritionPage() {
         { mealType: "Dinner", title: "", foods: "", calories: "", protein: "", carbs: "", fat: "" },
       ],
     });
+  };
+
+  const loadMoreDietPlans = async () => {
+    if (loadingMoreDietPlans || !dietHasMore) return;
+    setLoadingMoreDietPlans(true);
+    try {
+      const res = await fetch(`/api/diet-plans?offset=${dietNextOffset}&limit=10`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to load more diet plans");
+        return;
+      }
+      setDietPlans((prev) => [...prev, ...(data?.plans ?? [])]);
+      setDietNextOffset(data?.nextOffset ?? dietNextOffset + (data?.plans ?? []).length);
+      setDietHasMore(Boolean(data?.hasMore));
+    } catch {
+      toast.error("Failed to load more diet plans");
+    } finally {
+      setLoadingMoreDietPlans(false);
+    }
   };
 
   const openAddDialog = () => {
@@ -455,8 +485,6 @@ export default function NutritionPage() {
       return [];
     }
   };
-
-  if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -827,11 +855,12 @@ export default function NutritionPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {dietPlans.map((plan) => {
-                const meals = parseDietMeals(plan);
-                return (
-                  <Card key={plan.id}>
+            <div className="space-y-4">
+              <div className="grid gap-4 lg:grid-cols-2">
+                {dietPlans.map((plan) => {
+                  const meals = parseDietMeals(plan);
+                  return (
+                    <Card key={plan.id}>
                     <CardHeader>
                       <div className="flex items-start justify-between gap-3">
                         <div>
@@ -866,9 +895,15 @@ export default function NutritionPage() {
                         </div>
                       ))}
                     </CardContent>
-                  </Card>
-                );
-              })}
+                    </Card>
+                  );
+                })}
+              </div>
+              {dietHasMore && (
+                <Button type="button" variant="outline" className="w-full" onClick={loadMoreDietPlans} loading={loadingMoreDietPlans} disabled={loadingMoreDietPlans}>
+                  Load more diet plans
+                </Button>
+              )}
             </div>
           )}
         </TabsContent>

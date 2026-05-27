@@ -9,17 +9,41 @@ function parseDueDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
+    const { searchParams } = new URL(req.url);
+    const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
+    const limit = Math.min(100, Math.max(20, Number(searchParams.get("limit") ?? 30) || 30));
     const reminders = await prisma.reminder.findMany({
       where: { userId },
-      include: { list: true },
+      select: {
+        id: true,
+        listId: true,
+        title: true,
+        notes: true,
+        dueDate: true,
+        recurrence: true,
+        recurrenceCustom: true,
+        priority: true,
+        flagged: true,
+        completed: true,
+        completedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        list: { select: { id: true, name: true, color: true } },
+      },
       orderBy: [{ completed: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }],
+      skip: offset,
+      take: limit + 1,
     });
-    return NextResponse.json({ reminders });
+    return NextResponse.json({
+      reminders: reminders.slice(0, limit),
+      nextOffset: offset + Math.min(reminders.length, limit),
+      hasMore: reminders.length > limit,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }

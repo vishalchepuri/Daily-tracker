@@ -18,6 +18,9 @@ export function ProgressPanel() {
   const [entries, setEntries] = useState<any[]>([]);
   const [photos, setPhotos] = useState<any[]>([]);
   const [workoutLogs, setWorkoutLogs] = useState<any[]>([]);
+  const [progressNextOffset, setProgressNextOffset] = useState(0);
+  const [progressHasMore, setProgressHasMore] = useState(false);
+  const [loadingMoreProgress, setLoadingMoreProgress] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -26,14 +29,16 @@ export function ProgressPanel() {
   const loadData = useCallback(async () => {
     try {
       const [pRes, phRes, wRes] = await Promise.all([
-        fetch("/api/progress"),
+        fetch("/api/progress?offset=0&limit=30"),
         fetch("/api/progress-photos"),
-        fetch("/api/workout-logs?limit=100"),
+        fetch("/api/workout-logs?limit=30"),
       ]);
       const pData = await pRes.json();
       const phData = await phRes.json();
       const wData = await wRes.json();
       setEntries(pData?.entries ?? []);
+      setProgressNextOffset(pData?.nextOffset ?? (pData?.entries ?? []).length);
+      setProgressHasMore(Boolean(pData?.hasMore));
       setPhotos(phData?.photos ?? []);
       setWorkoutLogs(wData?.logs ?? []);
     } catch (err) { console.error(err); }
@@ -41,6 +46,26 @@ export function ProgressPanel() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const loadMoreProgress = async () => {
+    if (loadingMoreProgress || !progressHasMore) return;
+    setLoadingMoreProgress(true);
+    try {
+      const res = await fetch(`/api/progress?offset=${progressNextOffset}&limit=30`);
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to load more progress");
+        return;
+      }
+      setEntries((prev) => [...(data?.entries ?? []), ...prev]);
+      setProgressNextOffset(data?.nextOffset ?? progressNextOffset + (data?.entries ?? []).length);
+      setProgressHasMore(Boolean(data?.hasMore));
+    } catch {
+      toast.error("Failed to load more progress");
+    } finally {
+      setLoadingMoreProgress(false);
+    }
+  };
 
   const handleAddEntry = async () => {
     if (!form.weight && !form.chest) { toast.error("Enter at least weight or a measurement"); return; }
@@ -157,10 +182,12 @@ export function ProgressPanel() {
 
         <TabsContent value="weight">
           <ProgressCharts entries={entries} type="weight" />
+          {progressHasMore && <Button type="button" variant="outline" className="mt-4 w-full" onClick={loadMoreProgress} loading={loadingMoreProgress} disabled={loadingMoreProgress}>Load more progress history</Button>}
         </TabsContent>
 
         <TabsContent value="measurements">
           <ProgressCharts entries={entries} type="measurements" />
+          {progressHasMore && <Button type="button" variant="outline" className="mt-4 w-full" onClick={loadMoreProgress} loading={loadingMoreProgress} disabled={loadingMoreProgress}>Load more progress history</Button>}
         </TabsContent>
 
         <TabsContent value="strength">

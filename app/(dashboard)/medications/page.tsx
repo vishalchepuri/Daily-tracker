@@ -101,20 +101,17 @@ export default function MedicationsPage() {
   const [form, setForm] = useState(blankForm);
 
   const loadData = async () => {
-    try {
-      const [medRes, logsRes] = await Promise.all([
-        fetch("/api/medications"),
-        fetch("/api/medications/logs?limit=50"),
-      ]);
-      const medData = await medRes.json();
-      const logsData = await logsRes.json();
-      setMedications(medData?.medications ?? []);
-      setLogs(logsData?.logs ?? []);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true);
+    fetch("/api/medications")
+      .then((res) => res.ok ? res.json() : { medications: [] })
+      .then((data) => setMedications(data?.medications ?? []))
+      .catch(console.error)
+      .finally(() => setLoading(false));
+
+    fetch("/api/medications/logs?limit=50")
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setLogs(data?.logs ?? []))
+      .catch(console.error);
   };
 
   useEffect(() => { loadData(); }, []);
@@ -333,8 +330,6 @@ export default function MedicationsPage() {
       toast.error("Failed to delete log");
     }
   };
-
-  if (loading) return <div className="space-y-4">{[1, 2, 3].map((i) => <div key={i} className="h-28 rounded-lg bg-muted animate-pulse" />)}</div>;
 
   return (
     <div className="space-y-5 sm:space-y-6">

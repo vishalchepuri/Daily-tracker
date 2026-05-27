@@ -347,8 +347,6 @@ export default function ProfilePage() {
     loadReviewItems();
   };
 
-  if (loading) return <div className="h-64 bg-muted animate-pulse rounded-lg" />;
-
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>

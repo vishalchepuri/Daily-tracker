@@ -15,10 +15,10 @@ export async function GET(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") ?? "50");
+    const limit = Math.min(100, Math.max(10, parseInt(searchParams.get("limit") ?? "30") || 30));
     const logs = await prisma.medicationLog.findMany({
       where: { userId },
-      include: { medication: true },
+      include: { medication: { select: { id: true, name: true, dosage: true, timeOfDay: true } } },
       orderBy: { scheduledFor: "desc" },
       take: limit,
     });

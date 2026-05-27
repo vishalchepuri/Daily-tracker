@@ -8,14 +8,17 @@ export async function GET() {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (user as any).id;
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
     const logs = await prisma.exerciseLog.findMany({
-      where: { workoutLog: { userId } },
+      where: { workoutLog: { userId, date: { gte: ninetyDaysAgo } } },
       include: {
         exercise: { select: { name: true, muscleGroup: true } },
         workoutLog: { select: { date: true } },
       },
       orderBy: { workoutLog: { date: "desc" } },
+      take: 500,
     });
 
     const prs: Record<string, { exerciseName: string; muscleGroup: string; maxWeight: number; maxReps: number; date: string; totalSets: number }> = {};

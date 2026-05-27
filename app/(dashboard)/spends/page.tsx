@@ -130,41 +130,54 @@ export default function SpendsPage() {
   const [importHealth, setImportHealth] = useState<any>(null);
 
   const loadData = async () => {
-    try {
-      const [spendsResult, settingsResult, financeResult, bankResult, cardsResult, moneyLinksResult] = await Promise.allSettled([
-        fetch("/api/spends?offset=0&limit=50").then((res) => res.ok ? res.json() : { spends: [] }),
-        fetch("/api/spends/settings").then((res) => res.ok ? res.json() : {}),
-        fetch("/api/finance").then((res) => res.ok ? res.json() : { financeProfile: null }),
-        fetch("/api/bank-accounts").then((res) => res.ok ? res.json() : { bankAccounts: [] }),
-        fetch("/api/credit-cards").then((res) => res.ok ? res.json() : { creditCards: [] }),
-        fetch("/api/money-links?offset=0&limit=50").then((res) => res.ok ? res.json() : { moneyLinks: [] }),
-      ]);
-      const spendsData = spendsResult.status === "fulfilled" ? spendsResult.value : { spends: [] };
-      const settingsData: any = settingsResult.status === "fulfilled" ? settingsResult.value : {};
-      const financeData = financeResult.status === "fulfilled" ? financeResult.value : { financeProfile: null };
-      const bankData = bankResult.status === "fulfilled" ? bankResult.value : { bankAccounts: [] };
-      const cardsData = cardsResult.status === "fulfilled" ? cardsResult.value : { creditCards: [] };
-      const moneyLinksData = moneyLinksResult.status === "fulfilled" ? moneyLinksResult.value : { moneyLinks: [] };
-      setSpends(spendsData?.spends ?? []);
-      setSpendsNextOffset(spendsData?.nextOffset ?? (spendsData?.spends ?? []).length);
-      setSpendsHasMore(Boolean(spendsData?.hasMore));
-      setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
-      setTargetEditing(!settingsData?.targetMonthlySpend);
-      setFinanceProfile(financeData?.financeProfile ?? null);
-      setFinanceForm({
-        currentBalance: financeData?.financeProfile?.currentBalance != null ? String(financeData.financeProfile.currentBalance) : "",
-        totalAmount: financeData?.financeProfile?.totalAmount != null ? String(financeData.financeProfile.totalAmount) : "",
-      });
-      setBankAccounts(bankData?.bankAccounts ?? []);
-      setCreditCards(cardsData?.creditCards ?? []);
-      setMoneyLinks(moneyLinksData?.moneyLinks ?? []);
-      setMoneyLinksNextOffset(moneyLinksData?.nextOffset ?? (moneyLinksData?.moneyLinks ?? []).length);
-      setMoneyLinksHasMore(Boolean(moneyLinksData?.hasMore));
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true);
+    fetch("/api/spends?offset=0&limit=50")
+      .then((res) => res.ok ? res.json() : { spends: [] })
+      .then((spendsData) => {
+        setSpends(spendsData?.spends ?? []);
+        setSpendsNextOffset(spendsData?.nextOffset ?? (spendsData?.spends ?? []).length);
+        setSpendsHasMore(Boolean(spendsData?.hasMore));
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+
+    fetch("/api/spends/settings")
+      .then((res) => res.ok ? res.json() : {})
+      .then((settingsData: any) => {
+        setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
+        setTargetEditing(!settingsData?.targetMonthlySpend);
+      })
+      .catch(console.error);
+
+    fetch("/api/finance")
+      .then((res) => res.ok ? res.json() : { financeProfile: null })
+      .then((financeData: any) => {
+        setFinanceProfile(financeData?.financeProfile ?? null);
+        setFinanceForm({
+          currentBalance: financeData?.financeProfile?.currentBalance != null ? String(financeData.financeProfile.currentBalance) : "",
+          totalAmount: financeData?.financeProfile?.totalAmount != null ? String(financeData.financeProfile.totalAmount) : "",
+        });
+      })
+      .catch(console.error);
+
+    fetch("/api/bank-accounts")
+      .then((res) => res.ok ? res.json() : { bankAccounts: [] })
+      .then((data) => setBankAccounts(data?.bankAccounts ?? []))
+      .catch(console.error);
+
+    fetch("/api/credit-cards")
+      .then((res) => res.ok ? res.json() : { creditCards: [] })
+      .then((data) => setCreditCards(data?.creditCards ?? []))
+      .catch(console.error);
+
+    fetch("/api/money-links?offset=0&limit=50")
+      .then((res) => res.ok ? res.json() : { moneyLinks: [] })
+      .then((moneyLinksData) => {
+        setMoneyLinks(moneyLinksData?.moneyLinks ?? []);
+        setMoneyLinksNextOffset(moneyLinksData?.nextOffset ?? (moneyLinksData?.moneyLinks ?? []).length);
+        setMoneyLinksHasMore(Boolean(moneyLinksData?.hasMore));
+      })
+      .catch(console.error);
   };
 
   useEffect(() => { loadData(); }, []);
@@ -898,8 +911,6 @@ export default function SpendsPage() {
       setConnectingGmail(false);
     }
   };
-
-  if (loading) return <div className="space-y-4">{[1,2,3].map((i) => <div key={i} className="h-28 bg-muted animate-pulse rounded-lg" />)}</div>;
 
   return (
     <div className="space-y-5 sm:space-y-6">

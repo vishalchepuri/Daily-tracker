@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -103,10 +103,16 @@ export default function WorkoutsPage() {
   const [activeSubmissionId, setActiveSubmissionId] = useState("");
   const [loggingSet, setLoggingSet] = useState(false);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
+  const [replacingProgramExerciseId, setReplacingProgramExerciseId] = useState<string | null>(null);
+  const [replacingActiveExercise, setReplacingActiveExercise] = useState(false);
   const [chooseExerciseOpen, setChooseExerciseOpen] = useState(false);
   const [chooseExerciseSearch, setChooseExerciseSearch] = useState("");
   const [addingChoiceExercise, setAddingChoiceExercise] = useState(false);
-  const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>([]);
+  const [savingExercise, setSavingExercise] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [selectedMuscleGroups, setSelectedMuscleGroups] = useState<string[]>(["chest"]);
+  const [loadedExerciseMuscleGroups, setLoadedExerciseMuscleGroups] = useState<string[]>([]);
+  const loadedExerciseMuscleGroupsRef = useRef<string[]>([]);
   const [historyRange, setHistoryRange] = useState("30");
   const [deletingWorkoutLogId, setDeletingWorkoutLogId] = useState<string | null>(null);
   const [expandedExercise, setExpandedExercise] = useState<string | null>(null);
@@ -115,6 +121,32 @@ export default function WorkoutsPage() {
   const [selectedHistoryLog, setSelectedHistoryLog] = useState<any>(null);
   const [exerciseForm, setExerciseForm] = useState(blankExerciseForm);
   const [templateForm, setTemplateForm] = useState(blankTemplateForm);
+
+  const loadExercisesForMuscle = useCallback(async (muscleGroup: string, force = false) => {
+    const group = muscleGroup.trim().toLowerCase();
+    if (!group) return;
+    if (!force && loadedExerciseMuscleGroupsRef.current.includes(group)) return;
+    setExercisesLoading(true);
+    try {
+      const res = await dayzaFetch(`/api/exercises?compact=1&muscleGroup=${encodeURIComponent(group)}`);
+      const data = await res.json();
+      const nextExercises = data?.exercises ?? [];
+      setExercises((prev) => {
+        const withoutGroup = (prev ?? []).filter((exercise: any) => exercise?.muscleGroup !== group);
+        return [...withoutGroup, ...nextExercises].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      });
+      setLoadedExerciseMuscleGroups((prev) => {
+        const next = force || !prev.includes(group) ? [...prev.filter((item) => item !== group), group] : prev;
+        loadedExerciseMuscleGroupsRef.current = next;
+        return next;
+      });
+    } catch (err) {
+      console.error(err);
+      toast.error(`Failed to load ${group} exercises`);
+    } finally {
+      setExercisesLoading(false);
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     setTemplatesLoading(true);
@@ -127,18 +159,14 @@ export default function WorkoutsPage() {
       .catch((err) => console.error(err))
       .finally(() => setTemplatesLoading(false));
 
-    dayzaFetch("/api/exercises?compact=1")
-      .then((res) => res.json())
-      .then((data) => setExercises(data?.exercises ?? []))
-      .catch((err) => console.error(err))
-      .finally(() => setExercisesLoading(false));
+    loadExercisesForMuscle("chest", true);
 
     dayzaFetch("/api/workout-logs?limit=50")
       .then((res) => res.json())
       .then((data) => setWorkoutLogs(data?.logs ?? []))
       .catch((err) => console.error(err))
       .finally(() => setLogsLoading(false));
-  }, []);
+  }, [loadExercisesForMuscle]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -226,6 +254,8 @@ export default function WorkoutsPage() {
   };
 
   const replaceProgramExercise = async (template: any, workoutExercise: any) => {
+    if (replacingProgramExerciseId) return;
+    setReplacingProgramExerciseId(workoutExercise?.id ?? template?.id ?? "program");
     const usedIds = (template?.exercises ?? [])
       .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
       .filter(Boolean);
@@ -234,6 +264,7 @@ export default function WorkoutsPage() {
       .filter(Boolean);
     const replacement = await fetchReplacementExercise(workoutExercise?.exercise, usedIds, usedNames);
     if (!replacement) {
+      setReplacingProgramExerciseId(null);
       return;
     }
 
@@ -267,25 +298,33 @@ export default function WorkoutsPage() {
       loadData();
     } catch {
       toast.error("Failed to replace exercise");
+    } finally {
+      setReplacingProgramExerciseId(null);
     }
   };
 
   const replaceActiveExercise = async () => {
     if (!currentExercise?.exercise) return;
+    if (replacingActiveExercise) return;
     if (currentExerciseSets.length > 0 && !window.confirm("You already logged sets for this exercise. Replace only the next sets with a different exercise?")) return;
+    setReplacingActiveExercise(true);
 
-    const usedIds = (activeExercises ?? [])
-      .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
-      .filter(Boolean);
-    const usedNames = (activeExercises ?? [])
-      .map((item: any) => item?.exercise?.name)
-      .filter(Boolean);
-    const replacement = await fetchReplacementExercise(currentExercise.exercise, usedIds, usedNames);
-    if (!replacement) {
-      return;
+    try {
+      const usedIds = (activeExercises ?? [])
+        .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
+        .filter(Boolean);
+      const usedNames = (activeExercises ?? [])
+        .map((item: any) => item?.exercise?.name)
+        .filter(Boolean);
+      const replacement = await fetchReplacementExercise(currentExercise.exercise, usedIds, usedNames);
+      if (!replacement) {
+        return;
+      }
+      applyActiveExerciseChoice(replacement);
+      toast.success(`Replaced with ${replacement.name}`);
+    } finally {
+      setReplacingActiveExercise(false);
     }
-    applyActiveExerciseChoice(replacement);
-    toast.success(`Replaced with ${replacement.name}`);
   };
 
   const applyActiveExerciseChoice = (replacement: any) => {
@@ -431,6 +470,12 @@ export default function WorkoutsPage() {
     }
   };
 
+  const openChooseExercise = () => {
+    const group = currentExercise?.exercise?.muscleGroup ?? "chest";
+    setChooseExerciseOpen(true);
+    loadExercisesForMuscle(group);
+  };
+
   const handleCreateExerciseFromChoice = async () => {
     const name = chooseExerciseSearch.trim();
     if (!name || addingChoiceExercise) return;
@@ -469,10 +514,12 @@ export default function WorkoutsPage() {
   };
 
   const handleSaveExercise = async () => {
+    if (savingExercise) return;
     if (!exerciseForm.name.trim()) {
       toast.error("Exercise name is required");
       return;
     }
+    setSavingExercise(true);
     try {
       const res = await dayzaFetch("/api/exercises", {
         method: exerciseForm.id ? "PATCH" : "POST",
@@ -486,9 +533,17 @@ export default function WorkoutsPage() {
       }
       toast.success(exerciseForm.id ? "Exercise updated" : data?.pending ? "Exercise sent to admin for approval" : "Exercise added");
       setExerciseDialogOpen(false);
-      loadData();
+      setExercises((prev) => {
+        const current = prev ?? [];
+        const withoutSaved = current.filter((exercise: any) => exercise?.id !== data.exercise?.id);
+        const shouldShow = loadedExerciseMuscleGroupsRef.current.includes(data.exercise?.muscleGroup);
+        return (shouldShow ? [...withoutSaved, data.exercise] : withoutSaved)
+          .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      });
     } catch {
       toast.error("Failed to save exercise");
+    } finally {
+      setSavingExercise(false);
     }
   };
 
@@ -509,7 +564,7 @@ export default function WorkoutsPage() {
         return;
       }
       toast.success("Exercise deleted");
-      loadData();
+      setExercises((prev) => (prev ?? []).filter((item: any) => item?.id !== exercise.id));
     } catch {
       toast.error("Failed to delete exercise");
     }
@@ -579,10 +634,12 @@ export default function WorkoutsPage() {
   };
 
   const handleSaveTemplate = async () => {
+    if (savingTemplate) return;
     if (!templateForm.name.trim()) {
       toast.error("Workout day name is required");
       return;
     }
+    setSavingTemplate(true);
     try {
       const res = await dayzaFetch("/api/workout-templates", {
         method: templateForm.id ? "PATCH" : "POST",
@@ -599,6 +656,8 @@ export default function WorkoutsPage() {
       loadData();
     } catch {
       toast.error("Failed to save workout day");
+    } finally {
+      setSavingTemplate(false);
     }
   };
 
@@ -649,15 +708,11 @@ export default function WorkoutsPage() {
     }
   };
 
-  const muscleGroups = ["all", "chest", "back", "shoulders", "legs", "arms", "core"];
-  const editableMuscleGroups = muscleGroups.filter((item) => item !== "all");
+  const muscleGroups = ["chest", "back", "shoulders", "legs", "arms", "core"];
+  const editableMuscleGroups = muscleGroups;
   const daysOfWeek = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-  const filteredExercises = selectedMuscleGroups.length === 0
-    ? exercises
-    : (exercises ?? []).filter((e: any) => selectedMuscleGroups.includes(e?.muscleGroup));
-  const selectedMuscleLabel = selectedMuscleGroups.length === 0
-    ? "All muscles"
-    : selectedMuscleGroups.length === 1
+  const filteredExercises = (exercises ?? []).filter((e: any) => selectedMuscleGroups.includes(e?.muscleGroup));
+  const selectedMuscleLabel = selectedMuscleGroups.length === 1
       ? selectedMuscleGroups[0]
       : `${selectedMuscleGroups.length} muscles`;
   const templateMuscleGroups = String(templateForm.muscleGroups ?? "")
@@ -670,15 +725,16 @@ export default function WorkoutsPage() {
       ? templateMuscleGroups[0]
       : `${templateMuscleGroups.length} muscles selected`;
   const toggleMuscleGroup = (group: string) => {
-    setSelectedMuscleGroups((current) =>
-      current.includes(group) ? current.filter((item) => item !== group) : [...current, group]
-    );
+    const nextGroup = group.trim().toLowerCase();
+    setSelectedMuscleGroups([nextGroup]);
+    loadExercisesForMuscle(nextGroup);
   };
   const toggleTemplateMuscleGroup = (group: string) => {
     const nextGroups = templateMuscleGroups.includes(group)
       ? templateMuscleGroups.filter((item) => item !== group)
       : [...templateMuscleGroups, group];
     setTemplateForm((prev: any) => ({ ...prev, muscleGroups: nextGroups.join(",") }));
+    if (!templateMuscleGroups.includes(group)) loadExercisesForMuscle(group);
   };
   const groupExerciseLogs = (exerciseLogs: any[] = []) => {
     return exerciseLogs.reduce((groups: any[], entry: any) => {
@@ -808,11 +864,18 @@ export default function WorkoutsPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <Button type="button" variant="outline" onClick={replaceActiveExercise} title="Replace with another exercise">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={replaceActiveExercise}
+                      title="Replace with another exercise"
+                      disabled={replacingActiveExercise}
+                      loading={replacingActiveExercise}
+                    >
                       <Shuffle className="mr-2 h-4 w-4" />
                       Replace
                     </Button>
-                    <Button type="button" variant="outline" onClick={() => setChooseExerciseOpen(true)} title="Choose exercise from library">
+                    <Button type="button" variant="outline" onClick={openChooseExercise} title="Choose exercise from library">
                       <Pencil className="mr-2 h-4 w-4" />
                       Choose
                     </Button>
@@ -1072,7 +1135,16 @@ export default function WorkoutsPage() {
                     <div className="space-y-1 mb-4">
                       {(t?.exercises ?? []).map((we: any) => (
                         <div key={we?.id} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 py-1 text-sm">
-                          <Button type="button" variant="ghost" size="icon" className="h-7 w-7" onClick={() => replaceProgramExercise(t, we)} title="Replace exercise">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => replaceProgramExercise(t, we)}
+                            title="Replace exercise"
+                            disabled={replacingProgramExerciseId === we?.id}
+                            loading={replacingProgramExerciseId === we?.id}
+                          >
                             <Shuffle className="h-3.5 w-3.5" />
                           </Button>
                           <span className="min-w-0 break-words">{we?.exercise?.name}</span>
@@ -1100,12 +1172,12 @@ export default function WorkoutsPage() {
           <div className="grid gap-3">
             <div className="min-w-0">
               <p className="text-sm font-medium">Exercise Library</p>
-              <p className="text-xs text-muted-foreground">{filteredExercises.length} exercises shown for {selectedMuscleLabel}</p>
+              <p className="text-xs text-muted-foreground">
+                {filteredExercises.length} exercises shown for {selectedMuscleLabel}
+                {loadedExerciseMuscleGroups.length > 0 ? ` (${loadedExerciseMuscleGroups.length} muscle group${loadedExerciseMuscleGroups.length === 1 ? "" : "s"} loaded)` : ""}
+              </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button type="button" size="sm" variant={selectedMuscleGroups.length === 0 ? "default" : "outline"} onClick={() => setSelectedMuscleGroups([])}>
-                All
-              </Button>
               {editableMuscleGroups.map((group) => (
                 <Button
                   key={group}
@@ -1381,7 +1453,7 @@ export default function WorkoutsPage() {
               <Label>Form Tips</Label>
               <Textarea value={exerciseForm.formTips} onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setExerciseForm({ ...exerciseForm, formTips: e.target.value })} className="mt-1" placeholder="Coaching cues" />
             </div>
-            <Button onClick={handleSaveExercise} className="w-full">
+            <Button onClick={handleSaveExercise} className="w-full" disabled={savingExercise} loading={savingExercise}>
               {exerciseForm.id ? "Update Exercise" : "Add Exercise"}
             </Button>
           </div>
@@ -1516,7 +1588,7 @@ export default function WorkoutsPage() {
               ))}
             </div>
 
-            <Button onClick={handleSaveTemplate} className="w-full">
+            <Button onClick={handleSaveTemplate} className="w-full" disabled={savingTemplate} loading={savingTemplate}>
               {templateForm.id ? "Update Workout Day" : "Add Workout Day"}
             </Button>
           </div>

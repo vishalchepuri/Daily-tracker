@@ -145,6 +145,8 @@ const starterExercises: StarterExercise[] = [
   ex("Stability Ball Crunch", "core", "stability ball", "isolation"),
 ];
 
+let starterLibraryChecked = false;
+
 function slugify(value: string) {
   return value
     .trim()
@@ -154,6 +156,13 @@ function slugify(value: string) {
 }
 
 export async function ensureStarterExerciseLibrary() {
+  if (starterLibraryChecked) return;
+  const existingApproved = await prisma.exercise.count({ where: { status: "approved" } });
+  if (existingApproved > 0) {
+    starterLibraryChecked = true;
+    return;
+  }
+
   for (const exercise of starterExercises) {
     await prisma.exercise.upsert({
       where: { id: slugify(exercise.name) },
@@ -172,6 +181,7 @@ export async function ensureStarterExerciseLibrary() {
       },
     });
   }
+  starterLibraryChecked = true;
 }
 
 export async function ensureStarterExerciseLibrarySafe() {

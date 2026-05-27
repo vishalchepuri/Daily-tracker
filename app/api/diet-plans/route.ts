@@ -9,17 +9,26 @@ function safeMealsJson(value: unknown) {
   return "[]";
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
+    const { searchParams } = new URL(req.url);
+    const offset = Math.max(0, Number(searchParams.get("offset") ?? 0) || 0);
+    const limit = Math.min(50, Math.max(5, Number(searchParams.get("limit") ?? 10) || 10));
 
     const plans = await prisma.dietPlan.findMany({
       where: { userId },
       orderBy: { updatedAt: "desc" },
+      skip: offset,
+      take: limit + 1,
     });
-    return NextResponse.json({ plans });
+    return NextResponse.json({
+      plans: plans.slice(0, limit),
+      nextOffset: offset + Math.min(plans.length, limit),
+      hasMore: plans.length > limit,
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }

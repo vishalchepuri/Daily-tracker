@@ -86,13 +86,10 @@ export async function deleteIssueReportsForUser(userId: string) {
 
 export async function createReviewItemOnce(userId: string, data: { type: string; title: string; detail?: string; priority?: string; actionLabel?: string; payload?: any }) {
   const collection = userDoc(userId).collection("reviewItems");
-  const existing = await collection
-    .where("type", "==", data.type)
-    .where("title", "==", data.title)
-    .where("status", "==", "open")
-    .limit(1)
-    .get();
-  if (!existing.empty) return docData(existing.docs[0]);
+  const existing = (await collection.get()).docs
+    .map(docData)
+    .find((item) => item.type === data.type && item.title === data.title && item.status === "open");
+  if (existing) return existing;
   const ref = collection.doc();
   await ref.set({
     userId,
@@ -112,10 +109,12 @@ export async function createReviewItemOnce(userId: string, data: { type: string;
 }
 
 export async function listReviewItems(userId: string, status = "open") {
-  let query: FirebaseFirestore.Query = userDoc(userId).collection("reviewItems");
-  if (status !== "all") query = query.where("status", "==", status);
-  const snap = await query.orderBy("createdAt", "desc").limit(100).get();
-  return snap.docs.map(docData);
+  const snap = await userDoc(userId).collection("reviewItems").get();
+  return snap.docs
+    .map(docData)
+    .filter((item) => status === "all" || item.status === status)
+    .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
+    .slice(0, 100);
 }
 
 export async function getReviewItemCounts(userId: string) {
