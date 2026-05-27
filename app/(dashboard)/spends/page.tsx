@@ -51,6 +51,7 @@ const blankMoneyLinkForm = {
   type: "lend",
   amount: "",
   currency: "INR",
+  bankAccountId: "none",
   date: new Date().toISOString().slice(0, 10),
   notes: "",
 };
@@ -91,6 +92,16 @@ function formatPeriodLabel(key: string, mode: "daily" | "weekly" | "monthly") {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function cardTone(index: number) {
+  const tones = [
+    "from-emerald-500/25 via-cyan-500/15 to-sky-500/20 border-emerald-400/25",
+    "from-violet-500/25 via-fuchsia-500/15 to-rose-500/20 border-violet-400/25",
+    "from-amber-500/25 via-orange-500/15 to-red-500/20 border-amber-400/25",
+    "from-blue-500/25 via-indigo-500/15 to-cyan-500/20 border-blue-400/25",
+  ];
+  return tones[index % tones.length];
+}
+
 export default function SpendsPage() {
   const [spends, setSpends] = useState<any[]>([]);
   const [spendsNextOffset, setSpendsNextOffset] = useState(0);
@@ -128,6 +139,11 @@ export default function SpendsPage() {
   const [pendingFriendSpend, setPendingFriendSpend] = useState<any>(null);
   const [cardOthersDialog, setCardOthersDialog] = useState<{ cardName: string; rows: Array<{ person: string; amount: number }> } | null>(null);
   const [importHealth, setImportHealth] = useState<any>(null);
+  const [flippedBankId, setFlippedBankId] = useState<string | null>(null);
+  const [flippedCardId, setFlippedCardId] = useState<string | null>(null);
+  const [settleDialog, setSettleDialog] = useState<any>(null);
+  const [settleForm, setSettleForm] = useState({ amount: "", bankAccountId: "none" });
+  const [settlingMoneyLink, setSettlingMoneyLink] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -833,6 +849,10 @@ export default function SpendsPage() {
       toast.error("Person and amount are required");
       return;
     }
+    if (!moneyLinkForm.bankAccountId || moneyLinkForm.bankAccountId === "none") {
+      toast.error("Choose the bank account used for this transaction");
+      return;
+    }
     try {
       const res = await fetch("/api/money-links", {
         method: "POST",
@@ -872,6 +892,46 @@ export default function SpendsPage() {
       loadData();
     } catch {
       toast.error("Failed to remove entry");
+    }
+  };
+
+  const openSettleMoneyLink = (link: any) => {
+    const remaining = Math.max(0, (link?.amount ?? 0) - (link?.settledAmount ?? 0));
+    setSettleDialog(link);
+    setSettleForm({ amount: String(remaining || ""), bankAccountId: "none" });
+  };
+
+  const settleMoneyLink = async () => {
+    if (!settleDialog?.id) return;
+    if (!settleForm.amount || Number(settleForm.amount) <= 0) {
+      toast.error("Enter settlement amount");
+      return;
+    }
+    if (!settleForm.bankAccountId || settleForm.bankAccountId === "none") {
+      toast.error("Choose bank account for settlement");
+      return;
+    }
+    setSettlingMoneyLink(true);
+    try {
+      const res = await fetch("/api/money-links", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: settleDialog.id, settleAmount: settleForm.amount, bankAccountId: settleForm.bankAccountId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to settle");
+        return;
+      }
+      setMoneyLinks((prev) => prev.map((item) => item.id === data.moneyLink.id ? data.moneyLink : item));
+      setSettleDialog(null);
+      setSettleForm({ amount: "", bankAccountId: "none" });
+      loadData();
+      toast.success("Settlement recorded");
+    } catch {
+      toast.error("Failed to settle");
+    } finally {
+      setSettlingMoneyLink(false);
     }
   };
 
@@ -1000,6 +1060,36 @@ export default function SpendsPage() {
                   {(cardOthersDialog?.rows ?? []).length === 0 && (
                     <div className="rounded-lg border border-dashed p-4 text-center text-sm text-muted-foreground">No others for this card.</div>
                   )}
+                </div>
+              </DialogContent>
+            </Dialog>
+            <Dialog open={Boolean(settleDialog)} onOpenChange={(open) => !open && setSettleDialog(null)}>
+              <DialogContent className="max-w-md">
+                <DialogHeader><DialogTitle>Settle {settleDialog?.person}</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div className="rounded-lg bg-muted/40 p-3 text-sm">
+                    <p className="text-muted-foreground">Remaining</p>
+                    <p className="font-mono text-lg font-semibold">{formatInr(Math.max(0, (settleDialog?.amount ?? 0) - (settleDialog?.settledAmount ?? 0)))}</p>
+                  </div>
+                  <div>
+                    <Label>Amount received / paid</Label>
+                    <Input type="number" value={settleForm.amount} onChange={(e) => setSettleForm({ ...settleForm, amount: e.target.value })} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Bank account</Label>
+                    <Select value={settleForm.bankAccountId} onValueChange={(bankAccountId) => setSettleForm({ ...settleForm, bankAccountId })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select account" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Select bank account</SelectItem>
+                        {bankAccounts.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.name}{account.last4 ? ` - ${account.last4}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button className="w-full" onClick={settleMoneyLink} loading={settlingMoneyLink} disabled={settlingMoneyLink}>Save settlement</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -1231,24 +1321,46 @@ export default function SpendsPage() {
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
               ) : (
                 <div className="grid gap-2">
-                  {bankAccounts.map((account) => (
-                    <div key={account.id} className="rounded-lg bg-muted/40 p-3 min-w-0">
-                      <div className="flex items-start justify-between gap-3 min-w-0">
-                        <div className="min-w-0">
-                          <p className="truncate font-medium">{account.name}</p>
-                          <p className="text-xs capitalize text-muted-foreground">{[account.bankName, account.accountType, account.last4 ? `Account ending ${account.last4}` : null].filter(Boolean).join(" - ")}</p>
-                        </div>
-                        <div className="flex shrink-0 gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
-                          <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                        </div>
-                      </div>
-                      <div className="mt-3 text-sm">
-                        <span className="text-muted-foreground">Balance</span>
-                        <p className="font-mono">{formatInr(account.balance ?? 0)}</p>
-                      </div>
-                    </div>
-                  ))}
+                  {bankAccounts.map((account, index) => {
+                    const flipped = flippedBankId === account.id;
+                    return (
+                      <button key={account.id} type="button" onClick={() => setFlippedBankId(flipped ? null : account.id)} className={`min-w-0 rounded-xl border bg-gradient-to-br p-4 text-left shadow-sm transition ${cardTone(index)}`}>
+                        {!flipped ? (
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">{account.name}</p>
+                                <p className="text-xs capitalize text-muted-foreground">{account.bankName || "Bank account"}</p>
+                              </div>
+                              <Badge variant="secondary">{account.accountType}</Badge>
+                            </div>
+                            <div>
+                              <span className="text-xs text-muted-foreground">Balance</span>
+                              <p className="font-mono text-lg font-semibold">{formatInr(account.balance ?? 0)}</p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">{account.name}</p>
+                                <p className="text-xs text-muted-foreground">{account.last4 ? `Account ending ${account.last4}` : "No account ending saved"}</p>
+                              </div>
+                              <div className="flex shrink-0 gap-1" onClick={(event) => event.stopPropagation()}>
+                                <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><span className="text-muted-foreground">Bank</span><p className="truncate font-medium">{account.bankName || "-"}</p></div>
+                              <div><span className="text-muted-foreground">Type</span><p className="capitalize">{account.accountType}</p></div>
+                              <div className="col-span-2"><span className="text-muted-foreground">Currency</span><p>{account.currency || "INR"}</p></div>
+                            </div>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1262,42 +1374,52 @@ export default function SpendsPage() {
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No credit cards added yet.</div>
               ) : (
                 <div className="grid gap-2">
-                  {creditCards.map((card) => {
+                  {creditCards.map((card, index) => {
                     const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [], friendBreakdown: [] };
                     const monthSpend = ownership.total;
+                    const flipped = flippedCardId === card.id;
                     return (
-                      <div key={card.id} className="rounded-lg bg-muted/40 p-3 min-w-0">
-                        <div className="flex items-start justify-between gap-3 min-w-0">
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{card.name}</p>
-                            <p className="text-xs text-muted-foreground">{[card.bankName, card.last4 ? `Card ending ${card.last4}` : null, card.dueDay ? `Due ${card.dueDay}` : null].filter(Boolean).join(" - ")}</p>
+                      <button key={card.id} type="button" onClick={() => setFlippedCardId(flipped ? null : card.id)} className={`min-w-0 rounded-xl border bg-gradient-to-br p-4 text-left shadow-sm transition ${cardTone(index + 1)}`}>
+                        {!flipped ? (
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">{card.name}</p>
+                                <p className="text-xs text-muted-foreground">{card.bankName || "Credit card"}</p>
+                              </div>
+                              <Badge variant="secondary">{card.last4 ? `*${card.last4}` : "Card"}</Badge>
+                            </div>
+                            <div>
+                              <span className="text-xs text-muted-foreground">Current due</span>
+                              <p className="font-mono text-lg font-semibold">{formatInr(card.currentDue ?? 0)}</p>
+                            </div>
                           </div>
-                          <div className="flex shrink-0 gap-1">
-                            <Button variant="ghost" size="icon" onClick={() => openEditCard(card)} title="Edit card"><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id)} title="Delete card"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        ) : (
+                          <div className="space-y-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-semibold">{card.name}</p>
+                                <p className="text-xs text-muted-foreground">{card.last4 ? `Card ending ${card.last4}` : "No card ending saved"}</p>
+                              </div>
+                              <div className="flex shrink-0 gap-1" onClick={(event) => event.stopPropagation()}>
+                                <Button variant="ghost" size="icon" onClick={() => openEditCard(card)} title="Edit card"><Pencil className="h-4 w-4" /></Button>
+                                <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id)} title="Delete card"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-sm">
+                              <div><span className="text-muted-foreground">This month</span><p className="font-mono">{formatInr(monthSpend)}</p></div>
+                              <div><span className="text-muted-foreground">Due day</span><p>{card.dueDay || "-"}</p></div>
+                              <div><span className="text-muted-foreground">Mine</span><p className="font-mono">{formatInr(ownership.mine)}</p></div>
+                              <div><span className="text-muted-foreground">Others</span><p className="font-mono">{formatInr(ownership.friends)}</p></div>
+                            </div>
+                            {ownership.friendBreakdown.length > 0 && (
+                              <Button type="button" variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); setCardOthersDialog({ cardName: card.name, rows: ownership.friendBreakdown }); }}>
+                                View Others
+                              </Button>
+                            )}
                           </div>
-                        </div>
-                        <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                          <div><span className="text-muted-foreground">Current due</span><p className="font-mono">{formatInr(card.currentDue ?? 0)}</p></div>
-                          <div><span className="text-muted-foreground">This month</span><p className="font-mono">{formatInr(monthSpend)}</p></div>
-                          <div><span className="text-muted-foreground">Mine</span><p className="font-mono">{formatInr(ownership.mine)}</p></div>
-                          <div>
-                            <span className="text-muted-foreground">Others</span>
-                            <p className="font-mono">{formatInr(ownership.friends)}</p>
-                          </div>
-                        </div>
-                        {ownership.friendBreakdown.length > 0 && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="mt-3"
-                            onClick={() => setCardOthersDialog({ cardName: card.name, rows: ownership.friendBreakdown })}
-                          >
-                            View Others
-                          </Button>
                         )}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>
@@ -1319,6 +1441,17 @@ export default function SpendsPage() {
                   <SelectContent>
                     <SelectItem value="lend">I lent money</SelectItem>
                     <SelectItem value="borrow">I borrowed money</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={moneyLinkForm.bankAccountId} onValueChange={(bankAccountId) => setMoneyLinkForm({ ...moneyLinkForm, bankAccountId })}>
+                  <SelectTrigger><SelectValue placeholder="Bank account" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select bank account</SelectItem>
+                    {bankAccounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.name}{account.last4 ? ` - ${account.last4}` : ""}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
                 <Input type="date" value={moneyLinkForm.date} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, date: e.target.value })} />
@@ -1372,11 +1505,12 @@ export default function SpendsPage() {
                         <Badge variant={link.type === "lend" ? "secondary" : "outline"}>{link.type === "lend" ? "Lent" : "Borrowed"}</Badge>
                         {link.settled && <Badge variant="outline">Settled</Badge>}
                       </div>
-                      <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.notes ? `- ${link.notes}` : ""}</p>
+                      <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
+                      {(link.settledAmount ?? 0) > 0 && <p className="text-xs text-muted-foreground">Settled {formatInr(link.settledAmount)} / {formatInr(link.amount ?? 0)}</p>}
                     </div>
                     <div className="flex items-center justify-between gap-1 sm:justify-end">
-                      <span className="font-mono text-sm">{formatInr(link.amount ?? 0)}</span>
-                      <Button variant="ghost" size="sm" onClick={() => updateMoneyLink(link.id, { settled: !link.settled })}>{link.settled ? "Open" : "Settle"}</Button>
+                      <span className="font-mono text-sm">{formatInr(Math.max(0, (link.amount ?? 0) - (link.settledAmount ?? 0)))}</span>
+                      {!link.settled && <Button variant="ghost" size="sm" onClick={() => openSettleMoneyLink(link)}>Settle</Button>}
                       <Button variant="ghost" size="icon" onClick={() => deleteMoneyLink(link.id)} title="Delete entry"><Trash2 className="h-4 w-4 text-destructive" /></Button>
                     </div>
                   </div>

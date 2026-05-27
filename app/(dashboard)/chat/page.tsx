@@ -31,6 +31,7 @@ export default function ChatPage() {
   const [historyOffset, setHistoryOffset] = useState(0);
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
+  const [agentStatus, setAgentStatus] = useState("");
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
@@ -39,6 +40,7 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
   const skipNextMessageLoadRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const readJson = async (res: Response) => {
     const text = await res.text();
@@ -135,6 +137,7 @@ export default function ChatPage() {
     const outgoingImage = imageOverride ?? imageDataUrl;
     if ((!outgoingText && !outgoingImage) || streaming) return;
     setStreaming(true);
+    setAgentStatus(outgoingImage ? "Uploading image and preparing context..." : "Preparing your request...");
     setLastFailedMessage(null);
     const userMsg = outgoingText;
     const attachedImage = outgoingImage;
@@ -150,6 +153,8 @@ export default function ChatPage() {
     setMessages(prev => [...(prev ?? []), { role: "assistant", content: "", id: assistantMessageId }]);
 
     try {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
       if (!targetSessionId) {
         setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
@@ -161,6 +166,7 @@ export default function ChatPage() {
       const res = await dayzaFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({ message: userMsg, imageDataUrl: attachedImage, sessionId: targetSessionId }),
       });
 
@@ -175,6 +181,7 @@ export default function ChatPage() {
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let partialRead = "";
+      setAgentStatus("Reading profile, recent logs, and planning the reply...");
 
       while (true) {
         const { done, value } = (await reader?.read()) ?? { done: true, value: undefined };
@@ -189,6 +196,7 @@ export default function ChatPage() {
             try {
               const parsed = JSON.parse(data);
               if (parsed?.content) {
+                setAgentStatus("Writing response...");
                 setMessages(prev => {
                   const updated = [...(prev ?? [])];
                   const last = updated[updated.length - 1];
@@ -202,13 +210,33 @@ export default function ChatPage() {
           }
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      if (err?.name === "AbortError") {
+        toast.success("Agent response stopped");
+        setMessages(prev => {
+          const updated = [...(prev ?? [])];
+          const last = updated[updated.length - 1];
+          if (last?.role === "assistant" && !last.content) return updated.slice(0, -1);
+          if (last?.role === "assistant") updated[updated.length - 1] = { ...last, content: `${last.content}\n\nStopped.`.trim() };
+          return updated;
+        });
+        setStreaming(false);
+        setAgentStatus("");
+        abortControllerRef.current = null;
+        return;
+      }
       setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
       toast.error("Agent response failed. You can retry.");
     }
     setStreaming(false);
+    setAgentStatus("");
+    abortControllerRef.current = null;
   }, [activeSessionId, createChatSession, imageDataUrl, input, streaming]);
+
+  const stopAgentResponse = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
 
   const handleSend = useCallback(async () => {
     await sendMessage();
@@ -454,9 +482,14 @@ export default function ChatPage() {
           </div>
         )}
         {streaming && (
-          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            Dayza is thinking...
+          <div className="flex items-center justify-between gap-3 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+            <div className="flex min-w-0 items-center gap-2">
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+              <span className="truncate">{agentStatus || "Dayza is working..."}</span>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse}>
+              Stop
+            </Button>
           </div>
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 sm:space-y-4 sm:p-4">
@@ -571,8 +604,8 @@ export default function ChatPage() {
               disabled={streaming}
               className="h-10 min-w-0 px-3 text-sm sm:h-11"
             />
-            <Button type="submit" disabled={streaming || (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 px-0 sm:h-11 sm:w-11">
-              {streaming ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            <Button type={streaming ? "button" : "submit"} onClick={streaming ? stopAgentResponse : undefined} disabled={!streaming && (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 px-0 sm:h-11 sm:w-11" title={streaming ? "Stop response" : "Send"}>
+              {streaming ? <X className="w-4 h-4" /> : <Send className="w-4 h-4" />}
             </Button>
           </form>
         </div>

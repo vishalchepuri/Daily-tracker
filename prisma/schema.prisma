@@ -280,6 +280,7 @@ model BankAccount {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   spends      Spend[]
+  moneyLinks  MoneyLink[]
   @@index([userId, active])
 }
 
@@ -304,9 +305,12 @@ model MoneyLink {
   id        String   @id @default(cuid())
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bankAccountId String?
+  bankAccount   BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   person    String
   type      String   // lend, borrow
   amount    Float
+  settledAmount Float @default(0)
   currency  String   @default("INR")
   notes     String?
   settled   Boolean  @default(false)
@@ -314,6 +318,7 @@ model MoneyLink {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([userId, type, settled])
+  @@index([bankAccountId])
 }
 
 model ReminderList {
