@@ -526,6 +526,25 @@ function lastAssistantAskedWorkoutFocus(messages: any[]) {
   return Boolean(lastAssistant?.content && /which (body areas|muscles)|target (muscles|body)|focus (muscles|areas)/i.test(lastAssistant.content));
 }
 
+function lastAssistantAskedWorkoutSafety(messages: any[]) {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return Boolean(lastAssistant?.content && /joint pain|previous fractures|surgeries|injuries|medical restrictions/i.test(lastAssistant.content));
+}
+
+function lastAssistantAskedJointStrengthening(messages: any[]) {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return Boolean(lastAssistant?.content && /joint strengthening exercises/i.test(lastAssistant.content));
+}
+
+function conversationHasJointStrengtheningChoice(messages: any[]) {
+  return messages.some((message) => /joint strengthening exercises/i.test(message.content ?? ""));
+}
+
+function isAffirmativeAnswer(text: unknown) {
+  if (typeof text !== "string") return false;
+  return /(^|\b)(yes|yeah|yep|sure|ok|okay|add|include|please|do it|proceed)(\b|$)/i.test(text);
+}
+
 function isFoodPlanIntent(text: unknown) {
   if (typeof text !== "string") return false;
   return includesAny(text, ["meal plan", "diet plan", "food plan", "nutrition plan", "what should i eat"]);
@@ -543,6 +562,10 @@ function messageIncludesTimeline(text: unknown) {
 function isJointSensitive(value?: string | null) {
   if (!value) return false;
   return includesAny(value, ["pain", "joint", "knee", "elbow", "shoulder", "hip", "ankle", "wrist", "fracture", "surgery", "injury"]);
+}
+
+function conversationMentionsJointSensitive(messages: any[]) {
+  return messages.some((message) => message.role === "user" && isJointSensitive(message.content));
 }
 
 async function streamSingleMessage(content: string) {
@@ -1250,7 +1273,11 @@ export async function POST(req: Request) {
         listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
       ]);
 
-    const workoutPlanningActive = isWorkoutPlanIntent(message) || lastAssistantAskedWorkoutFocus(recentChat);
+    const workoutPlanningActive =
+      isWorkoutPlanIntent(message) ||
+      lastAssistantAskedWorkoutFocus(recentChat) ||
+      lastAssistantAskedWorkoutSafety(recentChat) ||
+      lastAssistantAskedJointStrengthening(recentChat);
     const workoutFocusOverride: { workoutFocusMuscles?: string; workoutFocusGoal?: string } = {};
     const workoutGoal = inferWorkoutFocusGoal(message, profile?.goal);
     if (lastAssistantAskedWorkoutFocus(recentChat)) {
@@ -1279,6 +1306,22 @@ export async function POST(req: Request) {
     if (workoutPlanningActive && !hasKnownAnswer(profile?.healthLimitations)) {
       const content =
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
+      await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
+      await pruneChatRetention(userId);
+      return streamSingleMessage(content);
+    }
+
+    const currentOrSavedLimitations = lastAssistantAskedWorkoutSafety(recentChat)
+      ? message
+      : profile?.healthLimitations ?? (conversationMentionsJointSensitive(recentChat) ? "joint pain mentioned in chat" : undefined);
+    if (
+      workoutPlanningActive &&
+      isJointSensitive(currentOrSavedLimitations) &&
+      !lastAssistantAskedJointStrengthening(recentChat) &&
+      !conversationHasJointStrengtheningChoice(recentChat)
+    ) {
+      const content =
+        "Do you want me to add joint strengthening exercises alongside each workout day, so you can build joint strength in parallel with the main plan?";
       await addFirestoreChatMessage({ userId, sessionId: chatSession.id, role: "assistant", content });
       await pruneChatRetention(userId);
       return streamSingleMessage(content);
@@ -1385,6 +1428,12 @@ Rules:
   - Do not include an exercise that conflicts with known pain/surgery/fracture context unless you clearly provide a safer modification.
 - Joint-aware plan rules:
   - If profile.healthLimitations mentions joint pain, elbow pain, knee pain, fractures, surgery, or injuries, the workout draft must visibly adapt to that limitation.
+  - When the user reports joint pain, ask whether they want joint strengthening exercises added alongside each workout day before drafting the plan.
+  - If context.userWantsJointStrengthening is true, treat that as the user's confirmation to include joint strengthening blocks.
+  - If the user says yes to joint strengthening, include a separate "Joint strengthening" block on every workout day, matched to the affected joint and the day's training. Keep it short: 2-4 low-load, pain-free exercises, usually 1-3 sets of 10-15 reps or 20-45 second holds.
+  - Joint strengthening blocks are in addition to the main workout exercises. Do not count them toward the required main strength exercises for the focus muscles.
+  - Use joint strengthening choices such as terminal knee extensions, wall sits, Spanish squat holds, calf raises, tibialis raises, band external rotations, scapular wall slides, face pulls, wrist curls/extensions, pronation/supination, ankle band inversions/eversion, glute bridges, clamshells, and controlled isometrics.
+  - If the user says no to joint strengthening, still make the main workout joint-friendly and include the safety note.
   - For elbow pain: avoid or replace aggravating skull crushers, heavy straight-bar curls, and painful rope pushdowns. Prefer neutral-grip pressing, machine chest press, hammer curls only if pain-free, cross-body cable extensions, straight-bar pushdowns if rope hurts, and controlled pulling without excessive grip tension.
   - For knee pain: avoid deep painful knee flexion, high-impact jumps, and aggressive squat depth. Prefer hip-dominant work like Romanian deadlifts and hip thrusts, controlled leg curls, and leg press only with higher foot placement and pain-free depth.
   - Always include a concise safety note when joint limitations exist: warm up 5-10 minutes, use slow 3-second eccentrics, and follow the 2/10 pain rule.
@@ -1505,7 +1554,8 @@ Available action examples:
       bankAccounts,
       creditCards,
       moneyLinks,
-      requiresJointAwarePlan: isJointSensitive(profile?.healthLimitations),
+      requiresJointAwarePlan: isJointSensitive(profile?.healthLimitations) || isJointSensitive(message) || conversationMentionsJointSensitive(recentChat),
+      userWantsJointStrengthening: lastAssistantAskedJointStrengthening(recentChat) && isAffirmativeAnswer(message),
       today: today.toISOString(),
     };
     const userContent = hasImage

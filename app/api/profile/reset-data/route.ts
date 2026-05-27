@@ -92,15 +92,7 @@ async function resetFeature(tx: Prisma.TransactionClient, userId: string, featur
 
   if (feature === "agent") {
     const firestoreDeleted = await deleteAllFirestoreChatData(userId);
-    const chatAttachments = await tx.chatAttachment.deleteMany({ where: { userId } });
-    const chatMessages = await tx.chatMessage.deleteMany({ where: { userId } });
-    const chatSessions = await tx.chatSession.deleteMany({ where: { userId } });
-    return {
-      ...firestoreDeleted,
-      legacyChatAttachments: chatAttachments.count,
-      legacyChatMessages: chatMessages.count,
-      legacyChatSessions: chatSessions.count,
-    };
+    return firestoreDeleted;
   }
 
   if (feature === "reviews") {

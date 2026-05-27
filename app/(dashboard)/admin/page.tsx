@@ -90,7 +90,6 @@ export default async function AdminPage() {
         id: true,
         name: true,
         email: true,
-        emailVerified: true,
         createdAt: true,
         updatedAt: true,
         accounts: { select: { provider: true } },
@@ -457,7 +456,6 @@ export default async function AdminPage() {
                         {providers.length > 0 ? providers.map((provider) => (
                           <Badge key={provider} variant="secondary" className="capitalize">{provider}</Badge>
                         )) : <Badge variant="outline">Email</Badge>}
-                        {user.emailVerified && <Badge variant="outline">Verified</Badge>}
                       </div>
                     </TableCell>
                     <TableCell>

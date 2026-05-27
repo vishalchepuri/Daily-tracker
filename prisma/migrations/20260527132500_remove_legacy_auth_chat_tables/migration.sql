@@ -1,0 +1,12 @@
+DROP TABLE IF EXISTS "ChatAttachment";
+DROP TABLE IF EXISTS "ChatMessage";
+DROP TABLE IF EXISTS "ChatSession";
+DROP TABLE IF EXISTS "PasswordResetToken";
+DROP TABLE IF EXISTS "SignupOtp";
+DROP TABLE IF EXISTS "Session";
+DROP TABLE IF EXISTS "VerificationToken";
+
+ALTER TABLE "User"
+  DROP COLUMN IF EXISTS "emailVerified",
+  DROP COLUMN IF EXISTS "image",
+  DROP COLUMN IF EXISTS "password";
