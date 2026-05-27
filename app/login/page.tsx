@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { sendEmailVerification, signInWithEmailAndPassword, type User } from "firebase/auth";
-import { getGoogleAuthErrorMessage, getPendingGoogleRedirectResult, signInWithGoogle } from "@/lib/firebase-google-auth";
+import { getGoogleAuthErrorMessage, signInWithGoogle } from "@/lib/firebase-google-auth";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -48,31 +48,6 @@ export default function LoginPage() {
     router.refresh();
     return true;
   };
-
-  useEffect(() => {
-    if (!hasFirebaseClientConfig()) return;
-    let cancelled = false;
-    const finishGoogleRedirect = async () => {
-      try {
-        const credential = await getPendingGoogleRedirectResult();
-        if (!credential || cancelled) return;
-        setGoogleLoading(true);
-        const firebaseIdToken = await credential.user.getIdToken();
-        const started = await startAppSessionFromFirebase(firebaseIdToken);
-        if (!started && !cancelled) setGoogleLoading(false);
-      } catch (error: any) {
-        if (cancelled) return;
-        const message = getGoogleAuthErrorMessage(error);
-        setAuthError(message);
-        toast.error(message);
-        setGoogleLoading(false);
-      }
-    };
-    finishGoogleRedirect();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -136,7 +111,10 @@ export default function LoginPage() {
     setGoogleLoading(true);
     try {
       const credential = await signInWithGoogle();
-      if (!credential) return;
+      if (!credential) {
+        setGoogleLoading(false);
+        return;
+      }
       const firebaseIdToken = await credential.user.getIdToken();
       const started = await startAppSessionFromFirebase(firebaseIdToken);
       if (!started) setGoogleLoading(false);
@@ -163,6 +141,7 @@ export default function LoginPage() {
               variant="outline"
               className="mb-4 w-full"
               onClick={handleGoogleLogin}
+              loading={googleLoading}
               disabled={googleLoading || loading}
             >
               <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>

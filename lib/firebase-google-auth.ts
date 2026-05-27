@@ -2,9 +2,7 @@
 
 import {
   GoogleAuthProvider,
-  getRedirectResult,
   signInWithPopup,
-  signInWithRedirect,
 } from "firebase/auth";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 
@@ -14,23 +12,10 @@ export function getGoogleProvider() {
   return provider;
 }
 
-export async function getPendingGoogleRedirectResult() {
-  return getRedirectResult(getFirebaseClientAuth());
-}
-
 export async function signInWithGoogle() {
   const auth = getFirebaseClientAuth();
   const provider = getGoogleProvider();
-
-  try {
-    return await signInWithPopup(auth, provider);
-  } catch (error: any) {
-    if (shouldFallbackToRedirect(error)) {
-      await signInWithRedirect(auth, provider);
-      return null;
-    }
-    throw error;
-  }
+  return signInWithPopup(auth, provider);
 }
 
 export function getGoogleAuthErrorMessage(error: any) {
@@ -50,8 +35,4 @@ export function getGoogleAuthErrorMessage(error: any) {
     default:
       return error?.message ? `Google sign-in failed: ${error.message}` : "Google sign-in failed";
   }
-}
-
-function shouldFallbackToRedirect(error: any) {
-  return error?.code === "auth/popup-blocked" || error?.code === "auth/cancelled-popup-request";
 }

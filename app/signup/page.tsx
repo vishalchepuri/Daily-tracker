@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User, Eye, EyeOff, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { FirebaseError } from "firebase/app";
 import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "firebase/auth";
-import { getGoogleAuthErrorMessage, getPendingGoogleRedirectResult, signInWithGoogle } from "@/lib/firebase-google-auth";
+import { getGoogleAuthErrorMessage, signInWithGoogle } from "@/lib/firebase-google-auth";
 
 function getSignupErrorMessage(error: unknown) {
   if (error instanceof FirebaseError) {
@@ -81,48 +81,6 @@ export default function SignupPage() {
   const emailError = email.trim() ? validateEmail(email) : null;
   const passwordError = password ? validatePassword(password) : null;
 
-  useEffect(() => {
-    if (!hasFirebaseClientConfig()) return;
-    let cancelled = false;
-    const finishGoogleRedirect = async () => {
-      try {
-        const credential = await getPendingGoogleRedirectResult();
-        if (!credential || cancelled) return;
-        setGoogleLoading(true);
-        const acceptedBeforeRedirect = window.sessionStorage.getItem("dayza_google_terms_accepted") === "true";
-        window.sessionStorage.removeItem("dayza_google_terms_accepted");
-        if (!acceptedBeforeRedirect) {
-          toast.error("Please accept the Terms of Service and Privacy Policy.");
-          setGoogleLoading(false);
-          return;
-        }
-        const firebaseIdToken = await credential.user.getIdToken();
-        const res = await fetch("/api/auth/firebase-session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "same-origin",
-          body: JSON.stringify({ idToken: firebaseIdToken }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
-          toast.error(data?.error ?? "Could not start app session");
-          setGoogleLoading(false);
-          return;
-        }
-        router.replace("/dashboard");
-        router.refresh();
-      } catch (error: any) {
-        if (cancelled) return;
-        toast.error(getGoogleAuthErrorMessage(error));
-        setGoogleLoading(false);
-      }
-    };
-    finishGoogleRedirect();
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
-
   const handleGoogleSignup = async () => {
     if (!acceptedTerms) {
       toast.error("Please accept the Terms of Service and Privacy Policy.");
@@ -132,7 +90,10 @@ export default function SignupPage() {
     try {
       window.sessionStorage.setItem("dayza_google_terms_accepted", "true");
       const credential = await signInWithGoogle();
-      if (!credential) return;
+      if (!credential) {
+        setGoogleLoading(false);
+        return;
+      }
       window.sessionStorage.removeItem("dayza_google_terms_accepted");
       const firebaseIdToken = await credential.user.getIdToken();
       const res = await fetch("/api/auth/firebase-session", {
@@ -233,6 +194,7 @@ export default function SignupPage() {
               variant="outline"
               className="mb-4 w-full"
               onClick={handleGoogleSignup}
+              loading={googleLoading}
               disabled={googleLoading || loading}
             >
               <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>
