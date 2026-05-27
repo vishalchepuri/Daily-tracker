@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { connectGoogleFeature } from "@/lib/google-feature-client";
+import { getBankThemeStyle } from "@/lib/bank-colors";
 
 const blankForm = {
   id: "",
@@ -90,16 +91,6 @@ function formatPeriodLabel(key: string, mode: "daily" | "weekly" | "monthly") {
   const date = new Date(`${key}T00:00:00`);
   if (mode === "weekly") return `Week of ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-}
-
-function cardTone(index: number) {
-  const tones = [
-    "from-emerald-500/25 via-cyan-500/15 to-sky-500/20 border-emerald-400/25",
-    "from-violet-500/25 via-fuchsia-500/15 to-rose-500/20 border-violet-400/25",
-    "from-amber-500/25 via-orange-500/15 to-red-500/20 border-amber-400/25",
-    "from-blue-500/25 via-indigo-500/15 to-cyan-500/20 border-blue-400/25",
-  ];
-  return tones[index % tones.length];
 }
 
 export default function SpendsPage() {
@@ -1321,10 +1312,11 @@ export default function SpendsPage() {
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
               ) : (
                 <div className="grid gap-2">
-                  {bankAccounts.map((account, index) => {
+                  {bankAccounts.map((account) => {
                     const flipped = flippedBankId === account.id;
+                    const institutionName = account.bankName || account.name;
                     return (
-                      <button key={account.id} type="button" onClick={() => setFlippedBankId(flipped ? null : account.id)} className={`min-w-0 rounded-xl border bg-gradient-to-br p-4 text-left shadow-sm transition ${cardTone(index)}`}>
+                      <button key={account.id} type="button" onClick={() => setFlippedBankId(flipped ? null : account.id)} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm transition hover:border-primary/30">
                         {!flipped ? (
                           <div className="space-y-3">
                             <div className="flex items-start justify-between gap-3">
@@ -1374,12 +1366,13 @@ export default function SpendsPage() {
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No credit cards added yet.</div>
               ) : (
                 <div className="grid gap-2">
-                  {creditCards.map((card, index) => {
+                  {creditCards.map((card) => {
                     const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [], friendBreakdown: [] };
                     const monthSpend = ownership.total;
                     const flipped = flippedCardId === card.id;
+                    const institutionName = card.bankName || card.name;
                     return (
-                      <button key={card.id} type="button" onClick={() => setFlippedCardId(flipped ? null : card.id)} className={`min-w-0 rounded-xl border bg-gradient-to-br p-4 text-left shadow-sm transition ${cardTone(index + 1)}`}>
+                      <button key={card.id} type="button" onClick={() => setFlippedCardId(flipped ? null : card.id)} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm transition hover:border-primary/30">
                         {!flipped ? (
                           <div className="space-y-3">
                             <div className="flex items-start justify-between gap-3">
