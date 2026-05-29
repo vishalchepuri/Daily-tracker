@@ -7,7 +7,7 @@ export default function PrivacyPage() {
         <div>
           <Link href="/" className="text-sm text-primary hover:underline">Dayza</Link>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight">Privacy Policy</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 26, 2026</p>
+          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 29, 2026</p>
         </div>
 
         <PolicySection title="Overview">
@@ -39,7 +39,15 @@ export default function PrivacyPage() {
         </PolicySection>
 
         <PolicySection title="Data Sharing">
-          Dayza does not sell your personal information or Google user data. Data may be processed by service providers used to run the app, including database hosting, authentication, email delivery, file storage, analytics or logging, and AI processing providers. These providers process data only as needed to operate Dayza.
+          Dayza does not sell your personal information or Google user data. Dayza does not transfer Google user data to advertising platforms, data brokers, or information resellers. Dayza does not disclose Google user data to third parties except as described in this policy and only as needed to provide, secure, or maintain the app.
+        </PolicySection>
+
+        <PolicySection title="Google User Data Sharing and Disclosure">
+          Google user data may be shared with service providers that help operate Dayza, such as authentication, database hosting, cloud hosting, file storage, logging, email delivery, and AI processing providers. These providers are permitted to process Google user data only for Dayza's app functionality, security, maintenance, or legal compliance, and not for their own advertising or unrelated purposes. Dayza may also disclose information if required by law, to protect users, to investigate abuse or security issues, or with your explicit direction when you use a feature that requires processing by a connected provider.
+        </PolicySection>
+
+        <PolicySection title="Sensitive Data Protection">
+          Dayza protects sensitive data, including Google user data, using authentication controls, per-user authorization checks, HTTPS/TLS for data transmitted between the browser and the app, service-provider access controls, and database-backed storage with restricted access. OAuth tokens are handled by the authentication system and are used only to perform the Google features you request. Access to production systems and stored data is limited to the app owner and necessary service providers. Dayza aims to minimize the Google data it reads, use read-only Google scopes where possible, and process only the data needed for the selected feature.
         </PolicySection>
 
         <PolicySection title="Google API Services User Data Policy">
@@ -47,7 +55,7 @@ export default function PrivacyPage() {
         </PolicySection>
 
         <PolicySection title="Storage and Security">
-          Dayza stores application data in a database and uses authentication controls to protect user accounts. OAuth tokens may be stored by the authentication system to perform connected Google features you request. No internet service can be guaranteed fully secure, but Dayza is designed to limit access to user-specific records.
+          Dayza stores application data in a database and uses authentication controls to protect user accounts. OAuth tokens may be stored by the authentication system to perform connected Google features you request. Dayza uses session-based access checks so users can access only their own records. No internet service can be guaranteed fully secure, but Dayza is designed to limit access to user-specific records and reduce unnecessary collection, use, and retention of sensitive information.
         </PolicySection>
 
         <PolicySection title="Development Risk Notice">
