@@ -53,6 +53,25 @@ export async function PATCH(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const data = await req.json();
+    if (data?.transfer) {
+      const fromId = String(data.fromBankAccountId ?? "");
+      const toId = String(data.toBankAccountId ?? "");
+      const amount = parseAmount(data.amount);
+      if (!fromId || !toId || fromId === "none" || toId === "none") return NextResponse.json({ error: "Choose both bank accounts" }, { status: 400 });
+      if (fromId === toId) return NextResponse.json({ error: "Choose different bank accounts" }, { status: 400 });
+      if (amount <= 0) return NextResponse.json({ error: "Enter transfer amount" }, { status: 400 });
+      const [fromAccount, toAccount] = await Promise.all([
+        prisma.bankAccount.findUnique({ where: { id: fromId } }),
+        prisma.bankAccount.findUnique({ where: { id: toId } }),
+      ]);
+      if (!fromAccount || fromAccount.userId !== userId || !fromAccount.active) return NextResponse.json({ error: "From account not found" }, { status: 404 });
+      if (!toAccount || toAccount.userId !== userId || !toAccount.active) return NextResponse.json({ error: "To account not found" }, { status: 404 });
+      const [fromBankAccount, toBankAccount] = await prisma.$transaction([
+        prisma.bankAccount.update({ where: { id: fromId }, data: { balance: { decrement: amount } } }),
+        prisma.bankAccount.update({ where: { id: toId }, data: { balance: { increment: amount } } }),
+      ]);
+      return NextResponse.json({ fromBankAccount, toBankAccount });
+    }
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
     const existing = await prisma.bankAccount.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });

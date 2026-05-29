@@ -464,21 +464,25 @@ export default function MedicationsPage() {
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <SummaryCard title="Active" value={activeMeds.length} icon={Pill} />
-        <SummaryCard title="Due Today" value={dueTodayMeds.length} icon={Bell} />
-        <SummaryCard title="Missed" value={missedToday} icon={Clock} />
-        <SummaryCard title="Adherence" value={logs.length ? `${adherenceRate}%` : "0%"} icon={TrendingUp} />
+      <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 p-3 text-sm sm:grid-cols-4">
+        <div><span className="text-muted-foreground">Active</span><p className="font-mono font-semibold">{activeMeds.length}</p></div>
+        <div><span className="text-muted-foreground">Due today</span><p className="font-mono font-semibold">{dueTodayMeds.length}</p></div>
+        <div><span className="text-muted-foreground">Missed</span><p className="font-mono font-semibold">{missedToday}</p></div>
+        <div><span className="text-muted-foreground">Adherence</span><p className="font-mono font-semibold">{logs.length ? `${adherenceRate}%` : "0%"}</p></div>
       </div>
 
       {refillAlerts.length > 0 && (
         <Card className="border-amber-500/35 bg-amber-500/5">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-amber-500" />
-              <h3 className="font-semibold">Refill needed</h3>
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <h3 className="font-semibold">Refill needed</h3>
+                <Badge variant="outline">{refillAlerts.length}</Badge>
+              </div>
+              <div className="text-xs text-muted-foreground">{refillAlerts.map((med) => med.name).slice(0, 2).join(", ")}{refillAlerts.length > 2 ? "..." : ""}</div>
             </div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="mt-3 grid max-h-40 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
               {refillAlerts.map((med) => (
                 <div key={med.id} className="rounded-lg bg-background/60 p-3">
                   <p className="font-medium">{med.name}</p>
@@ -493,7 +497,7 @@ export default function MedicationsPage() {
 
       {nextDose && (
         <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+          <CardContent className="grid gap-3 p-3 sm:grid-cols-[1fr_auto] sm:items-center sm:p-4">
             <div>
               <p className="text-sm text-muted-foreground">Next dose today</p>
               <h3 className="mt-1 font-semibold">{nextDose.name} {nextDose.dosage ? `- ${nextDose.dosage}` : ""}</h3>
@@ -539,7 +543,7 @@ export default function MedicationsPage() {
           {dueSelectedMeds.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No medications scheduled for this date.</div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1 md:grid-cols-2 lg:max-h-none lg:overflow-visible lg:pr-0">
               {dueSelectedMeds.map((med) => {
                 const todaysLog = logByMedicationSelectedDate.get(med.id);
                 const scheduled = atDateTime(med.timeOfDay, scheduleDate);

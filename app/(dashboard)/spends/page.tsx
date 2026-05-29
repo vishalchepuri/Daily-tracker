@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, Banknote, CalendarDays, CreditCard, Download, HandCoins, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Sparkles, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
+import { AlertCircle, Banknote, CalendarDays, CreditCard, Download, HandCoins, Landmark, Mail, Pencil, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Target, Trash2, TrendingUp, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,7 +53,9 @@ const blankMoneyLinkForm = {
   amount: "",
   currency: "INR",
   bankAccountId: "none",
+  toBankAccountId: "none",
   date: new Date().toISOString().slice(0, 10),
+  purpose: "",
   notes: "",
 };
 
@@ -66,6 +68,14 @@ const spendCategories = ["Food", "Groceries", "Travel", "Shopping", "Health", "F
 
 function formatInr(value: number) {
   return `INR ${Number(value || 0).toFixed(2)}`;
+}
+
+function moneyLinkOutstanding(link: any) {
+  return Math.max(0, (link?.amount ?? 0) - (link?.settledAmount ?? 0));
+}
+
+function normalizePersonName(value: unknown) {
+  return String(value ?? "").trim().replace(/\s+/g, " ");
 }
 
 function dateKey(date: Date) {
@@ -102,7 +112,6 @@ export default function SpendsPage() {
   const [importing, setImporting] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
-  const [targetEditing, setTargetEditing] = useState(false);
   const [targetSaving, setTargetSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [periodFilter, setPeriodFilter] = useState("custom");
@@ -135,6 +144,18 @@ export default function SpendsPage() {
   const [settleDialog, setSettleDialog] = useState<any>(null);
   const [settleForm, setSettleForm] = useState({ amount: "", bankAccountId: "none" });
   const [settlingMoneyLink, setSettlingMoneyLink] = useState(false);
+  const [cardSettleDialog, setCardSettleDialog] = useState<any>(null);
+  const [cardSettleForm, setCardSettleForm] = useState({ amount: "", bankAccountId: "none" });
+  const [settlingCard, setSettlingCard] = useState(false);
+  const [reportDialogOpen, setReportDialogOpen] = useState(false);
+  const [insightsDialogOpen, setInsightsDialogOpen] = useState(false);
+  const [moneyLinksDialogOpen, setMoneyLinksDialogOpen] = useState(false);
+  const [bankAccountsDialogOpen, setBankAccountsDialogOpen] = useState(false);
+  const [creditCardsDialogOpen, setCreditCardsDialogOpen] = useState(false);
+  const [moneyEntryDialogOpen, setMoneyEntryDialogOpen] = useState(false);
+  const [spendFiltersDialogOpen, setSpendFiltersDialogOpen] = useState(false);
+  const [targetDialogOpen, setTargetDialogOpen] = useState(false);
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -152,7 +173,6 @@ export default function SpendsPage() {
       .then((res) => res.ok ? res.json() : {})
       .then((settingsData: any) => {
         setTargetMonthlySpend(settingsData?.targetMonthlySpend ? String(settingsData.targetMonthlySpend) : "");
-        setTargetEditing(!settingsData?.targetMonthlySpend);
       })
       .catch(console.error);
 
@@ -250,8 +270,8 @@ export default function SpendsPage() {
 
   const financeTotals = useMemo(() => {
     const openLinks = moneyLinks.filter((link) => !link.settled);
-    const totalLend = openLinks.filter((link) => link.type === "lend").reduce((sum, link) => sum + (link.amount ?? 0), 0);
-    const totalBorrow = openLinks.filter((link) => link.type === "borrow").reduce((sum, link) => sum + (link.amount ?? 0), 0);
+    const totalLend = openLinks.filter((link) => link.type === "lend").reduce((sum, link) => sum + moneyLinkOutstanding(link), 0);
+    const totalBorrow = openLinks.filter((link) => link.type === "borrow").reduce((sum, link) => sum + moneyLinkOutstanding(link), 0);
     const currentCardDue = creditCards.reduce((sum, card) => sum + (card.currentDue ?? 0), 0);
     const totalBankBalance = bankAccounts.reduce((sum, account) => sum + (account.balance ?? 0), 0);
     return {
@@ -446,22 +466,26 @@ export default function SpendsPage() {
   }, [creditCards, friendSpendLinks, moneyLinks, spends]);
 
   const moneyLinkPeople = useMemo(() => {
-    const people = new Set<string>();
+    const people = new Map<string, string>();
     moneyLinks.forEach((link) => {
-      if (link.person) people.add(link.person);
+      const person = normalizePersonName(link.person);
+      if (!person) return;
+      const key = person.toLocaleLowerCase();
+      if (!people.has(key)) people.set(key, person);
     });
-    return Array.from(people).sort((a, b) => a.localeCompare(b));
+    return Array.from(people.values()).sort((a, b) => a.localeCompare(b));
   }, [moneyLinks]);
 
   const filteredMoneyLinks = useMemo(() => {
     if (moneyLinkPersonFilter === "all") return moneyLinks;
-    return moneyLinks.filter((link) => link.person === moneyLinkPersonFilter);
+    const selected = normalizePersonName(moneyLinkPersonFilter).toLocaleLowerCase();
+    return moneyLinks.filter((link) => normalizePersonName(link.person).toLocaleLowerCase() === selected);
   }, [moneyLinkPersonFilter, moneyLinks]);
 
   const moneyLinkFilterTotals = useMemo(() => {
     const openLinks = filteredMoneyLinks.filter((link) => !link.settled);
-    const totalLend = openLinks.filter((link) => link.type === "lend").reduce((sum, link) => sum + (link.amount ?? 0), 0);
-    const totalBorrow = openLinks.filter((link) => link.type === "borrow").reduce((sum, link) => sum + (link.amount ?? 0), 0);
+    const totalLend = openLinks.filter((link) => link.type === "lend").reduce((sum, link) => sum + moneyLinkOutstanding(link), 0);
+    const totalBorrow = openLinks.filter((link) => link.type === "borrow").reduce((sum, link) => sum + moneyLinkOutstanding(link), 0);
     const settled = filteredMoneyLinks.filter((link) => link.settled).length;
     return {
       totalLend,
@@ -632,7 +656,6 @@ export default function SpendsPage() {
         return;
       }
       setTargetMonthlySpend(String(data.targetMonthlySpend ?? ""));
-      setTargetEditing(false);
       toast.success("Monthly target saved");
     } catch {
       toast.error("Failed to save target");
@@ -835,31 +858,127 @@ export default function SpendsPage() {
     }
   };
 
-  const saveMoneyLink = async () => {
-    if (!moneyLinkForm.person || !moneyLinkForm.amount) {
-      toast.error("Person and amount are required");
+  const openSettleCard = (card: any, full = false) => {
+    const due = Math.max(0, card?.currentDue ?? 0);
+    setCardSettleDialog(card);
+    setCardSettleForm({ amount: full ? String(due || "") : "", bankAccountId: "none" });
+  };
+
+  const settleCreditCard = async (full = false) => {
+    if (!cardSettleDialog?.id) return;
+    const amount = full ? Math.max(0, cardSettleDialog.currentDue ?? 0) : Number(cardSettleForm.amount);
+    if (!amount || amount <= 0) {
+      toast.error("Enter card payment amount");
       return;
     }
-    if (!moneyLinkForm.bankAccountId || moneyLinkForm.bankAccountId === "none") {
+    if (!cardSettleForm.bankAccountId || cardSettleForm.bankAccountId === "none") {
+      toast.error("Choose bank account for card payment");
+      return;
+    }
+    setSettlingCard(true);
+    try {
+      const res = await fetch("/api/credit-cards", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: cardSettleDialog.id, settleAmount: amount, settleFull: full, bankAccountId: cardSettleForm.bankAccountId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to settle card");
+        return;
+      }
+      setCreditCards((prev) => prev.map((card) => card.id === data.creditCard.id ? data.creditCard : card));
+      setCardSettleDialog(null);
+      setCardSettleForm({ amount: "", bankAccountId: "none" });
+      loadData();
+      toast.success(full ? "Credit card fully settled" : "Credit card payment recorded");
+    } catch {
+      toast.error("Failed to settle card");
+    } finally {
+      setSettlingCard(false);
+    }
+  };
+
+  const saveMoneyLink = async () => {
+    const person = normalizePersonName(moneyLinkForm.person);
+    const isSpendEntry = moneyLinkForm.type === "spend";
+    const isTransferEntry = moneyLinkForm.type === "transfer";
+    const purpose = moneyLinkForm.purpose.trim();
+    const notes = moneyLinkForm.notes.trim();
+    if (!isTransferEntry && !isSpendEntry && !person) {
+      toast.error("Person is required");
+      return;
+    }
+    if (!moneyLinkForm.amount) {
+      toast.error("Amount is required");
+      return;
+    }
+    if (isSpendEntry && !purpose && !person) {
+      toast.error("Enter what you spent on");
+      return;
+    }
+    if (isTransferEntry && (!moneyLinkForm.bankAccountId || moneyLinkForm.bankAccountId === "none" || !moneyLinkForm.toBankAccountId || moneyLinkForm.toBankAccountId === "none")) {
+      toast.error("Choose both bank accounts");
+      return;
+    }
+    if (isTransferEntry && moneyLinkForm.bankAccountId === moneyLinkForm.toBankAccountId) {
+      toast.error("Choose different bank accounts");
+      return;
+    }
+    if (moneyLinkForm.type === "lend" && (!moneyLinkForm.bankAccountId || moneyLinkForm.bankAccountId === "none")) {
       toast.error("Choose the bank account used for this transaction");
       return;
     }
     try {
-      const res = await fetch("/api/money-links", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(moneyLinkForm),
-      });
+      const res = isTransferEntry
+        ? await fetch("/api/bank-accounts", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              transfer: true,
+              fromBankAccountId: moneyLinkForm.bankAccountId,
+              toBankAccountId: moneyLinkForm.toBankAccountId,
+              amount: moneyLinkForm.amount,
+            }),
+          })
+        : isSpendEntry
+        ? await fetch("/api/spends", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              merchant: purpose || person,
+              amount: moneyLinkForm.amount,
+              currency: moneyLinkForm.currency,
+              category: "Other",
+              date: moneyLinkForm.date,
+              notes,
+              bankAccountId: moneyLinkForm.bankAccountId,
+              creditCardId: "none",
+            }),
+          })
+        : await fetch("/api/money-links", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...moneyLinkForm,
+              person,
+              notes: [purpose ? `Spent for: ${purpose}` : "", notes].filter(Boolean).join(" - "),
+              createSpendFromBorrow: moneyLinkForm.type === "borrow" && moneyLinkForm.bankAccountId === "none",
+              spendMerchant: purpose || `Borrowed from ${person}`,
+              spendCategory: "Other",
+            }),
+          });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data?.error ?? "Failed to save lend/borrow");
+        toast.error(data?.error ?? (isTransferEntry ? "Failed to transfer money" : isSpendEntry ? "Failed to save spend" : "Failed to save lend/borrow"));
         return;
       }
-      toast.success(moneyLinkForm.type === "lend" ? "Lend entry added" : "Borrow entry added");
+      toast.success(isTransferEntry ? "Transfer recorded" : isSpendEntry ? "Spend added" : moneyLinkForm.type === "lend" ? "Lend entry added" : "Borrow entry added");
       setMoneyLinkForm(blankMoneyLinkForm);
+      setMoneyEntryDialogOpen(false);
       loadData();
     } catch {
-      toast.error("Failed to save lend/borrow");
+      toast.error(isTransferEntry ? "Failed to transfer money" : isSpendEntry ? "Failed to save spend" : "Failed to save lend/borrow");
     }
   };
 
@@ -887,7 +1006,7 @@ export default function SpendsPage() {
   };
 
   const openSettleMoneyLink = (link: any) => {
-    const remaining = Math.max(0, (link?.amount ?? 0) - (link?.settledAmount ?? 0));
+    const remaining = moneyLinkOutstanding(link);
     setSettleDialog(link);
     setSettleForm({ amount: String(remaining || ""), bankAccountId: "none" });
   };
@@ -1054,13 +1173,46 @@ export default function SpendsPage() {
                 </div>
               </DialogContent>
             </Dialog>
+            <Dialog open={Boolean(cardSettleDialog)} onOpenChange={(open) => !open && setCardSettleDialog(null)}>
+              <DialogContent className="max-w-md">
+                <DialogHeader><DialogTitle>Settle {cardSettleDialog?.name}</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div className="rounded-lg bg-muted/40 p-3 text-sm">
+                    <p className="text-muted-foreground">Current due</p>
+                    <p className="font-mono text-lg font-semibold">{formatInr(cardSettleDialog?.currentDue ?? 0)}</p>
+                  </div>
+                  <div>
+                    <Label>Amount paid</Label>
+                    <Input type="number" value={cardSettleForm.amount} onChange={(e) => setCardSettleForm({ ...cardSettleForm, amount: e.target.value })} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Paid from bank account</Label>
+                    <Select value={cardSettleForm.bankAccountId} onValueChange={(bankAccountId) => setCardSettleForm({ ...cardSettleForm, bankAccountId })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Select account" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Select bank account</SelectItem>
+                        {bankAccounts.map((account) => (
+                          <SelectItem key={account.id} value={account.id}>
+                            {account.name}{account.last4 ? ` - ${account.last4}` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={() => settleCreditCard(false)} loading={settlingCard} disabled={settlingCard}>Settle amount</Button>
+                    <Button onClick={() => settleCreditCard(true)} loading={settlingCard} disabled={settlingCard}>Settle full</Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
             <Dialog open={Boolean(settleDialog)} onOpenChange={(open) => !open && setSettleDialog(null)}>
               <DialogContent className="max-w-md">
                 <DialogHeader><DialogTitle>Settle {settleDialog?.person}</DialogTitle></DialogHeader>
                 <div className="space-y-4">
                   <div className="rounded-lg bg-muted/40 p-3 text-sm">
                     <p className="text-muted-foreground">Remaining</p>
-                    <p className="font-mono text-lg font-semibold">{formatInr(Math.max(0, (settleDialog?.amount ?? 0) - (settleDialog?.settledAmount ?? 0)))}</p>
+                    <p className="font-mono text-lg font-semibold">{formatInr(moneyLinkOutstanding(settleDialog))}</p>
                   </div>
                   <div>
                     <Label>Amount received / paid</Label>
@@ -1134,32 +1286,24 @@ export default function SpendsPage() {
       </FadeIn>
 
       {importHealth?.gmail && (
-        <Card className={importHealth.gmail.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}>
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div className="flex items-start gap-3">
-              <div className={`mt-0.5 rounded-full p-2 ${importHealth.gmail.needsReconnect ? "bg-amber-500/15 text-amber-400" : "bg-primary/15 text-primary"}`}>
-                {importHealth.gmail.needsReconnect ? <AlertCircle className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
-              </div>
-              <div>
-                <p className="font-semibold">Gmail import: {importHealth.gmail.label}</p>
-                <p className="text-sm text-muted-foreground">
-                  Gmail spends are only added when the email includes a saved card/account last 4 digits. Unclear items go to Profile Review.
-                </p>
-              </div>
-            </div>
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${importHealth.gmail.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}`}>
+          <div className="flex min-w-0 items-center gap-2">
+            {importHealth.gmail.needsReconnect ? <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" /> : <Mail className="h-4 w-4 shrink-0 text-primary" />}
+            <span className="truncate font-medium">Gmail: {importHealth.gmail.label}</span>
+          </div>
             {importHealth.gmail.needsReconnect && (
               <Button
                 variant="outline"
+                size="sm"
+                className="h-8 px-2"
                 onClick={connectGmail}
                 loading={connectingGmail}
                 disabled={connectingGmail}
               >
-                <Mail className="mr-2 h-4 w-4" />
                 Reconnect
               </Button>
             )}
-          </CardContent>
-        </Card>
+        </div>
       )}
 
       <Card className="overflow-hidden border-primary/30">
@@ -1222,21 +1366,6 @@ export default function SpendsPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <h3 className="font-semibold">Paste or upload a bank SMS, receipt, or payment screenshot</h3>
-                <p className="text-sm text-muted-foreground">
-                  Dayza will detect the merchant, amount, bank account or credit card, then save the spend automatically.
-                </p>
-              </div>
-              <Button type="button" onClick={() => window.location.assign("/chat")} className="shrink-0">
-                <Sparkles className="mr-2 h-4 w-4" />
-                Open Dayza Agent
-              </Button>
-            </div>
-          </div>
-
           <div className="grid gap-3 xl:grid-cols-[1.15fr_1fr]">
             <div className={`rounded-xl border p-4 sm:p-5 ${financeTotals.netBalance < 0 ? "border-destructive/40 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
               <div className="mb-4 flex items-start justify-between gap-3">
@@ -1302,215 +1431,258 @@ export default function SpendsPage() {
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-3">
-            <div className="space-y-3">
+          <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr]">
+            <div className="space-y-3 rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-semibold">Bank Accounts</h3>
-                <p className="text-xs text-muted-foreground">Total: {formatInr(financeTotals.totalBankBalance)}</p>
-              </div>
-              {bankAccounts.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
-              ) : (
-                <div className="grid gap-2">
-                  {bankAccounts.map((account) => {
-                    const flipped = flippedBankId === account.id;
-                    const institutionName = account.bankName || account.name;
-                    return (
-                      <button key={account.id} type="button" onClick={() => setFlippedBankId(flipped ? null : account.id)} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm transition hover:border-primary/30">
-                        {!flipped ? (
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold">{account.name}</p>
-                                <p className="text-xs capitalize text-muted-foreground">{account.bankName || "Bank account"}</p>
-                              </div>
-                              <Badge variant="secondary">{account.accountType}</Badge>
-                            </div>
-                            <div>
-                              <span className="text-xs text-muted-foreground">Balance</span>
-                              <p className="font-mono text-lg font-semibold">{formatInr(account.balance ?? 0)}</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold">{account.name}</p>
-                                <p className="text-xs text-muted-foreground">{account.last4 ? `Account ending ${account.last4}` : "No account ending saved"}</p>
-                              </div>
-                              <div className="flex shrink-0 gap-1" onClick={(event) => event.stopPropagation()}>
-                                <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              <div><span className="text-muted-foreground">Bank</span><p className="truncate font-medium">{account.bankName || "-"}</p></div>
-                              <div><span className="text-muted-foreground">Type</span><p className="capitalize">{account.accountType}</p></div>
-                              <div className="col-span-2"><span className="text-muted-foreground">Currency</span><p>{account.currency || "INR"}</p></div>
-                            </div>
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={openAddBank}><Plus className="mr-2 h-4 w-4" />Add</Button>
                 </div>
-              )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 p-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total balance</p>
+                  <p className="font-mono text-lg font-semibold">{formatInr(financeTotals.totalBankBalance)}</p>
+                  <p className="text-xs text-muted-foreground">{bankAccounts.length} accounts</p>
+                </div>
+                <Dialog open={bankAccountsDialogOpen} onOpenChange={setBankAccountsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button type="button" size="sm" variant="outline"><Landmark className="mr-2 h-4 w-4" />Accounts</Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+                    <DialogHeader><DialogTitle>Bank Accounts</DialogTitle></DialogHeader>
+                    {bankAccounts.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
+                    ) : (
+                      <div className="grid gap-3">
+                        {bankAccounts.map((account) => {
+                          const institutionName = account.bankName || account.name;
+                          return (
+                            <div key={account.id} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold">{account.name}</p>
+                                  <p className="text-xs capitalize text-muted-foreground">{account.bankName || "Bank account"}{account.last4 ? ` - ${account.last4}` : ""}</p>
+                                </div>
+                                <div className="flex shrink-0 gap-1">
+                                  <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
+                                  <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                </div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                                <div><span className="text-muted-foreground">Balance</span><p className="font-mono">{formatInr(account.balance ?? 0)}</p></div>
+                                <div><span className="text-muted-foreground">Type</span><p className="capitalize">{account.accountType}</p></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Credit Cards</h3>
-                <p className="text-xs text-muted-foreground">Current due: {formatInr(financeTotals.currentCardDue)}</p>
-              </div>
-              {creditCards.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No credit cards added yet.</div>
-              ) : (
-                <div className="grid gap-2">
-                  {creditCards.map((card) => {
-                    const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [], friendBreakdown: [] };
-                    const monthSpend = ownership.total;
-                    const flipped = flippedCardId === card.id;
-                    const institutionName = card.bankName || card.name;
-                    return (
-                      <button key={card.id} type="button" onClick={() => setFlippedCardId(flipped ? null : card.id)} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm transition hover:border-primary/30">
-                        {!flipped ? (
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold">{card.name}</p>
-                                <p className="text-xs text-muted-foreground">{card.bankName || "Credit card"}</p>
-                              </div>
-                              <Badge variant="secondary">{card.last4 ? `*${card.last4}` : "Card"}</Badge>
-                            </div>
-                            <div>
-                              <span className="text-xs text-muted-foreground">Current due</span>
-                              <p className="font-mono text-lg font-semibold">{formatInr(card.currentDue ?? 0)}</p>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="space-y-3">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="truncate font-semibold">{card.name}</p>
-                                <p className="text-xs text-muted-foreground">{card.last4 ? `Card ending ${card.last4}` : "No card ending saved"}</p>
-                              </div>
-                              <div className="flex shrink-0 gap-1" onClick={(event) => event.stopPropagation()}>
-                                <Button variant="ghost" size="icon" onClick={() => openEditCard(card)} title="Edit card"><Pencil className="h-4 w-4" /></Button>
-                                <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id)} title="Delete card"><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-sm">
-                              <div><span className="text-muted-foreground">This month</span><p className="font-mono">{formatInr(monthSpend)}</p></div>
-                              <div><span className="text-muted-foreground">Due day</span><p>{card.dueDay || "-"}</p></div>
-                              <div><span className="text-muted-foreground">Mine</span><p className="font-mono">{formatInr(ownership.mine)}</p></div>
-                              <div><span className="text-muted-foreground">Others</span><p className="font-mono">{formatInr(ownership.friends)}</p></div>
-                            </div>
-                            {ownership.friendBreakdown.length > 0 && (
-                              <Button type="button" variant="outline" size="sm" onClick={(event) => { event.stopPropagation(); setCardOthersDialog({ cardName: card.name, rows: ownership.friendBreakdown }); }}>
-                                View Others
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={openAddCard}><Plus className="mr-2 h-4 w-4" />Add</Button>
                 </div>
-              )}
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 p-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">Current due</p>
+                  <p className="font-mono text-lg font-semibold">{formatInr(financeTotals.currentCardDue)}</p>
+                  <p className="text-xs text-muted-foreground">{creditCards.length} cards</p>
+                </div>
+                <Dialog open={creditCardsDialogOpen} onOpenChange={setCreditCardsDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button type="button" size="sm" variant="outline"><CreditCard className="mr-2 h-4 w-4" />Cards</Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+                    <DialogHeader><DialogTitle>Credit Cards</DialogTitle></DialogHeader>
+                    {creditCards.length === 0 ? (
+                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No credit cards added yet.</div>
+                    ) : (
+                      <div className="grid gap-3">
+                        {creditCards.map((card) => {
+                          const ownership = creditCardOwnership[card.id] ?? { total: 0, mine: 0, friends: 0, friendNames: [], friendBreakdown: [] };
+                          const institutionName = card.bankName || card.name;
+                          return (
+                            <div key={card.id} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold">{card.name}</p>
+                                  <p className="text-xs text-muted-foreground">{card.bankName || "Credit card"}{card.last4 ? ` - ${card.last4}` : ""}</p>
+                                </div>
+                                <div className="flex shrink-0 gap-1">
+                                  <Button variant="ghost" size="icon" onClick={() => openEditCard(card)} title="Edit card"><Pencil className="h-4 w-4" /></Button>
+                                  <Button variant="ghost" size="icon" onClick={() => deleteCard(card.id)} title="Delete card"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                </div>
+                              </div>
+                              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                                <div><span className="text-muted-foreground">Current due</span><p className="font-mono">{formatInr(card.currentDue ?? 0)}</p></div>
+                                <div><span className="text-muted-foreground">Due day</span><p>{card.dueDay || "-"}</p></div>
+                                <div><span className="text-muted-foreground">Mine</span><p className="font-mono">{formatInr(ownership.mine)}</p></div>
+                                <div><span className="text-muted-foreground">Others</span><p className="font-mono">{formatInr(ownership.friends)}</p></div>
+                              </div>
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {ownership.friendBreakdown.length > 0 && (
+                                  <Button type="button" variant="outline" size="sm" onClick={() => setCardOthersDialog({ cardName: card.name, rows: ownership.friendBreakdown })}>View Others</Button>
+                                )}
+                                {(card.currentDue ?? 0) > 0 && (
+                                  <Button type="button" variant="outline" size="sm" onClick={() => openSettleCard(card)}>Settle</Button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="font-semibold">Lend / Borrow</h3>
-                <p className="text-xs text-muted-foreground">
-                  Net: <span className="font-mono text-foreground">{formatInr(moneyLinkFilterTotals.net)}</span>
-                </p>
-              </div>
-              <div className="grid gap-2 rounded-lg bg-muted/30 p-3 sm:grid-cols-2">
-                <Input placeholder="Person" value={moneyLinkForm.person} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, person: e.target.value })} />
-                <Input type="number" placeholder="Amount" value={moneyLinkForm.amount} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, amount: e.target.value })} />
-                <Select value={moneyLinkForm.type} onValueChange={(type) => setMoneyLinkForm({ ...moneyLinkForm, type })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="lend">I lent money</SelectItem>
-                    <SelectItem value="borrow">I borrowed money</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Select value={moneyLinkForm.bankAccountId} onValueChange={(bankAccountId) => setMoneyLinkForm({ ...moneyLinkForm, bankAccountId })}>
-                  <SelectTrigger><SelectValue placeholder="Bank account" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Select bank account</SelectItem>
-                    {bankAccounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.name}{account.last4 ? ` - ${account.last4}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input type="date" value={moneyLinkForm.date} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, date: e.target.value })} />
-                <Input className="sm:col-span-2" placeholder="Notes" value={moneyLinkForm.notes} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, notes: e.target.value })} />
-                <Button className="sm:col-span-2" onClick={saveMoneyLink}><Plus className="mr-2 h-4 w-4" />Add Entry</Button>
-              </div>
-              <div className="rounded-lg border border-border/80 bg-muted/20 p-3">
-                <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                  <div>
-                    <Label>Filter person</Label>
-                    <Select value={moneyLinkPersonFilter} onValueChange={setMoneyLinkPersonFilter}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All people</SelectItem>
-                        {moneyLinkPeople.map((person) => (
-                          <SelectItem key={person} value={person}>{person}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button type="button" variant="outline" onClick={() => setMoneyLinkPersonFilter("all")}>Clear</Button>
+            <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4 lg:col-span-2 2xl:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 bg-background/30 p-3 sm:p-4">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">Money Entry</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {moneyLinkFilterTotals.openCount} open · Net <span className="font-mono text-foreground">{formatInr(moneyLinkFilterTotals.net)}</span>
+                  </p>
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
-                  <div className="rounded-md bg-background/60 p-2">
-                    <span className="text-muted-foreground">Lent</span>
-                    <p className="font-mono">{formatInr(moneyLinkFilterTotals.totalLend)}</p>
-                  </div>
-                  <div className="rounded-md bg-background/60 p-2">
-                    <span className="text-muted-foreground">Borrowed</span>
-                    <p className="font-mono">{formatInr(moneyLinkFilterTotals.totalBorrow)}</p>
-                  </div>
-                  <div className="rounded-md bg-background/60 p-2">
-                    <span className="text-muted-foreground">Net</span>
-                    <p className="font-mono">{formatInr(moneyLinkFilterTotals.net)}</p>
-                  </div>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {moneyLinkFilterTotals.openCount} open, {moneyLinkFilterTotals.settledCount} settled
-                </p>
-              </div>
-              <div className="grid max-h-80 gap-2 overflow-y-auto pr-1">
-                {moneyLinks.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No lend or borrow entries yet.</div>
-                ) : filteredMoneyLinks.length === 0 ? (
-                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No entries match this person.</div>
-                ) : filteredMoneyLinks.map((link) => (
-                  <div key={link.id} className={`grid gap-2 rounded-lg bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center ${link.settled ? "opacity-60" : ""}`}>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{link.person}</p>
-                        <Badge variant={link.type === "lend" ? "secondary" : "outline"}>{link.type === "lend" ? "Lent" : "Borrowed"}</Badge>
-                        {link.settled && <Badge variant="outline">Settled</Badge>}
+                <div className="flex flex-wrap gap-2">
+                  <Dialog open={moneyEntryDialogOpen} onOpenChange={setMoneyEntryDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" size="sm"><Plus className="mr-2 h-4 w-4" />Add Entry</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+                      <DialogHeader><DialogTitle>Add Money Entry</DialogTitle></DialogHeader>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <Input list="money-link-people" placeholder={moneyLinkForm.type === "transfer" ? "Transfer note (optional)" : moneyLinkForm.type === "spend" ? "Merchant / place (optional)" : "Person"} value={moneyLinkForm.person} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, person: e.target.value })} />
+                          <datalist id="money-link-people">
+                            {moneyLinkPeople.map((person) => (
+                              <option key={person} value={person} />
+                            ))}
+                          </datalist>
+                        </div>
+                        <Input type="number" placeholder="Amount" value={moneyLinkForm.amount} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, amount: e.target.value })} />
+                        <Select value={moneyLinkForm.type} onValueChange={(type) => setMoneyLinkForm({ ...moneyLinkForm, type })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="lend">I lent money</SelectItem>
+                            <SelectItem value="borrow">I borrowed money</SelectItem>
+                            <SelectItem value="spend">I spent money</SelectItem>
+                            <SelectItem value="transfer">Transfer between banks</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Select value={moneyLinkForm.bankAccountId} onValueChange={(bankAccountId) => setMoneyLinkForm({ ...moneyLinkForm, bankAccountId })}>
+                          <SelectTrigger><SelectValue placeholder={moneyLinkForm.type === "transfer" ? "From account" : moneyLinkForm.type === "lend" ? "Bank account" : "Optional bank account"} /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">{moneyLinkForm.type === "transfer" ? "From account" : moneyLinkForm.type === "lend" ? "Select bank account" : "No bank account"}</SelectItem>
+                            {bankAccounts.map((account) => (
+                              <SelectItem key={account.id} value={account.id}>
+                                {account.name}{account.last4 ? ` - ${account.last4}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {moneyLinkForm.type === "transfer" && (
+                          <Select value={moneyLinkForm.toBankAccountId} onValueChange={(toBankAccountId) => setMoneyLinkForm({ ...moneyLinkForm, toBankAccountId })}>
+                            <SelectTrigger><SelectValue placeholder="To account" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="none">To account</SelectItem>
+                              {bankAccounts.map((account) => (
+                                <SelectItem key={account.id} value={account.id}>
+                                  {account.name}{account.last4 ? ` - ${account.last4}` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        <Input type="date" value={moneyLinkForm.date} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, date: e.target.value })} />
+                        <Input className="md:col-span-2" placeholder={moneyLinkForm.type === "transfer" ? "Purpose (optional)" : moneyLinkForm.type === "spend" ? "Spent on" : moneyLinkForm.type === "borrow" ? "Spent for / borrowed for" : "Reason / spent for"} value={moneyLinkForm.purpose} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, purpose: e.target.value })} />
+                        <Input className="md:col-span-2" placeholder="Notes" value={moneyLinkForm.notes} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, notes: e.target.value })} />
+                        <Button className="md:col-span-2" onClick={saveMoneyLink}><Plus className="mr-2 h-4 w-4" />{moneyLinkForm.type === "transfer" ? "Record Transfer" : moneyLinkForm.type === "spend" ? "Add Spend" : "Add Entry"}</Button>
                       </div>
-                      <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
-                      {(link.settledAmount ?? 0) > 0 && <p className="text-xs text-muted-foreground">Settled {formatInr(link.settledAmount)} / {formatInr(link.amount ?? 0)}</p>}
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog open={moneyLinksDialogOpen} onOpenChange={setMoneyLinksDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" size="sm" variant="outline">
+                        <HandCoins className="mr-2 h-4 w-4" />
+                        Entries
+                      </Button>
+                    </DialogTrigger>
+                  <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+                    <DialogHeader><DialogTitle>Lend / Borrow Entries</DialogTitle></DialogHeader>
+                    <div className="space-y-4">
+                      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
+                        <div>
+                          <Label>Filter person</Label>
+                          <Select value={moneyLinkPersonFilter} onValueChange={setMoneyLinkPersonFilter}>
+                            <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All people</SelectItem>
+                              {moneyLinkPeople.map((person) => (
+                                <SelectItem key={person} value={person}>{person}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <Button type="button" variant="outline" onClick={() => setMoneyLinkPersonFilter("all")}>Clear</Button>
+                      </div>
+                      <div className="grid gap-3 text-sm sm:grid-cols-3">
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <span className="text-muted-foreground">Lent</span>
+                          <p className="font-mono">{formatInr(moneyLinkFilterTotals.totalLend)}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <span className="text-muted-foreground">Borrowed</span>
+                          <p className="font-mono">{formatInr(moneyLinkFilterTotals.totalBorrow)}</p>
+                        </div>
+                        <div className="rounded-lg bg-muted/40 p-3">
+                          <span className="text-muted-foreground">Net</span>
+                          <p className="font-mono">{formatInr(moneyLinkFilterTotals.net)}</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {moneyLinkFilterTotals.openCount} open, {moneyLinkFilterTotals.settledCount} settled
+                      </p>
+                      <div className="grid gap-3">
+                        {moneyLinks.length === 0 ? (
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No lend or borrow entries yet.</div>
+                        ) : filteredMoneyLinks.length === 0 ? (
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No entries match this person.</div>
+                        ) : filteredMoneyLinks.map((link) => (
+                          <div key={link.id} className={`grid gap-3 rounded-xl bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center sm:p-4 ${link.settled ? "opacity-60" : ""}`}>
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="font-medium">{link.person}</p>
+                                <Badge variant={link.type === "lend" ? "secondary" : "outline"}>{link.type === "lend" ? "Lent" : "Borrowed"}</Badge>
+                                {link.settled && <Badge variant="outline">Settled</Badge>}
+                              </div>
+                              <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
+                              {(link.settledAmount ?? 0) > 0 && <p className="text-xs text-muted-foreground">Settled {formatInr(link.settledAmount)} / {formatInr(link.amount ?? 0)}</p>}
+                            </div>
+                            <div className="flex items-center justify-between gap-1 sm:justify-end">
+                              <span className="font-mono text-sm">{formatInr(moneyLinkOutstanding(link))}</span>
+                              {!link.settled && <Button variant="ghost" size="sm" onClick={() => openSettleMoneyLink(link)}>Settle</Button>}
+                              <Button variant="ghost" size="icon" onClick={() => deleteMoneyLink(link.id)} title="Delete entry"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                            </div>
+                          </div>
+                        ))}
+                        {moneyLinksHasMore && moneyLinkPersonFilter === "all" && (
+                          <Button type="button" variant="outline" onClick={loadMoreMoneyLinks}>Load more lend / borrow</Button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between gap-1 sm:justify-end">
-                      <span className="font-mono text-sm">{formatInr(Math.max(0, (link.amount ?? 0) - (link.settledAmount ?? 0)))}</span>
-                      {!link.settled && <Button variant="ghost" size="sm" onClick={() => openSettleMoneyLink(link)}>Settle</Button>}
-                      <Button variant="ghost" size="icon" onClick={() => deleteMoneyLink(link.id)} title="Delete entry"><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                    </div>
-                  </div>
-                ))}
-                {moneyLinksHasMore && moneyLinkPersonFilter === "all" && (
-                  <Button type="button" variant="outline" onClick={loadMoreMoneyLinks}>Load more lend / borrow</Button>
-                )}
+                  </DialogContent>
+                </Dialog>
+                </div>
               </div>
             </div>
           </div>
@@ -1518,36 +1690,41 @@ export default function SpendsPage() {
       </Card>
 
       <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="space-y-4 p-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-            <div>
-              <div className="mb-2 flex items-center gap-2">
-                <Target className="h-5 w-5 text-primary" />
+        <CardContent className="space-y-3 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Target className="h-4 w-4 text-primary" />
                 <h3 className="font-semibold">Monthly Target</h3>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {totals.target > 0
                   ? `${formatInr(totals.remaining)} remaining from ${formatInr(totals.target)}`
                   : "Set a monthly spend target to track budget progress."}
               </p>
             </div>
-            {targetEditing ? (
-              <div className="grid grid-cols-[1fr_auto] gap-2">
-                <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" />
-                <Button onClick={saveTarget} disabled={targetSaving}>{targetSaving ? "Saving" : "Save"}</Button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-3 rounded-lg bg-background/60 px-3 py-2 sm:min-w-72">
-                <div className="min-w-0">
-                  <p className="text-xs text-muted-foreground">Saved target</p>
-                  <p className="truncate font-mono font-semibold">{formatInr(totals.target)}</p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setTargetEditing(true)}>
+            <Dialog open={targetDialogOpen} onOpenChange={setTargetDialogOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
                   <Pencil className="mr-2 h-4 w-4" />
-                  Edit
+                  Target
                 </Button>
-              </div>
-            )}
+              </DialogTrigger>
+              <DialogContent className="max-w-md">
+                <DialogHeader><DialogTitle>Monthly Target</DialogTitle></DialogHeader>
+                <div className="space-y-4">
+                  <div className="rounded-lg bg-muted/40 p-3">
+                    <p className="text-xs text-muted-foreground">Saved target</p>
+                    <p className="font-mono text-lg font-semibold">{totals.target ? formatInr(totals.target) : "Not set"}</p>
+                  </div>
+                  <div>
+                    <Label>Monthly target</Label>
+                    <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" className="mt-1" />
+                  </div>
+                  <Button onClick={async () => { await saveTarget(); setTargetDialogOpen(false); }} disabled={targetSaving} className="w-full">{targetSaving ? "Saving" : "Save Target"}</Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
           <div>
             <div className="mb-2 flex items-center justify-between text-sm">
@@ -1561,137 +1738,141 @@ export default function SpendsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <SummaryCard title="This Month" value={formatInr(totals.total)} detail={`${totals.count} spends`} icon={WalletCards} />
-        <SummaryCard title="Remaining" value={totals.target ? formatInr(totals.remaining) : "Set"} detail="monthly budget" icon={Target} />
-        <SummaryCard title="Imported" value={`${totals.gmail}`} detail="Gmail receipts" icon={Mail} />
-        <SummaryCard title="Manual" value={`${totals.manual}`} detail="this month" icon={CreditCard} />
+      <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 p-3 text-sm sm:grid-cols-4">
+        <div><span className="text-muted-foreground">This month</span><p className="font-mono font-semibold">{formatInr(totals.total)}</p></div>
+        <div><span className="text-muted-foreground">Remaining</span><p className="font-mono font-semibold">{totals.target ? formatInr(totals.remaining) : "Set"}</p></div>
+        <div><span className="text-muted-foreground">Imported</span><p className="font-mono font-semibold">{totals.gmail}</p></div>
+        <div><span className="text-muted-foreground">Manual</span><p className="font-mono font-semibold">{totals.manual}</p></div>
       </div>
-
-      <div className="grid gap-3 md:grid-cols-4">
-        <InsightCard
-          title="Daily Average"
-          value={formatInr(totals.dailyAverage)}
-          detail="average spend per day this month"
-        />
-        <InsightCard
-          title="Month Projection"
-          value={formatInr(totals.projected)}
-          detail={totals.target && totals.projected > totals.target ? "likely to cross target" : "based on current pace"}
-          warning={Boolean(totals.target && totals.projected > totals.target)}
-        />
-        <InsightCard
-          title="Largest Spend"
-          value={totals.largest ? formatInr(totals.largest.amount ?? 0) : "None"}
-          detail={totals.largest ? totals.largest.merchant : "no spends this month"}
-        />
-        <InsightCard title="Top Category" value={topCategory ? topCategory.category : "None"} detail={topCategory ? formatInr(topCategory.amount) : "no category data"} />
-      </div>
-
-      <Card className="border-primary/30">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Custom Spend Report
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-[1fr_1fr_160px_160px_220px]">
-            <div>
-              <Label>From</Label>
-              <Input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
-            </div>
-            <div>
-              <Label>To</Label>
-              <Input type="date" value={customEnd} onChange={(e) => { setCustomEnd(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
-            </div>
-            <div>
-              <Label>Category</Label>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {availableCategories.map((category) => (
-                    <SelectItem key={category} value={category}>{category === "all" ? "All categories" : category}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Source</Label>
-              <Select value={sourceFilter} onValueChange={setSourceFilter}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All sources</SelectItem>
-                  <SelectItem value="manual">Manual</SelectItem>
-                  <SelectItem value="gmail">Gmail</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Bank / Card</Label>
-              <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All banks/cards</SelectItem>
-                  <SelectItem value="none">No bank/card</SelectItem>
-                  {bankAccounts.map((account) => (
-                    <SelectItem key={account.id} value={`bank:${account.id}`}>{account.name}</SelectItem>
-                  ))}
-                  {creditCards.map((card) => (
-                    <SelectItem key={card.id} value={`card:${card.id}`}>{card.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid gap-3 md:grid-cols-4">
-            <InsightCard title="Range Total" value={formatInr(filteredReport.total)} detail={`${filteredSpends.length} spends`} />
-            <InsightCard title="Avg Active Day" value={formatInr(filteredReport.averagePerDay)} detail="days with spending" />
-            <InsightCard title="Highest Day" value={filteredReport.topDay ? formatInr(filteredReport.topDay.amount) : "None"} detail={filteredReport.topDay?.label ?? "no spends"} />
-            <InsightCard title="Top Merchant" value={filteredReport.topMerchant?.merchant ?? "None"} detail={filteredReport.topMerchant ? formatInr(filteredReport.topMerchant.amount) : "no spends"} />
-          </div>
-          <HistoryPanel data={filteredReport.dayRows} emptyLabel="No spends in this custom range." />
-        </CardContent>
-      </Card>
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><TrendingUp className="w-5 h-5 text-primary" />Category Breakdown</CardTitle></CardHeader>
-        <CardContent>
-          {categoryTotals.length === 0 ? (
-            <div className="text-center py-8 text-sm text-muted-foreground">No category data this month.</div>
-          ) : (
-            <div className="space-y-3">
-              {categoryTotals.map((item) => {
-                const width = totals.total > 0 ? Math.max(6, Math.round((item.amount / totals.total) * 100)) : 0;
-                return (
-                  <div key={item.category} className="space-y-1">
-                    <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className="min-w-0 truncate font-medium">{item.category}</span>
-                      <span className="font-mono text-muted-foreground">{formatInr(item.amount)}</span>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${width}%` }} />
-                    </div>
-                  </div>
-                );
-              })}
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Spend Insights</h3>
             </div>
-          )}
+            <p className="mt-1 text-sm text-muted-foreground">
+              Daily {formatInr(totals.dailyAverage)} · Projected {formatInr(totals.projected)}
+            </p>
+          </div>
+          <Dialog open={insightsDialogOpen} onOpenChange={setInsightsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" size="sm" variant="outline">
+                <TrendingUp className="mr-2 h-4 w-4" />
+                Insights
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+              <DialogHeader><DialogTitle>Spend Insights</DialogTitle></DialogHeader>
+              <div className="grid gap-3 md:grid-cols-2">
+                <InsightCard
+                  title="Daily Average"
+                  value={formatInr(totals.dailyAverage)}
+                  detail="average spend per day this month"
+                />
+                <InsightCard
+                  title="Month Projection"
+                  value={formatInr(totals.projected)}
+                  detail={totals.target && totals.projected > totals.target ? "likely to cross target" : "based on current pace"}
+                  warning={Boolean(totals.target && totals.projected > totals.target)}
+                />
+                <InsightCard
+                  title="Largest Spend"
+                  value={totals.largest ? formatInr(totals.largest.amount ?? 0) : "None"}
+                  detail={totals.largest ? totals.largest.merchant : "no spends this month"}
+                />
+                <InsightCard title="Top Category" value={topCategory ? topCategory.category : "None"} detail={topCategory ? formatInr(topCategory.amount) : "no category data"} />
+              </div>
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
 
-      {/* Category Breakdown Pie Chart */}
-      {categoryTotals.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Banknote className="w-5 h-5 text-primary" />
-              Spending by Category
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-col items-center gap-6 sm:flex-row">
-              <div className="w-[220px] h-[220px] shrink-0">
+      <Card className="border-primary/30">
+        <CardContent className="space-y-4 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Custom Spend Report</h3>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {formatInr(filteredReport.total)} across {filteredSpends.length} spends
+            </p>
+          </div>
+          <Dialog open={reportDialogOpen} onOpenChange={setReportDialogOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" size="sm" variant="outline">
+                <Sparkles className="mr-2 h-4 w-4" />
+                Report
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+              <DialogHeader><DialogTitle>Custom Spend Report</DialogTitle></DialogHeader>
+              <div className="space-y-4">
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_160px_160px_220px]">
+                  <div>
+                    <Label>From</Label>
+                    <Input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>To</Label>
+                    <Input type="date" value={customEnd} onChange={(e) => { setCustomEnd(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
+                  </div>
+                  <div>
+                    <Label>Category</Label>
+                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {availableCategories.map((category) => (
+                          <SelectItem key={category} value={category}>{category === "all" ? "All categories" : category}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Source</Label>
+                    <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All sources</SelectItem>
+                        <SelectItem value="manual">Manual</SelectItem>
+                        <SelectItem value="gmail">Gmail</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Bank / Card</Label>
+                    <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All banks/cards</SelectItem>
+                        <SelectItem value="none">No bank/card</SelectItem>
+                        {bankAccounts.map((account) => (
+                          <SelectItem key={account.id} value={`bank:${account.id}`}>{account.name}</SelectItem>
+                        ))}
+                        {creditCards.map((card) => (
+                          <SelectItem key={card.id} value={`card:${card.id}`}>{card.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <InsightCard title="Range Total" value={formatInr(filteredReport.total)} detail={`${filteredSpends.length} spends`} />
+                  <InsightCard title="Avg Active Day" value={formatInr(filteredReport.averagePerDay)} detail="days with spending" />
+                  <InsightCard title="Highest Day" value={filteredReport.topDay ? formatInr(filteredReport.topDay.amount) : "None"} detail={filteredReport.topDay?.label ?? "no spends"} />
+                  <InsightCard title="Top Merchant" value={filteredReport.topMerchant?.merchant ?? "None"} detail={filteredReport.topMerchant ? formatInr(filteredReport.topMerchant.amount) : "no spends"} />
+                </div>
+                <HistoryPanel data={filteredReport.dayRows} emptyLabel="No spends in this custom range." />
+              </div>
+            </DialogContent>
+          </Dialog>
+          </div>
+          {categoryTotals.length > 0 && (
+            <div className="grid gap-4 rounded-xl bg-muted/20 p-3 lg:grid-cols-[240px_1fr] lg:items-center">
+              <div className="mx-auto h-[180px] w-[180px] shrink-0 sm:h-[220px] sm:w-[220px] lg:mx-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie data={categoryTotals} dataKey="amount" nameKey="category" cx="50%" cy="50%" innerRadius={55} outerRadius={90} paddingAngle={3} strokeWidth={0}>
@@ -1701,7 +1882,11 @@ export default function SpendsPage() {
                   </PieChart>
                 </ResponsiveContainer>
               </div>
-              <div className="flex-1 space-y-2 w-full">
+              <div className="space-y-2">
+                <div className="mb-3 flex items-center gap-2">
+                  <Banknote className="h-4 w-4 text-primary" />
+                  <h4 className="font-semibold">Spending by Category</h4>
+                </div>
                 {categoryTotals.map((item: any, i: number) => (
                   <div key={item.category} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
@@ -1713,97 +1898,151 @@ export default function SpendsPage() {
                 ))}
               </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-primary" />
-            Spend History
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="monthly" className="space-y-4">
-            <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
-              <TabsTrigger value="daily" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Daily</TabsTrigger>
-              <TabsTrigger value="weekly" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Weekly</TabsTrigger>
-              <TabsTrigger value="monthly" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Monthly</TabsTrigger>
-            </TabsList>
-            <TabsContent value="daily">
-              <HistoryPanel data={dailyHistory} emptyLabel="No daily spend history yet." />
-            </TabsContent>
-            <TabsContent value="weekly">
-              <HistoryPanel data={weeklyHistory} emptyLabel="No weekly spend history yet." />
-            </TabsContent>
-            <TabsContent value="monthly">
-              <HistoryPanel data={monthlyHistory} emptyLabel="No monthly spend history yet." />
-            </TabsContent>
-          </Tabs>
+          )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="w-5 h-5 text-primary" />Recent Spends</CardTitle></CardHeader>
-        <CardContent>
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px_160px_220px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" placeholder="Search merchant, category, notes..." />
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-primary" />
+              <h3 className="font-semibold">Spend History</h3>
             </div>
-            <Select value={periodFilter} onValueChange={setPeriodFilter}>
-              <SelectTrigger>
-                <CalendarDays className="mr-2 h-4 w-4" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="custom">Custom range</SelectItem>
-                <SelectItem value="week">This week</SelectItem>
-                <SelectItem value="month">This month</SelectItem>
-                <SelectItem value="year">This year</SelectItem>
-                <SelectItem value="all">All time</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableCategories.map((category) => (
-                  <SelectItem key={category} value={category}>{category === "all" ? "All categories" : category}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Select value={sourceFilter} onValueChange={setSourceFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="Source" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All sources</SelectItem>
-                <SelectItem value="manual">Manual</SelectItem>
-                <SelectItem value="gmail">Gmail</SelectItem>
-              </SelectContent>
-            </Select>
-            <Select value={paymentFilter} onValueChange={setPaymentFilter}>
-              <SelectTrigger>
-                <CreditCard className="mr-2 h-4 w-4" />
-                <SelectValue placeholder="Bank / Card" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All banks/cards</SelectItem>
-                <SelectItem value="none">No bank/card</SelectItem>
-                {bankAccounts.map((account) => (
-                  <SelectItem key={account.id} value={`bank:${account.id}`}>{account.name}</SelectItem>
-                ))}
-                {creditCards.map((card) => (
-                  <SelectItem key={card.id} value={`card:${card.id}`}>{card.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <p className="mt-1 text-sm text-muted-foreground">{monthlyHistory.length} monthly points tracked</p>
+          </div>
+          <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" size="sm" variant="outline">
+                <TrendingUp className="mr-2 h-4 w-4" />
+                History
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
+              <DialogHeader><DialogTitle>Spend History</DialogTitle></DialogHeader>
+              <Tabs defaultValue="monthly" className="space-y-4">
+                <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
+                  <TabsTrigger value="daily" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Daily</TabsTrigger>
+                  <TabsTrigger value="weekly" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Weekly</TabsTrigger>
+                  <TabsTrigger value="monthly" className="h-11 rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Monthly</TabsTrigger>
+                </TabsList>
+                <TabsContent value="daily">
+                  <HistoryPanel data={dailyHistory} emptyLabel="No daily spend history yet." />
+                </TabsContent>
+                <TabsContent value="weekly">
+                  <HistoryPanel data={weeklyHistory} emptyLabel="No weekly spend history yet." />
+                </TabsContent>
+                <TabsContent value="monthly">
+                  <HistoryPanel data={monthlyHistory} emptyLabel="No monthly spend history yet." />
+                </TabsContent>
+              </Tabs>
+            </DialogContent>
+          </Dialog>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="space-y-2">
+          <CardTitle className="flex items-center gap-2"><WalletCards className="h-5 w-5 text-primary" />Recent Spends</CardTitle>
+          <p className="text-sm text-muted-foreground">{filteredSpends.length} matching spends, totaling <span className="font-mono text-foreground">{formatInr(filteredTotal)}</span></p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4">
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:gap-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9" placeholder="Search merchant, category, notes..." />
+              </div>
+              <Dialog open={spendFiltersDialogOpen} onOpenChange={setSpendFiltersDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline">
+                    <SlidersHorizontal className="mr-2 h-4 w-4" />
+                    Filters
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto">
+                  <DialogHeader><DialogTitle>Spend Filters</DialogTitle></DialogHeader>
+                  <div className="grid gap-3">
+                    <div>
+                      <Label>Period</Label>
+                      <Select value={periodFilter} onValueChange={setPeriodFilter}>
+                        <SelectTrigger className="mt-1">
+                          <CalendarDays className="mr-2 h-4 w-4" />
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="custom">Custom range</SelectItem>
+                          <SelectItem value="week">This week</SelectItem>
+                          <SelectItem value="month">This month</SelectItem>
+                          <SelectItem value="year">This year</SelectItem>
+                          <SelectItem value="all">All time</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {periodFilter === "custom" && (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <Label>From</Label>
+                          <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="mt-1" />
+                        </div>
+                        <div>
+                          <Label>To</Label>
+                          <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="mt-1" />
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <Label>Category</Label>
+                      <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Category" /></SelectTrigger>
+                        <SelectContent>
+                          {availableCategories.map((category) => (
+                            <SelectItem key={category} value={category}>{category === "all" ? "All categories" : category}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Source</Label>
+                      <Select value={sourceFilter} onValueChange={setSourceFilter}>
+                        <SelectTrigger className="mt-1"><SelectValue placeholder="Source" /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All sources</SelectItem>
+                          <SelectItem value="manual">Manual</SelectItem>
+                          <SelectItem value="gmail">Gmail</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Bank / Card</Label>
+                      <Select value={paymentFilter} onValueChange={setPaymentFilter}>
+                        <SelectTrigger className="mt-1">
+                          <CreditCard className="mr-2 h-4 w-4" />
+                          <SelectValue placeholder="Bank / Card" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All banks/cards</SelectItem>
+                          <SelectItem value="none">No bank/card</SelectItem>
+                          {bankAccounts.map((account) => (
+                            <SelectItem key={account.id} value={`bank:${account.id}`}>{account.name}</SelectItem>
+                          ))}
+                          {creditCards.map((card) => (
+                            <SelectItem key={card.id} value={`card:${card.id}`}>{card.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button type="button" variant="outline" onClick={clearFilters}>Clear</Button>
+                      <Button type="button" onClick={() => setSpendFiltersDialogOpen(false)}>Done</Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
           </div>
 
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-muted/40 px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 px-3 py-3 text-sm sm:px-4">
             <span className="text-muted-foreground">{filteredSpends.length} matching spends</span>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
@@ -1820,9 +2059,9 @@ export default function SpendsPage() {
           ) : filteredSpends.length === 0 ? (
             <div className="text-center py-10 text-sm text-muted-foreground">No spends match these filters.</div>
           ) : (
-            <div className="space-y-2">
+            <div className="grid max-h-[32rem] gap-3 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
               {filteredSpends.map((spend) => (
-                <div key={spend.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center min-w-0">
+                <div key={spend.id} className="grid min-w-0 gap-3 rounded-xl bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4 sm:p-4">
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>
                     <p className="text-xs text-muted-foreground truncate">

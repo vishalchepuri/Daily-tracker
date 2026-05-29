@@ -253,25 +253,19 @@ export default function YtSummaryPage() {
   const feedContent = (
     <div className="space-y-4">
       {importHealth?.youtube && (
-        <Card className={importHealth.youtube.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}>
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div className="flex items-start gap-3">
-              <div className={`mt-0.5 rounded-full p-2 ${importHealth.youtube.needsReconnect ? "bg-amber-500/15 text-amber-400" : "bg-primary/15 text-primary"}`}>
-                {importHealth.youtube.needsReconnect ? <AlertCircle className="h-4 w-4" /> : <Youtube className="h-4 w-4" />}
-              </div>
-              <div>
-                <p className="font-semibold">YouTube import: {importHealth.youtube.label}</p>
-                <p className="text-sm text-muted-foreground">Reconnect if subscriptions stop loading or the token no longer has YouTube read access.</p>
-              </div>
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${importHealth.youtube.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}`}>
+          <div className="flex min-w-0 items-center gap-2">
+            {importHealth.youtube.needsReconnect ? <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" /> : <Youtube className="h-4 w-4 shrink-0 text-primary" />}
+            <div className="min-w-0">
+              <p className="truncate font-medium">YouTube: {importHealth.youtube.label}</p>
             </div>
-            {importHealth.youtube.needsReconnect && (
-              <Button variant="outline" onClick={connectYoutube} loading={connectingYoutube} disabled={connectingYoutube}>
-                <Youtube className="mr-2 h-4 w-4" />
-                Reconnect
-              </Button>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+          {importHealth.youtube.needsReconnect && (
+            <Button variant="outline" size="sm" className="h-8 px-2" onClick={connectYoutube} loading={connectingYoutube} disabled={connectingYoutube}>
+              Reconnect
+            </Button>
+          )}
+        </div>
       )}
 
       {youtubeError && (
@@ -301,7 +295,7 @@ export default function YtSummaryPage() {
             ) : subscriptions.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No subscriptions found.</div>
             ) : (
-              <div className="grid max-h-[32rem] gap-2 overflow-y-auto pr-1 ios-scroll">
+              <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 ios-scroll sm:max-h-[32rem]">
                 <button
                   type="button"
                   onClick={() => {
@@ -362,7 +356,7 @@ export default function YtSummaryPage() {
               ) : visibleVideos.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No recent videos found.</div>
               ) : (
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
                   {visibleVideos.map((video) => (
                     <button key={video.id} type="button" onClick={() => summarizeVideo(video)} className={`overflow-hidden rounded-lg border bg-muted/30 text-left transition hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}>
                       {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}

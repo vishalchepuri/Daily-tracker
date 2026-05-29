@@ -1058,11 +1058,11 @@ export default function WorkoutsPage() {
       </Dialog>
 
       <FadeIn delay={0.05}>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <WorkoutStatCard icon={Dumbbell} title="Workouts" value={workoutStats.totalWorkouts} detail={historyRange === "all" ? "all time" : `last ${historyRange} days`} />
-          <WorkoutStatCard icon={CheckCircle2} title="Sets" value={workoutStats.totalSets} detail="logged sets" />
-          <WorkoutStatCard icon={BarChart3} title="Volume" value={`${Math.round(workoutStats.totalVolume)} kg`} detail="weight x reps" />
-          <WorkoutStatCard icon={Clock} title="Time" value={`${workoutStats.totalMinutes} min`} detail="training time" />
+        <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 p-3 text-sm sm:grid-cols-4">
+          <div><span className="text-muted-foreground">Workouts</span><p className="font-mono font-semibold">{workoutStats.totalWorkouts}</p></div>
+          <div><span className="text-muted-foreground">Sets</span><p className="font-mono font-semibold">{workoutStats.totalSets}</p></div>
+          <div><span className="text-muted-foreground">Volume</span><p className="font-mono font-semibold">{Math.round(workoutStats.totalVolume)} kg</p></div>
+          <div><span className="text-muted-foreground">Time</span><p className="font-mono font-semibold">{workoutStats.totalMinutes} min</p></div>
         </div>
       </FadeIn>
 
@@ -1075,7 +1075,7 @@ export default function WorkoutsPage() {
                 Personal Records
               </CardTitle>
             </CardHeader>
-            <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <CardContent className="grid max-h-64 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-none lg:grid-cols-4 lg:overflow-visible lg:pr-0">
               {workoutStats.topPrs.map((record: any) => (
                 <div key={record.exerciseName} className="rounded-lg border border-primary/20 bg-background/70 p-3">
                   <div className="flex min-w-0 items-start gap-2">
@@ -1108,7 +1108,7 @@ export default function WorkoutsPage() {
                 {[1, 2].map((i) => <div key={i} className="h-48 animate-pulse rounded-lg bg-muted" />)}
               </div>
             ) : null}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid max-h-[42rem] grid-cols-1 gap-4 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
               {(templates ?? []).map((t: any) => (
                 <Card key={t?.id} className="hover:shadow-lg transition-shadow">
                   <CardHeader className="pb-2">
@@ -1192,7 +1192,7 @@ export default function WorkoutsPage() {
               ))}
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid max-h-[38rem] grid-cols-1 gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
             {exercisesLoading ? [1, 2, 3, 4].map((i) => (
               <div key={i} className="h-28 animate-pulse rounded-lg bg-muted" />
             )) : null}
@@ -1262,7 +1262,7 @@ export default function WorkoutsPage() {
             </Select>
           </div>
           {logsLoading ? (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div className="grid max-h-[38rem] grid-cols-1 gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
               {[1, 2, 3, 4].map((i) => <div key={i} className="h-40 animate-pulse rounded-lg bg-muted" />)}
             </div>
           ) : (filteredWorkoutLogs ?? [])?.length === 0 ? (

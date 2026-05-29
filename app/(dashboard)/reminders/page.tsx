@@ -395,27 +395,26 @@ export default function RemindersPage() {
 
       <div className="grid gap-3 md:grid-cols-[1fr_22rem]">
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+          <CardContent className="space-y-3 p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
               <Plus className="h-4 w-4 text-primary" />
               Quick Add
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             <Button type="button" variant="outline" onClick={() => openQuickReminder("water")} className="justify-start">Water</Button>
             <Button type="button" variant="outline" onClick={() => openQuickReminder("meds")} className="justify-start">Medication</Button>
             <Button type="button" variant="outline" onClick={() => openQuickReminder("workout")} className="justify-start">Workout</Button>
             <Button type="button" variant="outline" onClick={() => openQuickReminder("meal")} className="justify-start">Meal prep</Button>
+            </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-base">
+          <CardContent className="space-y-3 p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
               <Clock3 className="h-4 w-4 text-primary" />
               Next 7 Days
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+            </div>
+            <div className="max-h-48 space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
             {upcomingReminders.length === 0 ? (
               <p className="text-sm text-muted-foreground">No upcoming reminders.</p>
             ) : upcomingReminders.map((item) => (
@@ -424,11 +423,12 @@ export default function RemindersPage() {
                 <span className="shrink-0 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
               </button>
             ))}
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 md:grid-cols-4 xl:grid-cols-7">
+      <div className="flex gap-2 overflow-x-auto pb-1 ios-scroll">
         <SmartButton active={filter === "overdue"} icon={AlertTriangle} label="Overdue" count={smartCounts.overdue} onClick={() => setFilter("overdue")} />
         <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
         <SmartButton active={filter === "tomorrow"} icon={CalendarDays} label="Tomorrow" count={smartCounts.tomorrow} onClick={() => setFilter("tomorrow")} />
@@ -438,10 +438,10 @@ export default function RemindersPage() {
         <SmartButton active={filter === "completed"} icon={CheckCircle2} label="Completed" count={smartCounts.completed} onClick={() => setFilter("completed")} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><ListTodo className="w-5 h-5 text-primary" />Lists</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
+          <CardHeader className="p-4 pb-2"><CardTitle className="flex items-center gap-2 text-base"><ListTodo className="w-4 h-4 text-primary" />Lists</CardTitle></CardHeader>
+          <CardContent className="max-h-56 space-y-2 overflow-y-auto p-4 pt-2 lg:max-h-none lg:overflow-visible">
             {lists.map((list) => (
               <button key={list.id} onClick={() => setFilter(list.id)} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm ${filter === list.id ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
                 <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: list.color }} />{list.name}</span>
@@ -457,7 +457,7 @@ export default function RemindersPage() {
             {filteredReminders.length === 0 ? (
               <div className="text-center py-12 text-sm text-muted-foreground">No reminders here.</div>
             ) : (
-              <div className="space-y-2">
+              <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
                 {filteredReminders.map((item) => (
                   <div key={item.id} className={`grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
                     <button onClick={() => toggleComplete(item)} className="mt-1 justify-self-start">
@@ -599,7 +599,7 @@ export default function RemindersPage() {
 
 function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
   return (
-    <button onClick={onClick} className={`rounded-lg border border-border p-3 text-left transition-colors sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
+    <button onClick={onClick} className={`min-w-32 rounded-lg border border-border p-3 text-left transition-colors sm:min-w-36 sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
       <div className="flex items-center justify-between">
         <Icon className="w-5 h-5" />
         <span className="text-xl font-semibold">{count}</span>
