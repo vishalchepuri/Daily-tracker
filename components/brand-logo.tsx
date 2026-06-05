@@ -16,7 +16,7 @@ export function BrandLogo({ size = "md", showText = true, className }: BrandLogo
   const currentSize = sizes[size];
 
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
+    <div className={cn("flex min-w-0 items-center gap-2.5", className)}>
       <div
         className={cn(
           "relative flex shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-[#06101d] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.14),0_10px_30px_rgba(34,197,94,0.2)]",
@@ -60,7 +60,7 @@ export function BrandLogo({ size = "md", showText = true, className }: BrandLogo
           <circle cx="32" cy="32" r="4" fill="#FFFFFF" />
         </svg>
       </div>
-      {showText && <span className={cn("font-display font-bold tracking-tight", currentSize.text)}>Dayza</span>}
+      {showText && <span className={cn("min-w-0 whitespace-nowrap font-display font-bold tracking-tight", currentSize.text)}>Dayza</span>}
     </div>
   );
 }

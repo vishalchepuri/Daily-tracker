@@ -94,7 +94,7 @@
   label,
   button,
   a {
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   input,
   textarea,

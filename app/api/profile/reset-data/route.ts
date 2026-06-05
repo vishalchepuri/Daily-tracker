@@ -56,12 +56,14 @@ async function resetFeature(userId: string, feature: ResetFeature): Promise<Reco
   if (feature === "spends") {
     const spends = await prisma.spend.deleteMany({ where: { userId } });
     const moneyLinks = await prisma.moneyLink.deleteMany({ where: { userId } });
+    const bankTransfers = await prisma.bankTransfer.deleteMany({ where: { userId } });
     const financeProfile = await prisma.financeProfile.deleteMany({ where: { userId } });
     const bankAccounts = await prisma.bankAccount.deleteMany({ where: { userId } });
     const creditCards = await prisma.creditCard.deleteMany({ where: { userId } });
     return {
       spends: spends.count,
       moneyLinks: moneyLinks.count,
+      bankTransfers: bankTransfers.count,
       financeProfiles: financeProfile.count,
       bankAccounts: bankAccounts.count,
       creditCards: creditCards.count,

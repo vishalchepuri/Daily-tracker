@@ -336,13 +336,13 @@ export default function YtSummaryPage() {
         <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
           <Card>
             <CardHeader>
-              <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
-                <CardTitle className="flex items-center gap-2">
+                  <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
+                <CardTitle className="flex min-w-0 items-center gap-2">
                   <PlayCircle className="h-5 w-5 text-primary" />
-                  {selectedChannel ? selectedChannel.title : "Latest Subscription Videos"}
+                  <span className="min-w-0 truncate">{selectedChannel ? selectedChannel.title : "Latest Subscription Videos"}</span>
                 </CardTitle>
                 {visibleVideos.length > 0 && (
-                  <div className="flex gap-2 text-xs text-muted-foreground">
+                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                     <Badge variant="secondary">{visibleVideos.filter((video) => video.kind === "video").length} videos</Badge>
                     <Badge variant="outline">{visibleVideos.filter((video) => video.kind === "short").length} shorts</Badge>
                     <Badge variant="outline">By priority score</Badge>
@@ -422,7 +422,7 @@ export default function YtSummaryPage() {
                     <p className="text-sm font-semibold">{selectedVideo.title}</p>
                     {source && <p className="mt-1 text-xs text-muted-foreground">Summary source: {source}</p>}
                   </div>
-                  <div className="whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground">
+                  <div className="whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                     {summary || "No summary yet."}
                   </div>
                   {summary && (
@@ -466,7 +466,7 @@ export default function YtSummaryPage() {
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
-              <div className="whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs leading-relaxed text-muted-foreground max-h-48 overflow-y-auto">
+              <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                 {saved.summary}
               </div>
             </CardContent>

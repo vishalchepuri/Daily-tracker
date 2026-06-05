@@ -599,12 +599,12 @@ export default function RemindersPage() {
 
 function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
   return (
-    <button onClick={onClick} className={`min-w-32 rounded-lg border border-border p-3 text-left transition-colors sm:min-w-36 sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
-      <div className="flex items-center justify-between">
-        <Icon className="w-5 h-5" />
-        <span className="text-xl font-semibold">{count}</span>
+    <button onClick={onClick} className={`min-w-[5.75rem] rounded-lg border border-border p-3 text-left transition-colors sm:min-w-36 sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
+      <div className="flex items-center justify-between gap-2">
+        <Icon className="h-5 w-5 shrink-0" />
+        <span className="shrink-0 text-xl font-semibold">{count}</span>
       </div>
-      <p className="mt-2 text-sm font-medium">{label}</p>
+      <p className="mt-2 text-sm font-medium leading-tight">{label}</p>
     </button>
   );
 }

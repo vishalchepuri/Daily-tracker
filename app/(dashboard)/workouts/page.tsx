@@ -17,13 +17,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal, Youtube } from "lucide-react";
+import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal, Youtube, Pause, Play } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { dayzaFetch } from "@/lib/firebase-session-client";
 
 const PersonalRecordsTab = dynamic(() => import('./_components/personal-records').then(m => ({ default: m.PersonalRecordsTab })), { ssr: false, loading: () => <div className="h-48 bg-muted animate-pulse rounded-lg" /> });
+const ACTIVE_WORKOUT_STORAGE_KEY = "dayza.activeWorkout.v1";
+const ACTIVE_WORKOUT_INACTIVITY_LIMIT_MS = 60 * 60 * 1000;
 
 type RoutineItem = {
   name: string;
@@ -101,8 +103,13 @@ export default function WorkoutsPage() {
   const [activeSet, setActiveSet] = useState({ weight: "", reps: "" });
   const [activeEntries, setActiveEntries] = useState<any[]>([]);
   const [activeSubmissionId, setActiveSubmissionId] = useState("");
+  const [activeLastActivityAt, setActiveLastActivityAt] = useState<number | null>(null);
+  const [activePausedAt, setActivePausedAt] = useState<number | null>(null);
+  const [activePausedMs, setActivePausedMs] = useState(0);
+  const [restoredActiveWorkout, setRestoredActiveWorkout] = useState(false);
   const [loggingSet, setLoggingSet] = useState(false);
   const [finishingWorkout, setFinishingWorkout] = useState(false);
+  const autoSubmittingRef = useRef(false);
   const [replacingProgramExerciseId, setReplacingProgramExerciseId] = useState<string | null>(null);
   const [replacingActiveExercise, setReplacingActiveExercise] = useState(false);
   const [chooseExerciseOpen, setChooseExerciseOpen] = useState(false);
@@ -171,12 +178,70 @@ export default function WorkoutsPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   useEffect(() => {
+    if (restoredActiveWorkout) return;
+    setRestoredActiveWorkout(true);
+    try {
+      const raw = window.localStorage.getItem(ACTIVE_WORKOUT_STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw);
+      if (!saved?.activeWorkout || !saved?.activeStartedAt) return;
+      setActiveWorkout(saved.activeWorkout);
+      setSelectedTemplate(saved.activeWorkout);
+      setActiveStartedAt(saved.activeStartedAt);
+      const savedPausedAt = saved.activePausedAt ?? null;
+      const savedPausedMs = saved.activePausedMs ?? 0;
+      const elapsedUntil = savedPausedAt ?? Date.now();
+      setElapsedSeconds(Math.max(0, Math.floor((elapsedUntil - saved.activeStartedAt - savedPausedMs) / 1000)));
+      setActiveExerciseIndex(saved.activeExerciseIndex ?? 0);
+      setActiveSet(saved.activeSet ?? { weight: "", reps: "" });
+      setActiveEntries(saved.activeEntries ?? []);
+      setActiveSubmissionId(saved.activeSubmissionId || `${saved.activeStartedAt}-${Math.random()}`);
+      setDuration(saved.duration ?? "");
+      setNotes(saved.notes ?? "");
+      setActiveLastActivityAt(saved.activeLastActivityAt ?? saved.activeStartedAt);
+      setActivePausedAt(savedPausedAt);
+      setActivePausedMs(savedPausedMs);
+      toast.info("Restored your active workout.");
+    } catch (error) {
+      console.error("Failed to restore active workout", error);
+      window.localStorage.removeItem(ACTIVE_WORKOUT_STORAGE_KEY);
+    }
+  }, [restoredActiveWorkout]);
+
+  useEffect(() => {
     if (!activeStartedAt) return;
     const interval = window.setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - activeStartedAt) / 1000));
+      const now = activePausedAt ?? Date.now();
+      setElapsedSeconds(Math.max(0, Math.floor((now - activeStartedAt - activePausedMs) / 1000)));
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [activeStartedAt]);
+  }, [activePausedAt, activePausedMs, activeStartedAt]);
+
+  useEffect(() => {
+    if (!restoredActiveWorkout) return;
+    if (!activeWorkout || !activeStartedAt) {
+      window.localStorage.removeItem(ACTIVE_WORKOUT_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(ACTIVE_WORKOUT_STORAGE_KEY, JSON.stringify({
+      activeWorkout,
+      activeStartedAt,
+      activeExerciseIndex,
+      activeSet,
+      activeEntries,
+      activeSubmissionId,
+      activeLastActivityAt: activeLastActivityAt ?? activeStartedAt,
+      activePausedAt,
+      activePausedMs,
+      duration,
+      notes,
+    }));
+  }, [restoredActiveWorkout, activeWorkout, activeStartedAt, activeExerciseIndex, activeSet, activeEntries, activeSubmissionId, activeLastActivityAt, activePausedAt, activePausedMs, duration, notes]);
+
+  const touchActiveWorkout = useCallback(() => {
+    if (!activeWorkout) return;
+    setActiveLastActivityAt(Date.now());
+  }, [activeWorkout]);
 
   const activeExercises = useMemo(() => activeWorkout?.exercises ?? [], [activeWorkout]);
   const currentExercise = activeExercises[activeExerciseIndex];
@@ -208,13 +273,17 @@ export default function WorkoutsPage() {
     : null;
 
   const startWorkout = (template: any) => {
+    const now = Date.now();
     setActiveWorkout(template);
     setSelectedTemplate(template);
-    setActiveStartedAt(Date.now());
+    setActiveStartedAt(now);
     setElapsedSeconds(0);
     setActiveExerciseIndex(0);
     setActiveEntries([]);
     setActiveSubmissionId(crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
+    setActiveLastActivityAt(now);
+    setActivePausedAt(null);
+    setActivePausedMs(0);
     setDuration("");
     setNotes("");
     setActiveSet({
@@ -366,6 +435,7 @@ export default function WorkoutsPage() {
   };
 
   const updateActiveExercise = (nextIndex: number) => {
+    touchActiveWorkout();
     const boundedIndex = Math.max(0, Math.min(nextIndex, activeExercises.length - 1));
     setActiveExerciseIndex(boundedIndex);
     setActiveSet({
@@ -377,6 +447,7 @@ export default function WorkoutsPage() {
   const addActiveSet = () => {
     if (!currentExercise?.exercise?.id) return;
     if (loggingSet) return;
+    touchActiveWorkout();
     setLoggingSet(true);
     const reps = parseInt(activeSet.reps) || 0;
     const nextSetNumber = Math.max(0, ...currentExerciseSets.map((set: any) => set.setNumber ?? 0)) + 1;
@@ -395,6 +466,7 @@ export default function WorkoutsPage() {
   };
 
   const removeActiveSet = (entryIndex: number) => {
+    touchActiveWorkout();
     setActiveEntries((prev) => prev.filter((_, index) => index !== entryIndex));
   };
 
@@ -405,14 +477,34 @@ export default function WorkoutsPage() {
     setActiveEntries([]);
     setActiveExerciseIndex(0);
     setActiveSubmissionId("");
+    setActiveLastActivityAt(null);
+    setActivePausedAt(null);
+    setActivePausedMs(0);
     setNotes("");
     setDuration("");
+    window.localStorage.removeItem(ACTIVE_WORKOUT_STORAGE_KEY);
   };
 
-  const finishActiveWorkout = async () => {
+  const toggleActiveWorkoutPause = () => {
+    if (!activeWorkout) return;
+    const now = Date.now();
+    if (activePausedAt) {
+      setActivePausedMs((prev) => prev + Math.max(0, now - activePausedAt));
+      setActivePausedAt(null);
+      setActiveLastActivityAt(now);
+      toast.success("Workout resumed");
+      return;
+    }
+    setActivePausedAt(now);
+    setActiveLastActivityAt(now);
+    toast.info("Workout paused");
+  };
+
+  const finishActiveWorkout = async (options: { auto?: boolean } = {}) => {
     if (finishingWorkout) return;
-    if (!activeWorkout || activeEntries.length === 0) {
-      toast.error("Log at least one set before finishing");
+    if (!activeWorkout) return;
+    if (activeEntries.length === 0 && !options.auto) {
+      if (!options.auto) toast.error("Log at least one set before finishing");
       return;
     }
     setFinishingWorkout(true);
@@ -433,14 +525,18 @@ export default function WorkoutsPage() {
         toast.error(data?.error ?? "Failed to finish workout");
         return;
       }
-      toast.success(data?.duplicate ? "Workout already saved" : "Workout finished!");
+      toast.success(data?.duplicate ? "Workout already saved" : options.auto ? "Inactive workout auto-saved." : "Workout finished!");
       setActiveWorkout(null);
       setActiveStartedAt(null);
       setActiveEntries([]);
       setActiveExerciseIndex(0);
       setActiveSubmissionId("");
+      setActiveLastActivityAt(null);
+      setActivePausedAt(null);
+      setActivePausedMs(0);
       setNotes("");
       setDuration("");
+      window.localStorage.removeItem(ACTIVE_WORKOUT_STORAGE_KEY);
       loadData();
     } catch {
       toast.error("Failed to finish workout");
@@ -469,6 +565,20 @@ export default function WorkoutsPage() {
       setAddingChoiceExercise(false);
     }
   };
+
+  useEffect(() => {
+    if (!activeWorkout || !activeStartedAt || !activeLastActivityAt) return;
+    if (activePausedAt) return;
+    const interval = window.setInterval(() => {
+      if (autoSubmittingRef.current) return;
+      if (Date.now() - activeLastActivityAt < ACTIVE_WORKOUT_INACTIVITY_LIMIT_MS) return;
+      autoSubmittingRef.current = true;
+      finishActiveWorkout({ auto: true }).finally(() => {
+        autoSubmittingRef.current = false;
+      });
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, [activeWorkout, activePausedAt, activeStartedAt, activeLastActivityAt, activeEntries.length, finishActiveWorkout]);
 
   const openChooseExercise = () => {
     const group = currentExercise?.exercise?.muscleGroup ?? "chest";
@@ -823,22 +933,29 @@ export default function WorkoutsPage() {
 
       {activeWorkout && (
         <FadeIn>
-          <Card className="border-primary/40 bg-primary/5">
+          <Card className="border-primary/40 bg-primary/5" onPointerDown={touchActiveWorkout} onKeyDown={touchActiveWorkout}>
             <CardHeader className="space-y-3">
-              <div className="flex items-start justify-between gap-3">
+              <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <Badge className="mb-2">Workout In Progress</Badge>
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <Badge>{activePausedAt ? "Workout Paused" : "Workout In Progress"}</Badge>
+                    {activePausedAt && <Badge variant="outline">Timer stopped</Badge>}
+                  </div>
                   <CardTitle className="break-words text-xl">{activeWorkout.name}</CardTitle>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {activeExerciseIndex + 1} of {activeExercises.length} exercises
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="grid grid-cols-[1fr_auto] gap-2 sm:flex sm:shrink-0 sm:items-center">
                   <Badge variant="outline" className="font-mono">
                     <Clock className="mr-1 h-3 w-3" />
                     {elapsedLabel}
                   </Badge>
-                  <Button variant="ghost" size="icon" onClick={cancelActiveWorkout} title="Cancel workout">
+                  <Button type="button" variant="outline" size="sm" onClick={toggleActiveWorkoutPause}>
+                    {activePausedAt ? <Play className="mr-2 h-4 w-4" /> : <Pause className="mr-2 h-4 w-4" />}
+                    {activePausedAt ? "Resume" : "Pause"}
+                  </Button>
+                  <Button className="hidden sm:inline-flex" variant="ghost" size="icon" onClick={cancelActiveWorkout} title="Cancel workout">
                     <X className="h-4 w-4" />
                   </Button>
                 </div>
@@ -852,7 +969,7 @@ export default function WorkoutsPage() {
               />
 
               <div className="rounded-lg border border-border bg-card p-4">
-                <div className="flex items-start justify-between gap-3">
+                <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground">Current exercise</p>
                     <div className="mt-1 flex min-w-0 items-start gap-2">
@@ -863,7 +980,7 @@ export default function WorkoutsPage() {
                       Target: {currentExercise?.sets ?? 3} sets x {currentExercise?.reps ?? "8-12"} reps
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:shrink-0 sm:items-center">
                     <Button
                       type="button"
                       variant="outline"
@@ -879,7 +996,7 @@ export default function WorkoutsPage() {
                       <Pencil className="mr-2 h-4 w-4" />
                       Choose
                     </Button>
-                    <Badge variant="secondary">{currentExerciseSets.length} logged</Badge>
+                    <Badge variant="secondary" className="col-span-2 justify-center sm:col-span-1">{currentExerciseSets.length} logged</Badge>
                   </div>
                 </div>
 
@@ -908,7 +1025,10 @@ export default function WorkoutsPage() {
                     <Input
                       type="number"
                       value={activeSet.weight}
-                      onChange={(e) => setActiveSet({ ...activeSet, weight: e.target.value })}
+                      onChange={(e) => {
+                        touchActiveWorkout();
+                        setActiveSet({ ...activeSet, weight: e.target.value });
+                      }}
                       className="mt-1"
                       placeholder="0"
                     />
@@ -918,7 +1038,10 @@ export default function WorkoutsPage() {
                     <Input
                       type="number"
                       value={activeSet.reps}
-                      onChange={(e) => setActiveSet({ ...activeSet, reps: e.target.value })}
+                      onChange={(e) => {
+                        touchActiveWorkout();
+                        setActiveSet({ ...activeSet, reps: e.target.value });
+                      }}
                       className="mt-1"
                     />
                   </div>
@@ -957,7 +1080,10 @@ export default function WorkoutsPage() {
 
               <div>
                 <Label>Workout Notes</Label>
-                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="mt-1" placeholder="How did it feel?" />
+                <Textarea value={notes} onChange={(e) => {
+                  touchActiveWorkout();
+                  setNotes(e.target.value);
+                }} className="mt-1" placeholder="How did it feel?" />
               </div>
 
               <div>
@@ -965,7 +1091,10 @@ export default function WorkoutsPage() {
                 <Input
                   type="number"
                   value={duration}
-                  onChange={(e) => setDuration(e.target.value)}
+                  onChange={(e) => {
+                    touchActiveWorkout();
+                    setDuration(e.target.value);
+                  }}
                   className="mt-1"
                   placeholder={String(elapsedMinutes)}
                 />
@@ -977,10 +1106,16 @@ export default function WorkoutsPage() {
                 empty="Cool down, then stretch the trained muscles pain-free for 30-45 seconds each."
               />
 
-              <Button type="button" onClick={finishActiveWorkout} className="w-full" disabled={activeEntries.length === 0 || finishingWorkout} loading={finishingWorkout}>
-                <CheckCircle2 className="mr-2 h-4 w-4" />
-                Finish Workout ({duration || elapsedMinutes} min)
-              </Button>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                <Button type="button" onClick={() => finishActiveWorkout()} className="w-full" disabled={activeEntries.length === 0 || finishingWorkout} loading={finishingWorkout}>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Finish Workout ({duration || elapsedMinutes} min)
+                </Button>
+                <Button type="button" variant="outline" onClick={cancelActiveWorkout} className="w-full hover:text-destructive sm:w-auto">
+                  <X className="mr-2 h-4 w-4" />
+                  Cancel
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </FadeIn>
@@ -1111,11 +1246,11 @@ export default function WorkoutsPage() {
             <div className="grid max-h-[42rem] grid-cols-1 gap-4 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
               {(templates ?? []).map((t: any) => (
                 <Card key={t?.id} className="hover:shadow-lg transition-shadow">
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{t?.name}</CardTitle>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary">{t?.difficulty ?? "Intermediate"}</Badge>
+                  <CardHeader className="p-3 pb-2 sm:p-6 sm:pb-2">
+                    <div className="grid gap-2 sm:flex sm:items-start sm:justify-between">
+                      <CardTitle className="min-w-0 text-lg leading-tight">{t?.name}</CardTitle>
+                      <div className="flex items-center gap-1 sm:shrink-0">
+                        <Badge variant="secondary" className="max-w-24 truncate capitalize">{t?.difficulty ?? "Intermediate"}</Badge>
                         <Button variant="ghost" size="icon" onClick={() => openTemplateDialog(t)} title="Edit workout day">
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -1127,14 +1262,14 @@ export default function WorkoutsPage() {
                     <p className="text-sm text-muted-foreground">{t?.description}</p>
                     {t?.dayOfWeek && <Badge variant="outline" className="w-fit">{t.dayOfWeek}</Badge>}
                   </CardHeader>
-                  <CardContent>
+                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
                     <div className="mb-4 grid gap-2 sm:grid-cols-2">
                       <RoutinePreview title="Warm-up" items={parseRoutineItems(t?.warmupJson)} fallback="5-10 min light cardio + mobility" />
                       <RoutinePreview title="Stretches" items={parseRoutineItems(t?.stretchesJson)} fallback="Cooldown + target muscle stretches" />
                     </div>
                     <div className="space-y-1 mb-4">
                       {(t?.exercises ?? []).map((we: any) => (
-                        <div key={we?.id} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 py-1 text-sm">
+                        <div key={we?.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 py-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:gap-3">
                           <Button
                             type="button"
                             variant="ghost"
@@ -1147,9 +1282,9 @@ export default function WorkoutsPage() {
                           >
                             <Shuffle className="h-3.5 w-3.5" />
                           </Button>
-                          <span className="min-w-0 break-words">{we?.exercise?.name}</span>
+                          <span className="min-w-0 leading-tight">{we?.exercise?.name}</span>
                           <ExerciseYoutubeLink exerciseName={we?.exercise?.name} className="h-7 w-7" />
-                          <span className="text-muted-foreground font-mono">{we?.sets} × {we?.reps}</span>
+                          <span className="col-span-3 pl-9 font-mono text-xs text-muted-foreground sm:col-span-1 sm:pl-0 sm:text-sm">{we?.sets} x {we?.reps}</span>
                         </div>
                       ))}
                     </div>
@@ -1199,19 +1334,19 @@ export default function WorkoutsPage() {
             {(filteredExercises ?? []).map((ex: any) => (
               <Card key={ex?.id} className="overflow-hidden">
                 <CardContent className="p-4">
-                  <div className="flex items-start justify-between">
+                  <div className="grid gap-2 sm:flex sm:items-start sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex min-w-0 items-start gap-2">
-                        <h4 className="min-w-0 font-medium">{ex?.name}</h4>
+                        <h4 className="min-w-0 font-medium leading-tight">{ex?.name}</h4>
                         <ExerciseYoutubeLink exerciseName={ex?.name} className="h-7 w-7" />
                       </div>
-                      <div className="flex gap-2 mt-1">
+                      <div className="mt-1 flex flex-wrap gap-2">
                         <Badge variant="outline" className="text-xs capitalize">{ex?.muscleGroup}</Badge>
                         {ex?.equipment && <Badge variant="secondary" className="text-xs capitalize">{ex.equipment}</Badge>}
                         {ex?.category && <Badge variant="secondary" className="text-xs capitalize">{ex.category}</Badge>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 sm:shrink-0">
                       <Button variant="ghost" size="icon" onClick={() => openExerciseDialog(ex)} title="Edit exercise">
                         <Pencil className="w-4 h-4" />
                       </Button>

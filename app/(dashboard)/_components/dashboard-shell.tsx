@@ -332,6 +332,10 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
               <p className="text-xs text-muted-foreground truncate">{user?.email ?? ""}</p>
             </div>
           </div>
+          <div className="mb-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+            <Link href="/privacy" className="hover:text-foreground hover:underline">Privacy</Link>
+            <Link href="/terms" className="hover:text-foreground hover:underline">Terms</Link>
+          </div>
           <Button
             variant="ghost"
             size="sm"

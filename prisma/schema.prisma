@@ -25,6 +25,7 @@ model User {
   spends        Spend[]
   financeProfile FinanceProfile?
   bankAccounts   BankAccount[]
+  bankTransfers  BankTransfer[]
   creditCards   CreditCard[]
   moneyLinks    MoneyLink[]
   reminderLists ReminderList[]
@@ -281,6 +282,8 @@ model BankAccount {
   updatedAt   DateTime @updatedAt
   spends      Spend[]
   moneyLinks  MoneyLink[]
+  outgoingTransfers BankTransfer[] @relation("TransferFromAccount")
+  incomingTransfers BankTransfer[] @relation("TransferToAccount")
   @@index([userId, active])
 }
 
@@ -319,6 +322,25 @@ model MoneyLink {
   updatedAt DateTime @updatedAt
   @@index([userId, type, settled])
   @@index([bankAccountId])
+}
+
+model BankTransfer {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fromAccountId String
+  fromAccount   BankAccount @relation("TransferFromAccount", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  toAccountId   String
+  toAccount     BankAccount @relation("TransferToAccount", fields: [toAccountId], references: [id], onDelete: Cascade)
+  amount        Float
+  currency      String   @default("INR")
+  notes         String?
+  date          DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@index([userId, date])
+  @@index([fromAccountId])
+  @@index([toAccountId])
 }
 
 model ReminderList {

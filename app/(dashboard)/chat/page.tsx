@@ -363,14 +363,14 @@ export default function ChatPage() {
   }, [returnTo, router]);
 
   return (
-    <div className="flex h-[calc(100svh_-_9.25rem_-_env(safe-area-inset-bottom))] min-h-[30rem] flex-col sm:h-[calc(100dvh-8rem)]">
+    <div className="flex h-[calc(100svh_-_9.25rem_-_env(safe-area-inset-bottom))] min-h-[30rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
-        <div className="mb-2 flex items-start justify-between gap-2 sm:mb-3">
-          <div>
+        <div className="mb-2 grid gap-2 sm:mb-3 sm:flex sm:items-start sm:justify-between">
+          <div className="min-w-0">
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
             <p className="mt-1 hidden text-sm text-muted-foreground min-[390px]:block">Ask about fitness, food, spends, reminders, and progress</p>
           </div>
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="flex items-center gap-1 sm:shrink-0">
             <Button
               type="button"
               variant="ghost"
@@ -390,8 +390,8 @@ export default function ChatPage() {
               </DialogTrigger>
               <DialogContent className="max-h-[82svh] max-w-md overflow-hidden p-0">
                 <DialogHeader className="border-b border-border p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <DialogTitle className="flex items-center gap-2">
+                  <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+                    <DialogTitle className="flex min-w-0 items-center gap-2">
                       <MessageSquare className="h-5 w-5 text-primary" />
                       Chat History
                     </DialogTitle>
@@ -474,20 +474,20 @@ export default function ChatPage() {
           </div>
         )}
         {lastFailedMessage && !streaming && (
-          <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs">
+          <div className="grid gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs sm:flex sm:items-center sm:justify-between">
             <span className="text-destructive">Last message failed.</span>
-            <Button type="button" size="sm" variant="outline" onClick={retryLastMessage}>
+            <Button type="button" size="sm" variant="outline" onClick={retryLastMessage} className="w-full sm:w-auto">
               Retry
             </Button>
           </div>
         )}
         {streaming && (
-          <div className="flex items-center justify-between gap-3 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+          <div className="grid gap-2 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
               <span className="truncate">{agentStatus || "Dayza is working..."}</span>
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse}>
+            <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse} className="w-full sm:w-auto">
               Stop
             </Button>
           </div>
@@ -497,9 +497,9 @@ export default function ChatPage() {
             <div className="text-center py-12">
               <Bot className="w-12 h-12 text-primary/30 mx-auto mb-3" />
               <p className="text-muted-foreground">Ask me anything about fitness, nutrition, or your workout plan!</p>
-              <div className="flex flex-wrap gap-2 justify-center mt-4">
+              <div className="mt-4 grid gap-2 min-[420px]:grid-cols-2">
                 {["Best exercises for chest?", "How much protein do I need?", "Meal prep ideas for muscle gain", "How to break a plateau?"].map((q: string) => (
-                  <Button key={q} variant="outline" size="sm" onClick={() => { setInput(q); }}>
+                  <Button key={q} variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal text-left leading-snug" onClick={() => { setInput(q); }}>
                     {q}
                   </Button>
                 ))}
@@ -513,7 +513,7 @@ export default function ChatPage() {
                   <Bot className="w-4 h-4 text-primary" />
                 </div>
               )}
-              <div className={`max-w-[86%] overflow-hidden break-words rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap sm:max-w-[80%] sm:px-4 ${
+              <div className={`max-w-[94%] overflow-hidden rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] sm:max-w-[80%] sm:px-4 ${
                 msg?.role === "user"
                   ? "bg-primary text-primary-foreground"
                   : "bg-muted"
@@ -557,7 +557,7 @@ export default function ChatPage() {
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
               <div className="min-w-0 flex-1 text-sm">
                 <p className="font-medium">Image selected</p>
-                <p className="text-muted-foreground">Send food photos or payment screenshots for logging.</p>
+                <p className="hidden text-muted-foreground min-[390px]:block">Send food photos or payment screenshots for logging.</p>
               </div>
               <Button type="button" variant="ghost" size="icon" onClick={() => setImageDataUrl(null)} disabled={streaming}>
                 <X className="h-4 w-4" />

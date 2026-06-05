@@ -17,7 +17,16 @@ export async function GET() {
       where: { userId, active: true },
       orderBy: { createdAt: "desc" },
     });
-    return NextResponse.json({ bankAccounts });
+    const transfers = await prisma.bankTransfer.findMany({
+      where: { userId },
+      include: {
+        fromAccount: { select: { id: true, name: true, bankName: true, last4: true } },
+        toAccount: { select: { id: true, name: true, bankName: true, last4: true } },
+      },
+      orderBy: { date: "desc" },
+      take: 30,
+    });
+    return NextResponse.json({ bankAccounts, transfers });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -66,11 +75,26 @@ export async function PATCH(req: Request) {
       ]);
       if (!fromAccount || fromAccount.userId !== userId || !fromAccount.active) return NextResponse.json({ error: "From account not found" }, { status: 404 });
       if (!toAccount || toAccount.userId !== userId || !toAccount.active) return NextResponse.json({ error: "To account not found" }, { status: 404 });
-      const [fromBankAccount, toBankAccount] = await prisma.$transaction([
+      const [fromBankAccount, toBankAccount, transfer] = await prisma.$transaction([
         prisma.bankAccount.update({ where: { id: fromId }, data: { balance: { decrement: amount } } }),
         prisma.bankAccount.update({ where: { id: toId }, data: { balance: { increment: amount } } }),
+        prisma.bankTransfer.create({
+          data: {
+            userId,
+            fromAccountId: fromId,
+            toAccountId: toId,
+            amount,
+            currency: fromAccount.currency || toAccount.currency || "INR",
+            notes: data.notes || null,
+            date: data.date ? new Date(data.date) : new Date(),
+          },
+          include: {
+            fromAccount: { select: { id: true, name: true, bankName: true, last4: true } },
+            toAccount: { select: { id: true, name: true, bankName: true, last4: true } },
+          },
+        }),
       ]);
-      return NextResponse.json({ fromBankAccount, toBankAccount });
+      return NextResponse.json({ fromBankAccount, toBankAccount, transfer });
     }
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
     const existing = await prisma.bankAccount.findUnique({ where: { id: data.id } });

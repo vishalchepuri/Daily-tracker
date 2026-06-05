@@ -14,15 +14,15 @@ export default async function Home() {
   return (
     <main className="app-viewport overflow-y-auto bg-background text-foreground ios-scroll">
       <section className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-6">
-        <nav className="flex items-center justify-between gap-4">
-          <Link href="/">
-            <BrandLogo />
+        <nav className="flex items-center justify-between gap-3">
+          <Link href="/" className="min-w-0">
+            <BrandLogo className="min-w-0" />
           </Link>
-          <div className="flex items-center gap-2">
-            <Button asChild variant="ghost">
+          <div className="grid shrink-0 grid-cols-2 gap-2">
+            <Button asChild variant="ghost" className="px-3 text-sm whitespace-nowrap">
               <Link href="/login">Sign in</Link>
             </Button>
-            <Button asChild>
+            <Button asChild className="px-3 text-sm whitespace-nowrap">
               <Link href="/signup">Create account</Link>
             </Button>
           </div>
@@ -78,6 +78,26 @@ export default async function Home() {
           <InfoCard title="Privacy-minded by design">
             Public policy pages explain what is collected, why it is used, how AI processing works, and how account deletion works.
           </InfoCard>
+        </div>
+
+        <div className="pb-12">
+          <Card>
+            <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <ShieldCheck className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-semibold">Google API Limited Use</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Dayza uses Google user data only to provide user-requested features, such as Google sign-in, YouTube read-only summaries, and manual Gmail receipt import. Dayza&apos;s use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                  <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>
+                  <Link href="/terms" className="text-primary hover:underline">Terms of Service</Link>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid gap-4 pb-12 lg:grid-cols-[0.9fr_1.1fr]">

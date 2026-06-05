@@ -79,7 +79,7 @@ export default function PrivacyPage() {
         </PolicySection>
 
         <PolicySection title="Contact">
-          For privacy questions, contact the app owner using the support email listed on the Google OAuth consent screen or the account email associated with Dayza.
+          For privacy questions, Google data questions, data deletion requests, or security concerns, contact the Dayza app owner using the support email listed on the Google OAuth consent screen. If you are already signed in, you may also use the in-app issue report form from the Home or Profile pages.
         </PolicySection>
 
         <div className="flex flex-wrap gap-4 border-t border-border pt-6 text-sm">

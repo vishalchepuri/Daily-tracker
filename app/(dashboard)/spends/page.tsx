@@ -123,6 +123,7 @@ export default function SpendsPage() {
   const [form, setForm] = useState(blankForm);
   const [financeProfile, setFinanceProfile] = useState<any>(null);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [bankTransfers, setBankTransfers] = useState<any[]>([]);
   const [creditCards, setCreditCards] = useState<any[]>([]);
   const [moneyLinks, setMoneyLinks] = useState<any[]>([]);
   const [moneyLinksNextOffset, setMoneyLinksNextOffset] = useState(0);
@@ -156,6 +157,7 @@ export default function SpendsPage() {
   const [spendFiltersDialogOpen, setSpendFiltersDialogOpen] = useState(false);
   const [targetDialogOpen, setTargetDialogOpen] = useState(false);
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [transferHistoryDialogOpen, setTransferHistoryDialogOpen] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -189,7 +191,10 @@ export default function SpendsPage() {
 
     fetch("/api/bank-accounts")
       .then((res) => res.ok ? res.json() : { bankAccounts: [] })
-      .then((data) => setBankAccounts(data?.bankAccounts ?? []))
+      .then((data) => {
+        setBankAccounts(data?.bankAccounts ?? []);
+        setBankTransfers(data?.transfers ?? []);
+      })
       .catch(console.error);
 
     fetch("/api/credit-cards")
@@ -939,6 +944,8 @@ export default function SpendsPage() {
               fromBankAccountId: moneyLinkForm.bankAccountId,
               toBankAccountId: moneyLinkForm.toBankAccountId,
               amount: moneyLinkForm.amount,
+              notes: [moneyLinkForm.person.trim(), moneyLinkForm.purpose.trim(), notes].filter(Boolean).join(" - "),
+              date: moneyLinkForm.date,
             }),
           })
         : isSpendEntry
@@ -1445,41 +1452,66 @@ export default function SpendsPage() {
                   <p className="font-mono text-lg font-semibold">{formatInr(financeTotals.totalBankBalance)}</p>
                   <p className="text-xs text-muted-foreground">{bankAccounts.length} accounts</p>
                 </div>
-                <Dialog open={bankAccountsDialogOpen} onOpenChange={setBankAccountsDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button type="button" size="sm" variant="outline"><Landmark className="mr-2 h-4 w-4" />Accounts</Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
-                    <DialogHeader><DialogTitle>Bank Accounts</DialogTitle></DialogHeader>
-                    {bankAccounts.length === 0 ? (
-                      <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
-                    ) : (
-                      <div className="grid gap-3">
-                        {bankAccounts.map((account) => {
-                          const institutionName = account.bankName || account.name;
-                          return (
-                            <div key={account.id} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold">{account.name}</p>
-                                  <p className="text-xs capitalize text-muted-foreground">{account.bankName || "Bank account"}{account.last4 ? ` - ${account.last4}` : ""}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Dialog open={bankAccountsDialogOpen} onOpenChange={setBankAccountsDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" size="sm" variant="outline"><Landmark className="mr-2 h-4 w-4" />Accounts</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+                      <DialogHeader><DialogTitle>Bank Accounts</DialogTitle></DialogHeader>
+                      {bankAccounts.length === 0 ? (
+                        <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank accounts added yet.</div>
+                      ) : (
+                        <div className="grid gap-3">
+                          {bankAccounts.map((account) => {
+                            const institutionName = account.bankName || account.name;
+                            return (
+                              <div key={account.id} style={getBankThemeStyle(institutionName)} className="min-w-0 rounded-xl border p-4 text-left shadow-sm">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <p className="truncate font-semibold">{account.name}</p>
+                                    <p className="text-xs capitalize text-muted-foreground">{account.bankName || "Bank account"}{account.last4 ? ` - ${account.last4}` : ""}</p>
+                                  </div>
+                                  <div className="flex shrink-0 gap-1">
+                                    <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
+                                    <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                  </div>
                                 </div>
-                                <div className="flex shrink-0 gap-1">
-                                  <Button variant="ghost" size="icon" onClick={() => openEditBank(account)} title="Edit bank account"><Pencil className="h-4 w-4" /></Button>
-                                  <Button variant="ghost" size="icon" onClick={() => deleteBank(account.id)} title="Delete bank account"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                                  <div><span className="text-muted-foreground">Balance</span><p className="font-mono">{formatInr(account.balance ?? 0)}</p></div>
+                                  <div><span className="text-muted-foreground">Type</span><p className="capitalize">{account.accountType}</p></div>
                                 </div>
                               </div>
-                              <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                                <div><span className="text-muted-foreground">Balance</span><p className="font-mono">{formatInr(account.balance ?? 0)}</p></div>
-                                <div><span className="text-muted-foreground">Type</span><p className="capitalize">{account.accountType}</p></div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </DialogContent>
+                  </Dialog>
+                  <Dialog open={transferHistoryDialogOpen} onOpenChange={setTransferHistoryDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button type="button" size="sm" variant="outline"><RefreshCw className="mr-2 h-4 w-4" />Transfers</Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+                      <DialogHeader><DialogTitle>Transfer History</DialogTitle></DialogHeader>
+                      <div className="space-y-3">
+                        {bankTransfers.length === 0 ? (
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No bank transfers recorded yet.</div>
+                        ) : bankTransfers.map((transfer) => (
+                          <div key={transfer.id} className="rounded-xl bg-muted/40 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate font-medium">{transfer.fromAccount?.name ?? "From account"} to {transfer.toAccount?.name ?? "To account"}</p>
+                                <p className="text-xs text-muted-foreground">{new Date(transfer.date).toLocaleDateString()} {transfer.notes ? `- ${transfer.notes}` : ""}</p>
                               </div>
+                              <p className="shrink-0 font-mono text-sm">{formatInr(transfer.amount ?? 0)}</p>
                             </div>
-                          );
-                        })}
+                          </div>
+                        ))}
                       </div>
-                    )}
-                  </DialogContent>
-                </Dialog>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </div>
             </div>
 
