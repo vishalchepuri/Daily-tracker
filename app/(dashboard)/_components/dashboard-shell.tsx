@@ -410,7 +410,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       )}
 
       {pathname !== "/chat" && (
-      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 hidden max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4 lg:flex">
+      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
         {coachOpen && (
           <div className="hidden max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl ios-scroll lg:block">
             <div className="mb-3 flex items-start gap-3">
