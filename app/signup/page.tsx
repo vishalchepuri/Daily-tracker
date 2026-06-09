@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Mail, Lock, User, Eye, EyeOff, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { FirebaseError } from "firebase/app";
-import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from "firebase/auth";
+import { createUserWithEmailAndPassword, getRedirectResult, updateProfile, sendEmailVerification } from "firebase/auth";
 import { getGoogleAuthErrorMessage, signInWithGoogle } from "@/lib/firebase-google-auth";
 
 function getSignupErrorMessage(error: unknown) {
@@ -81,6 +81,55 @@ export default function SignupPage() {
   const emailError = email.trim() ? validateEmail(email) : null;
   const passwordError = password ? validatePassword(password) : null;
 
+  const startAppSessionFromGoogle = async (idToken: string) => {
+    const res = await fetch("/api/auth/firebase-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify({ idToken }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      toast.error(data?.error ?? "Could not start app session");
+      return false;
+    }
+    router.replace("/dashboard");
+    router.refresh();
+    return true;
+  };
+
+  useEffect(() => {
+    if (!hasFirebaseClientConfig()) return;
+    let cancelled = false;
+
+    const completeRedirectSignup = async () => {
+      try {
+        const credential = await getRedirectResult(getFirebaseClientAuth());
+        if (!credential || cancelled) return;
+        const acceptedGoogleTerms = window.sessionStorage.getItem("dayza_google_terms_accepted") === "true";
+        if (!acceptedGoogleTerms) {
+          toast.error("Please accept the Terms of Service and Privacy Policy.");
+          return;
+        }
+        setGoogleLoading(true);
+        window.sessionStorage.removeItem("dayza_google_terms_accepted");
+        const firebaseIdToken = await credential.user.getIdToken();
+        const started = await startAppSessionFromGoogle(firebaseIdToken);
+        if (!started && !cancelled) setGoogleLoading(false);
+      } catch (error: any) {
+        if (cancelled) return;
+        window.sessionStorage.removeItem("dayza_google_terms_accepted");
+        toast.error(getGoogleAuthErrorMessage(error));
+        setGoogleLoading(false);
+      }
+    };
+
+    completeRedirectSignup();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const handleGoogleSignup = async () => {
     if (!acceptedTerms) {
       toast.error("Please accept the Terms of Service and Privacy Policy.");
@@ -96,20 +145,8 @@ export default function SignupPage() {
       }
       window.sessionStorage.removeItem("dayza_google_terms_accepted");
       const firebaseIdToken = await credential.user.getIdToken();
-      const res = await fetch("/api/auth/firebase-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ idToken: firebaseIdToken }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        toast.error(data?.error ?? "Could not start app session");
-        setGoogleLoading(false);
-        return;
-      }
-      router.replace("/dashboard");
-      router.refresh();
+      const started = await startAppSessionFromGoogle(firebaseIdToken);
+      if (!started) setGoogleLoading(false);
     } catch (error: any) {
       window.sessionStorage.removeItem("dayza_google_terms_accepted");
       toast.error(getGoogleAuthErrorMessage(error));
