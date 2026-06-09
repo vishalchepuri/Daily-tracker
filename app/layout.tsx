@@ -2,6 +2,7 @@ import './globals.css'
 import { Providers } from './providers'
 import { Toaster } from '@/components/ui/sonner'
 import { ChunkLoadErrorHandler } from '@/components/chunk-load-error-handler'
+import { PwaRegister } from '@/components/pwa-register'
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,7 @@ export default function RootLayout({
           {children}
           <Toaster />
           <ChunkLoadErrorHandler />
+          <PwaRegister />
         </Providers>
       </body>
     </html>

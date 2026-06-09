@@ -102,9 +102,11 @@ export default function ChatPage() {
   }, [historyLoaded, historyOpen, loadSessions]);
   useEffect(() => {
     const from = new URLSearchParams(window.location.search).get("from");
+    const prompt = new URLSearchParams(window.location.search).get("prompt");
     if (from?.startsWith("/") && !from.startsWith("//") && !from.startsWith("/chat")) {
       setReturnTo(from);
     }
+    if (prompt) setInput(prompt);
   }, []);
 
   useEffect(() => {
@@ -363,7 +365,7 @@ export default function ChatPage() {
   }, [returnTo, router]);
 
   return (
-    <div className="flex h-[calc(100svh_-_9.25rem_-_env(safe-area-inset-bottom))] min-h-[30rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
+    <div className="flex h-[calc(100svh_-_7rem_-_env(safe-area-inset-bottom))] min-h-[32rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
         <div className="mb-2 grid gap-2 sm:mb-3 sm:flex sm:items-start sm:justify-between">
           <div className="min-w-0">
@@ -465,8 +467,8 @@ export default function ChatPage() {
         </div>
       </FadeIn>
 
-      <div className="flex min-h-0 flex-1">
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
         {loading && (
           <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -492,7 +494,7 @@ export default function ChatPage() {
             </Button>
           </div>
         )}
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 sm:space-y-4 sm:p-4">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 pb-4 sm:space-y-4 sm:p-4">
           {(messages ?? [])?.length === 0 && (
             <div className="text-center py-12">
               <Bot className="w-12 h-12 text-primary/30 mx-auto mb-3" />
@@ -551,7 +553,7 @@ export default function ChatPage() {
           ))}
         </div>
 
-        <div className="border-t border-border bg-card p-2.5 sm:p-4">
+        <div className="shrink-0 border-t border-border bg-card p-2.5 sm:p-4">
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />

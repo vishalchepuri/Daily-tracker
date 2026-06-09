@@ -25,6 +25,12 @@ interface DashboardData {
   workoutCount: number;
   streak: number;
   todayFoodLogs: any[];
+  todayReminders?: any[];
+  todayMedicationLogs?: any[];
+  micronutrients?: {
+    enabled: boolean;
+    low: Array<{ key: string; label: string; unit: string; value: number; target: number; remaining: number; percent: number }>;
+  };
   weeklyTrends?: { date: string; fullDate: string; calories: number; protein: number; water: number }[];
 }
 
@@ -264,6 +270,38 @@ export default function DashboardPage() {
     { label: "Carbs", value: Math.round(macros.carbs), target: targetCarbs, unit: "g", color: "text-green-500", bgColor: "bg-green-500/10", icon: Zap },
     { label: "Fat", value: Math.round(macros.fat), target: targetFat, unit: "g", color: "text-purple-500", bgColor: "bg-purple-500/10", icon: Target },
   ];
+  const waterTotal = waterLogs.reduce((sum, log: any) => sum + (log.amountMl ?? 0), 0);
+  const checkInPrompt = encodeURIComponent("Daily check-in: ask me what I completed today for workout, food, water, medication, reminders, and spending. Then help me log only what I confirm.");
+  const todayActions = [
+    {
+      label: data?.todayWorkout ? "Workout logged" : "Log workout",
+      detail: data?.todayWorkout?.templateName ?? "No workout yet",
+      href: "/workouts",
+      done: Boolean(data?.todayWorkout),
+      icon: Dumbbell,
+    },
+    {
+      label: (data?.todayFoodLogs ?? []).length > 0 ? "Meals started" : "Log food",
+      detail: `${(data?.todayFoodLogs ?? []).length} meals today`,
+      href: "/nutrition",
+      done: (data?.todayFoodLogs ?? []).length > 0,
+      icon: Utensils,
+    },
+    {
+      label: waterTotal >= targetWaterMl ? "Water complete" : "Drink water",
+      detail: `${Math.round(waterTotal)} / ${Math.round(targetWaterMl)} ml`,
+      href: "/dashboard",
+      done: targetWaterMl > 0 && waterTotal >= targetWaterMl,
+      icon: Droplets,
+    },
+    {
+      label: "Smart check-in",
+      detail: "Let Dayza ask and log quickly",
+      href: `/chat?from=/dashboard&prompt=${checkInPrompt}`,
+      done: false,
+      icon: Sparkles,
+    },
+  ];
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -306,6 +344,64 @@ export default function DashboardPage() {
           </Card>
         </FadeIn>
       )}
+
+      <FadeIn delay={0.12}>
+        <Card className="overflow-hidden border-primary/20 bg-primary/5">
+          <CardHeader className="p-4 pb-2 sm:p-5 sm:pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CheckCircle2 className="h-5 w-5 text-primary" />
+              Today
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 p-4 pt-2 sm:p-5 sm:pt-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {todayActions.map((action) => (
+                <Link key={action.label} href={action.href} className="group rounded-lg border border-border bg-background/70 p-3 transition hover:border-primary/40 hover:bg-background">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <action.icon className={`h-4 w-4 ${action.done ? "text-primary" : "text-muted-foreground"}`} />
+                    {action.done ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-primary" />}
+                  </div>
+                  <p className="text-sm font-semibold leading-tight">{action.label}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{action.detail}</p>
+                </Link>
+              ))}
+            </div>
+            {data?.micronutrients?.enabled ? (
+              (data?.micronutrients?.low ?? []).length > 0 ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                  <div className="flex items-start gap-2">
+                    <Target className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Vitamin & mineral watch</p>
+                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                        {(data?.micronutrients?.low ?? []).map((item) => (
+                          <Link key={item.key} href="/nutrition" className="rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-medium">{item.label}</span>
+                              <span className="font-mono text-amber-500">{Math.max(0, item.percent)}%</span>
+                            </div>
+                            <p className="mt-1 text-muted-foreground">
+                              Need {Math.round(item.remaining * 10) / 10}{item.unit} more today
+                            </p>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-sm text-primary">
+                  Vitamin and mineral targets look healthy today.
+                </div>
+              )
+            ) : (
+              <Link href="/profile" className="block rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground">
+                Enable vitamin & mineral tracking in Profile for deeper nutrition warnings.
+              </Link>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
 
       {/* Stats Row */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">

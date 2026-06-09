@@ -316,8 +316,11 @@ export default function WorkoutsPage() {
       toast.error(data?.error ?? "No replacement found");
       return null;
     }
-    if (data?.source === "ai") {
+    if (data?.source === "ai" || data?.source === "ai_pending" || data?.source === "pending") {
       setExercises((prev) => [...prev, data.exercise].sort((a, b) => String(a.name).localeCompare(String(b.name))));
+    }
+    if (data?.source === "ai_pending") {
+      toast.info(`${data.exercise.name} was generated and sent to admin for approval.`);
     }
     return data.exercise;
   };
