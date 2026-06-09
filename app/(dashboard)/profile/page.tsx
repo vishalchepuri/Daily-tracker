@@ -21,6 +21,7 @@ import {
   AlertTriangle,
   Banknote,
   Bot,
+  Brain,
   Calculator,
   CalendarCheck,
   CheckCircle2,
@@ -82,12 +83,13 @@ export default function ProfilePage() {
   const [form, setForm] = useState({
     firstName: "", lastName: "",
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
-    healthLimitations: "", foodAllergies: "", workoutFocusMuscles: "", workoutFocusGoal: "", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
+    healthLimitations: "", foodAllergies: "", workoutFocusMuscles: "", workoutFocusGoal: "", workoutTrainingStyle: "indian_gym", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
+    micronutrientTrackingEnabled: false,
   });
 
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab && ["profile", "review", "report", "progress", "activity", "integrations", "danger"].includes(tab)) {
+    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "integrations", "danger"].includes(tab)) {
       setActiveTab(tab);
     }
     fetch("/api/profile").then(r => r.json()).then(d => {
@@ -108,10 +110,12 @@ export default function ProfilePage() {
           foodAllergies: p?.foodAllergies ?? "",
           workoutFocusMuscles: p?.workoutFocusMuscles ?? "",
           workoutFocusGoal: p?.workoutFocusGoal ?? "",
+          workoutTrainingStyle: p?.workoutTrainingStyle ?? "indian_gym",
           goalOutcome: p?.goalOutcome ?? "",
           goalTimelineDays: String(p?.goalTimelineDays ?? ""),
           goalTargetWeight: String(p?.goalTargetWeight ?? ""),
           linkedinUrl: p?.linkedinUrl ?? "",
+          micronutrientTrackingEnabled: Boolean(p?.micronutrientTrackingEnabled),
         });
       } else if (u) {
         setForm((current) => ({ ...current, firstName: u?.firstName ?? "", lastName: u?.lastName ?? "" }));
@@ -167,10 +171,12 @@ export default function ProfilePage() {
           foodAllergies: form.foodAllergies || "None",
           workoutFocusMuscles: form.workoutFocusMuscles || null,
           workoutFocusGoal: form.workoutFocusGoal || null,
+          workoutTrainingStyle: form.workoutTrainingStyle || "indian_gym",
           goalOutcome: form.goalOutcome || null,
           goalTimelineDays: parseInt(form.goalTimelineDays) || null,
           goalTargetWeight: parseFloat(form.goalTargetWeight) || null,
           linkedinUrl: form.linkedinUrl || null,
+          micronutrientTrackingEnabled: form.micronutrientTrackingEnabled,
         }),
       });
       const data = await res.json();
@@ -183,6 +189,23 @@ export default function ProfilePage() {
       }
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }
+  };
+
+  const clearMemoryFields = (fields: Array<keyof typeof form>) => {
+    setForm((current) => {
+      const next = { ...current };
+      for (const field of fields) {
+        if (field === "micronutrientTrackingEnabled") {
+          next[field] = false;
+        } else if (field === "workoutTrainingStyle") {
+          next[field] = "indian_gym";
+        } else {
+          next[field] = "";
+        }
+      }
+      return next;
+    });
+    toast.info("Memory cleared locally. Save to apply.");
   };
 
   const handleDeleteAccount = async () => {
@@ -357,6 +380,7 @@ export default function ProfilePage() {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex h-auto w-full gap-2 overflow-x-auto bg-transparent p-0">
           <TabsTrigger value="profile" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Profile</TabsTrigger>
+          <TabsTrigger value="memory" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Memory</TabsTrigger>
           <TabsTrigger value="review" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Review</TabsTrigger>
           <TabsTrigger value="report" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Report</TabsTrigger>
           <TabsTrigger value="progress" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Progress</TabsTrigger>
@@ -426,6 +450,18 @@ export default function ProfilePage() {
               <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
               <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
               <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
+              <div>
+                <Label>Workout style</Label>
+                <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
+                    <SelectItem value="machines">Machines</SelectItem>
+                    <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
+                    <SelectItem value="mixed">Mixed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <div>
@@ -441,6 +477,19 @@ export default function ProfilePage() {
                 <Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" placeholder="Optional" />
               </div>
             </div>
+            <label className="flex items-start gap-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+              <Checkbox
+                checked={form.micronutrientTrackingEnabled}
+                onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
+                className="mt-0.5"
+              />
+              <span>
+                <span className="block text-sm font-medium">Track vitamins & minerals</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  Adds detailed micronutrient targets and food-photo estimates in Nutrition.
+                </span>
+              </span>
+            </label>
             <Button onClick={handleSave} loading={saving}><Save className="w-4 h-4 mr-2" />Save Profile</Button>
           </CardContent>
         </Card>
@@ -480,6 +529,89 @@ export default function ProfilePage() {
           </Card>
         </FadeIn>
       )}
+        </TabsContent>
+
+        <TabsContent value="memory" className="space-y-6">
+          <FadeIn delay={0.1}>
+            <Card>
+              <CardHeader>
+                <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Brain className="h-5 w-5 text-primary" />
+                      Dayza Memory
+                    </CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">Review and edit what Dayza uses to personalize plans and answers.</p>
+                  </div>
+                  <Button onClick={handleSave} loading={saving}>
+                    <Save className="h-4 w-4" />
+                    Save Memory
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="grid gap-4 lg:grid-cols-2">
+                <MemorySection
+                  title="Safety & Food"
+                  description="Used before workout and diet plans."
+                  onClear={() => clearMemoryFields(["healthLimitations", "foodAllergies"])}
+                >
+                  <div><Label>Health limitations</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
+                  <div><Label>Food allergies</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
+                </MemorySection>
+
+                <MemorySection
+                  title="Workout Preferences"
+                  description="Used for strict workout planning and exercise choices."
+                  onClear={() => clearMemoryFields(["workoutFocusMuscles", "workoutFocusGoal", "workoutTrainingStyle"])}
+                >
+                  <div><Label>Focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
+                  <div><Label>Focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
+                  <div>
+                    <Label>Training style</Label>
+                    <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
+                        <SelectItem value="machines">Machines</SelectItem>
+                        <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
+                        <SelectItem value="mixed">Mixed</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </MemorySection>
+
+                <MemorySection
+                  title="Goal Timeline"
+                  description="Used to keep plans realistic and paced."
+                  onClear={() => clearMemoryFields(["goalOutcome", "goalTimelineDays", "goalTargetWeight"])}
+                >
+                  <div><Label>Goal outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div><Label>Timeline days</Label><Input type="number" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" /></div>
+                    <div><Label>Target weight</Label><Input type="number" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" /></div>
+                  </div>
+                </MemorySection>
+
+                <MemorySection
+                  title="Nutrition Depth"
+                  description="Used for vitamins, minerals, and detailed food-photo estimates."
+                  onClear={() => clearMemoryFields(["micronutrientTrackingEnabled"])}
+                >
+                  <label className="flex items-start gap-3 rounded-lg border border-border bg-background/70 p-3">
+                    <Checkbox
+                      checked={form.micronutrientTrackingEnabled}
+                      onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <span className="block text-sm font-medium">Track vitamins & minerals</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">Dayza can estimate and track micronutrients from food logs and food photos.</span>
+                    </span>
+                  </label>
+                </MemorySection>
+              </CardContent>
+            </Card>
+          </FadeIn>
         </TabsContent>
 
         <TabsContent value="review" className="space-y-6">
@@ -832,6 +964,34 @@ function ActivityMetric({ label, value }: { label: string; value: number }) {
     <div className="rounded-lg border border-border bg-muted/25 p-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 font-mono text-xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function MemorySection({
+  title,
+  description,
+  children,
+  onClear,
+}: {
+  title: string;
+  description: string;
+  children: React.ReactNode;
+  onClear: () => void;
+}) {
+  return (
+    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="font-semibold">{title}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+          <Trash2 className="h-4 w-4" />
+          Clear
+        </Button>
+      </div>
+      <div className="space-y-3">{children}</div>
     </div>
   );
 }

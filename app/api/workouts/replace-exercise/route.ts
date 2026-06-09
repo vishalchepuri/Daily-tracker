@@ -32,7 +32,7 @@ async function createAiExercise(muscleGroup: string, currentExercise: any, usedN
         {
           role: "system",
           content:
-            "You are a strength coach expanding an exercise library. Return ONLY JSON for one practical replacement exercise. Use only these muscle groups: chest, back, shoulders, legs, arms, core. Avoid duplicating the current exercise or used exercise names. Choose common gym/bodyweight/cable/machine/dumbbell/barbell movements.",
+            "You are a strength coach expanding an exercise library for Indian commercial gyms and Cult-style gyms. Return ONLY JSON for one practical replacement exercise. Use only these muscle groups: chest, back, shoulders, legs, arms, core. Avoid duplicating the current exercise or used exercise names. Prefer common dumbbell, barbell, bench, cable, lat pulldown, seated row, leg press, leg extension, leg curl, treadmill/cycle/cross-trainer, bodyweight, and mat movements. Avoid uncommon/specialty machines such as hack squat, pendulum squat, reverse pec deck, machine lateral raise, glute drive machine, assisted dip/pull-up machine, landmine setup, and specialty T-bar row unless the current exercise already proves that equipment is available.",
         },
         {
           role: "user",
@@ -42,7 +42,7 @@ Muscle group: ${muscleGroup}
 Already used names: ${usedNames.join(", ")}
 
 Return:
-{"name":"Exercise Name","muscleGroup":"${muscleGroup}","equipment":"machine","category":"compound","description":"short description","formTips":"short coaching cue"}`,
+{"name":"Exercise Name","muscleGroup":"${muscleGroup}","equipment":"dumbbell","category":"compound","description":"short description","formTips":"short coaching cue"}`,
         },
       ],
     }),

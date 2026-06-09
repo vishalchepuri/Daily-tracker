@@ -2,6 +2,12 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  deleteFoodMicronutrientLog,
+  listFoodMicronutrientLogsForFoodLogs,
+  upsertFoodMicronutrientLog,
+} from "@/lib/firestore-app-data";
+import { parseMicronutrientMap } from "@/lib/micronutrients";
 
 export async function GET(req: Request) {
   try {
@@ -20,7 +26,14 @@ export async function GET(req: Request) {
       where: { userId, date: { gte: startOfDay, lte: endOfDay } },
       orderBy: { createdAt: "asc" },
     });
-    return NextResponse.json({ logs });
+    const micronutrientsByFoodLogId = await listFoodMicronutrientLogsForFoodLogs(userId, logs.map((log) => log.id));
+    return NextResponse.json({
+      logs: logs.map((log) => ({
+        ...log,
+        micronutrients: micronutrientsByFoodLogId[log.id]?.micronutrients ?? {},
+        micronutrientSource: micronutrientsByFoodLogId[log.id]?.source ?? null,
+      })),
+    });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
   }
@@ -33,8 +46,30 @@ export async function POST(req: Request) {
     const userId = user.id;
     const data = await req.json();
     const log = await prisma.foodLog.create({
-      data: { userId, ...data, date: data.date ? new Date(data.date) : new Date() },
+      data: {
+        userId,
+        foodName: data.foodName,
+        mealType: data.mealType,
+        servingSize: data.servingSize || null,
+        calories: data.calories ?? 0,
+        protein: data.protein ?? 0,
+        carbs: data.carbs ?? 0,
+        fat: data.fat ?? 0,
+        fiber: data.fiber ?? 0,
+        date: data.date ? new Date(data.date) : new Date(),
+      },
     });
+    const micronutrients = parseMicronutrientMap(data.micronutrients);
+    if (Object.keys(micronutrients).length > 0) {
+      await upsertFoodMicronutrientLog(userId, log.id, {
+        foodName: log.foodName,
+        mealType: log.mealType,
+        servingSize: log.servingSize,
+        date: log.date,
+        micronutrients,
+        source: data.micronutrientSource ?? "manual",
+      });
+    }
     return NextResponse.json({ log });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
@@ -66,6 +101,19 @@ export async function PATCH(req: Request) {
         date: data.date ? new Date(data.date) : undefined,
       },
     });
+    const micronutrients = parseMicronutrientMap(data.micronutrients);
+    if (Object.keys(micronutrients).length > 0) {
+      await upsertFoodMicronutrientLog(userId, log.id, {
+        foodName: log.foodName,
+        mealType: log.mealType,
+        servingSize: log.servingSize,
+        date: log.date,
+        micronutrients,
+        source: data.micronutrientSource ?? "manual",
+      });
+    } else if ("micronutrients" in data) {
+      await deleteFoodMicronutrientLog(userId, log.id);
+    }
     return NextResponse.json({ log });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
@@ -82,6 +130,7 @@ export async function DELETE(req: Request) {
     const existing = await prisma.foodLog.findFirst({ where: { id, userId: (user as any)?.id } });
     if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
     await prisma.foodLog.delete({ where: { id: existing.id } });
+    await deleteFoodMicronutrientLog((user as any).id, existing.id);
     return NextResponse.json({ success: true });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

@@ -50,6 +50,49 @@ export async function deleteProgressPhotoMetadata(userId: string) {
   return docs.length;
 }
 
+export async function upsertFoodMicronutrientLog(userId: string, foodLogId: string, input: any) {
+  const ref = userDoc(userId).collection("foodMicronutrients").doc(foodLogId);
+  await ref.set(
+    {
+      userId,
+      foodLogId,
+      foodName: input.foodName ?? null,
+      mealType: input.mealType ?? null,
+      servingSize: input.servingSize ?? null,
+      date: input.date ? Timestamp.fromDate(new Date(input.date)) : FieldValue.serverTimestamp(),
+      micronutrients: input.micronutrients ?? {},
+      source: input.source ?? "manual",
+      confidence: input.confidence ?? null,
+      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: input.createdAt ?? FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
+
+export async function listFoodMicronutrientLogsForFoodLogs(userId: string, foodLogIds: string[]) {
+  if (foodLogIds.length === 0) return {};
+  const entries = await Promise.all(
+    foodLogIds.map(async (foodLogId) => {
+      const snap = await userDoc(userId).collection("foodMicronutrients").doc(foodLogId).get();
+      return snap.exists ? [foodLogId, docData(snap)] : null;
+    })
+  );
+  return Object.fromEntries(entries.filter(Boolean) as Array<[string, any]>);
+}
+
+export async function deleteFoodMicronutrientLog(userId: string, foodLogId: string) {
+  await userDoc(userId).collection("foodMicronutrients").doc(foodLogId).delete();
+  return 1;
+}
+
+export async function deleteFoodMicronutrientLogsForUser(userId: string) {
+  const docs = await userDoc(userId).collection("foodMicronutrients").listDocuments();
+  await Promise.all(docs.map((doc) => doc.delete()));
+  return docs.length;
+}
+
 export async function createIssueReport(input: {
   userId?: string | null;
   name?: string | null;

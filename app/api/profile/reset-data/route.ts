@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCurrentUser } from "@/lib/auth";
 import { deleteAllFirestoreChatData } from "@/lib/firestore-chat";
-import { deleteIssueReportsForUser, deleteProgressPhotoMetadata, deleteReviewItemsForUser } from "@/lib/firestore-app-data";
+import { deleteFoodMicronutrientLogsForUser, deleteIssueReportsForUser, deleteProgressPhotoMetadata, deleteReviewItemsForUser } from "@/lib/firestore-app-data";
 
 const RESET_FEATURES = [
   "profile",
@@ -37,7 +37,8 @@ async function resetFeature(userId: string, feature: ResetFeature): Promise<Reco
     const foodLogs = await prisma.foodLog.deleteMany({ where: { userId } });
     const waterLogs = await prisma.waterLog.deleteMany({ where: { userId } });
     const dietPlans = await prisma.dietPlan.deleteMany({ where: { userId } });
-    return { foodLogs: foodLogs.count, waterLogs: waterLogs.count, dietPlans: dietPlans.count };
+    const micronutrientLogs = await deleteFoodMicronutrientLogsForUser(userId);
+    return { foodLogs: foodLogs.count, waterLogs: waterLogs.count, dietPlans: dietPlans.count, micronutrientLogs };
   }
 
   if (feature === "workouts") {

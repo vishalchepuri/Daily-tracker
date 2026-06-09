@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { mergeWithDefaultMicronutrientTargets, parseMicronutrientMap } from "@/lib/micronutrients";
 
 function numberOrNull(value: unknown) {
   const parsed = Number(value);
@@ -14,6 +15,15 @@ export async function PATCH(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const data = await req.json();
+    const micronutrientData: Record<string, any> = {};
+    if ("micronutrientTrackingEnabled" in data) {
+      micronutrientData.micronutrientTrackingEnabled = Boolean(data.micronutrientTrackingEnabled);
+    }
+    if ("micronutrientTargets" in data || "micronutrientTargetsJson" in data) {
+      micronutrientData.micronutrientTargetsJson = JSON.stringify(
+        parseMicronutrientMap(mergeWithDefaultMicronutrientTargets(data.micronutrientTargets ?? data.micronutrientTargetsJson))
+      );
+    }
 
     const profile = await prisma.userProfile.upsert({
       where: { userId },
@@ -24,6 +34,7 @@ export async function PATCH(req: Request) {
         targetFat: numberOrNull(data.targetFat),
         targetFiber: numberOrNull(data.targetFiber),
         targetWaterMl: numberOrNull(data.targetWaterMl),
+        ...micronutrientData,
       },
       create: {
         userId,
@@ -33,6 +44,7 @@ export async function PATCH(req: Request) {
         targetFat: numberOrNull(data.targetFat),
         targetFiber: numberOrNull(data.targetFiber),
         targetWaterMl: numberOrNull(data.targetWaterMl),
+        ...micronutrientData,
       },
     });
 

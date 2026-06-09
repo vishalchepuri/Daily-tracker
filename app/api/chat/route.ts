@@ -10,8 +10,9 @@ import {
   pruneFirestoreChatRetention,
 } from "@/lib/firestore-chat";
 import { uploadBuffer } from "@/lib/s3";
-import { createReviewItemOnce } from "@/lib/firestore-app-data";
+import { createReviewItemOnce, listFoodMicronutrientLogsForFoodLogs, upsertFoodMicronutrientLog } from "@/lib/firestore-app-data";
 import { BODY_PART_REFERENCE, GYM_TRAINING_SPLITS } from "@/lib/workout-split-library";
+import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
 
 const CHAT_IMAGE_RETENTION_DAYS = 5;
 const CHAT_SESSION_RETENTION_LIMIT = 7;
@@ -52,6 +53,7 @@ type AgentAction =
       carbs?: number;
       fat?: number;
       fiber?: number;
+      micronutrients?: Record<string, number>;
       date?: string;
     }
   | {
@@ -150,6 +152,10 @@ type AgentAction =
       type: "update_workout_focus";
       workoutFocusMuscles: string;
       workoutFocusGoal?: "fat_loss" | "muscle_gain" | "core" | "cardio" | "strength" | "general";
+    }
+  | {
+      type: "update_workout_training_style";
+      workoutTrainingStyle: "indian_gym" | "machines" | "mat_bodyweight" | "mixed";
     }
   | {
       type: "update_goal_timeline";
@@ -611,6 +617,11 @@ function lastAssistantAskedJointStrengthening(messages: any[]) {
   return Boolean(lastAssistant?.content && /joint strengthening exercises/i.test(lastAssistant.content));
 }
 
+function lastAssistantAskedWorkoutTrainingStyle(messages: any[]) {
+  const lastAssistant = [...messages].reverse().find((message) => message.role === "assistant");
+  return Boolean(lastAssistant?.content && /machine-based training, mat\/bodyweight training, or a mix/i.test(lastAssistant.content));
+}
+
 function conversationHasJointStrengtheningChoice(messages: any[]) {
   return messages.some((message) => /joint strengthening exercises/i.test(message.content ?? ""));
 }
@@ -663,6 +674,43 @@ async function saveWorkoutFocus(userId: string, workoutFocusMuscles: string, wor
     UPDATE "UserProfile"
     SET "workoutFocusMuscles" = ${value},
         "workoutFocusGoal" = ${goal},
+        "updatedAt" = NOW()
+    WHERE "userId" = ${userId}
+  `;
+  return prisma.userProfile.findUnique({ where: { userId } });
+}
+
+function normalizeWorkoutTrainingStyle(text: unknown) {
+  if (typeof text !== "string") return null;
+  const lower = text.toLowerCase();
+  if (/\b(mat|bodyweight|body weight|floor|home workout|without equipment|no equipment)\b/.test(lower)) return "mat_bodyweight";
+  if (/\b(mix|mixed|both|combination|hybrid)\b/.test(lower)) return "mixed";
+  if (/\b(machine|machines)\b/.test(lower)) return "machines";
+  if (/\b(cult|cultfit|cult fit|indian gym|gym)\b/.test(lower)) return "indian_gym";
+  return null;
+}
+
+async function saveWorkoutTrainingStyle(userId: string, workoutTrainingStyle: string) {
+  const style = ["indian_gym", "machines", "mat_bodyweight", "mixed"].includes(workoutTrainingStyle)
+    ? workoutTrainingStyle
+    : "indian_gym";
+  try {
+    return await prisma.userProfile.upsert({
+      where: { userId },
+      update: { workoutTrainingStyle: style },
+      create: { userId, workoutTrainingStyle: style },
+    });
+  } catch (error) {
+    console.error("Prisma workout training style upsert failed, falling back to raw SQL", error);
+  }
+  await prisma.userProfile.upsert({
+    where: { userId },
+    update: {},
+    create: { userId },
+  });
+  await prisma.$executeRaw`
+    UPDATE "UserProfile"
+    SET "workoutTrainingStyle" = ${style},
         "updatedAt" = NOW()
     WHERE "userId" = ${userId}
   `;
@@ -904,7 +952,7 @@ async function executeAgentAction(
   userId: string,
   action: AgentAction,
   rawMessage = "",
-  options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null } = {}
+  options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null; micronutrientTrackingEnabled?: boolean } = {}
 ) {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
@@ -930,6 +978,17 @@ async function executeAgentAction(
         date: action.date ? new Date(action.date) : new Date(),
       },
     });
+    const micronutrients = parseMicronutrientMap(action.micronutrients);
+    if (options.micronutrientTrackingEnabled && Object.keys(micronutrients).length > 0) {
+      await upsertFoodMicronutrientLog(userId, log.id, {
+        foodName: log.foodName,
+        mealType: log.mealType,
+        servingSize: log.servingSize,
+        date: log.date,
+        micronutrients,
+        source: "agent_estimate",
+      });
+    }
     return { type: action.type, label: `Logged ${log.foodName}`, id: log.id };
   }
 
@@ -1183,6 +1242,17 @@ async function executeAgentAction(
     const workoutFocusGoal = action.workoutFocusGoal?.trim() || undefined;
     await saveWorkoutFocus(userId, workoutFocusMuscles, workoutFocusGoal);
     return { type: action.type, label: `Saved workout focus: ${workoutFocusMuscles}`, id: userId };
+  }
+
+  if (action.type === "update_workout_training_style") {
+    await saveWorkoutTrainingStyle(userId, action.workoutTrainingStyle);
+    const labels: Record<string, string> = {
+      indian_gym: "Indian/Cult-style gym",
+      machines: "machine-based training",
+      mat_bodyweight: "mat/bodyweight training",
+      mixed: "mixed training",
+    };
+    return { type: action.type, label: `Saved workout style: ${labels[action.workoutTrainingStyle] ?? "Indian/Cult-style gym"}`, id: userId };
   }
 
   if (action.type === "update_goal_timeline") {
@@ -1510,12 +1580,16 @@ export async function POST(req: Request) {
     const workoutPlanningActive =
       isWorkoutPlanIntent(message) ||
       lastAssistantAskedWorkoutFocus(recentChat) ||
+      lastAssistantAskedWorkoutTrainingStyle(recentChat) ||
       lastAssistantAskedWorkoutSafety(recentChat) ||
       lastAssistantAskedJointStrengthening(recentChat);
     const workoutFocusOverride: { workoutFocusMuscles?: string; workoutFocusGoal?: string } = {};
+    const workoutTrainingStyleOverride: { workoutTrainingStyle?: string } = {};
     const workoutGoal = inferWorkoutFocusGoal(message, profile?.goal);
     const recentWorkoutFocusMuscles = findRecentWorkoutFocusMuscles(recentChat);
     const knownWorkoutFocusMuscles = profile?.workoutFocusMuscles || recentWorkoutFocusMuscles;
+    const messageWorkoutTrainingStyle = normalizeWorkoutTrainingStyle(message);
+    const knownWorkoutTrainingStyle = profile?.workoutTrainingStyle || messageWorkoutTrainingStyle || (profile?.gender === "female" ? null : "indian_gym");
     const answeredWorkoutSafety = lastAssistantAskedWorkoutSafety(recentChat);
     const healthLimitationsOverride = answeredWorkoutSafety && typeof message === "string" && message.trim()
       ? message.trim()
@@ -1546,6 +1620,28 @@ export async function POST(req: Request) {
       workoutFocusOverride.workoutFocusGoal = workoutGoal;
     }
 
+    if (lastAssistantAskedWorkoutTrainingStyle(recentChat)) {
+      const workoutTrainingStyle = normalizeWorkoutTrainingStyle(message);
+      if (!workoutTrainingStyle) {
+        const content = "Do you prefer machine-based training, mat/bodyweight training, or a mix?";
+        await saveAssistantMessageBestEffort(userId, chatSession.id, content);
+        await pruneChatRetention(userId);
+        return streamSingleMessage(content);
+      }
+      await saveWorkoutTrainingStyle(userId, workoutTrainingStyle);
+      workoutTrainingStyleOverride.workoutTrainingStyle = workoutTrainingStyle;
+    } else if (workoutPlanningActive && profile?.gender === "female" && !knownWorkoutTrainingStyle) {
+      const content = "Do you prefer machine-based training, mat/bodyweight training, or a mix?";
+      await saveAssistantMessageBestEffort(userId, chatSession.id, content);
+      await pruneChatRetention(userId);
+      return streamSingleMessage(content);
+    } else if (workoutPlanningActive && messageWorkoutTrainingStyle) {
+      await saveWorkoutTrainingStyle(userId, messageWorkoutTrainingStyle);
+      workoutTrainingStyleOverride.workoutTrainingStyle = messageWorkoutTrainingStyle;
+    } else if (workoutPlanningActive && !profile?.workoutTrainingStyle && profile?.gender !== "female") {
+      workoutTrainingStyleOverride.workoutTrainingStyle = "indian_gym";
+    }
+
     if (workoutPlanningActive && !hasKnownAnswer(profile?.healthLimitations) && !healthLimitationsOverride) {
       const content =
         "Before I build a workout plan, do you have any joint pain, previous fractures, surgeries, injuries, or medical restrictions? If none, say “none.”";
@@ -1558,6 +1654,19 @@ export async function POST(req: Request) {
       healthLimitationsOverride ??
       profile?.healthLimitations ??
       (conversationMentionsJointSensitive(recentChat) ? "joint pain mentioned in chat" : undefined);
+    const micronutrientLogsByFoodLogId = await listFoodMicronutrientLogsForFoodLogs(userId, todayFoodLogs.map((log) => log.id));
+    const todayFoodLogsWithMicronutrients = todayFoodLogs.map((log) => ({
+      ...log,
+      micronutrients: micronutrientLogsByFoodLogId[log.id]?.micronutrients ?? {},
+    }));
+    const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson);
+    const micronutrientTotals = sumMicronutrients(todayFoodLogsWithMicronutrients.map((log: any) => log.micronutrients));
+    const micronutrientContext = {
+      enabled: Boolean(profile?.micronutrientTrackingEnabled),
+      nutrients: MICRONUTRIENTS,
+      targets: micronutrientTargets,
+      todayTotals: micronutrientTotals,
+    };
     if (
       workoutPlanningActive &&
       isJointSensitive(currentOrSavedLimitations) &&
@@ -1603,6 +1712,7 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
 - update_workout_focus: save workout focus muscles/body areas and the normalized workout goal after the user answers the workout focus question.
+- update_workout_training_style: save preferred workout style after the user chooses Indian/Cult-style gym, machines, mat/bodyweight, or mixed.
 - update_goal_timeline: save the user's desired goal outcome, timeline in days, and optional target weight only after they explicitly ask to save/update the profile goal or confirm/proceed with creating the plan.
 - create_workout_template: create a workout day after the user confirms a draft plan. You may use exerciseName for missing exercises; the app will create them first. Include warmups and stretches for every workout day.
 - remove_exercise_from_template: remove an exercise from an existing workout day/template.
@@ -1637,13 +1747,14 @@ Rules:
   - For impossible requests like "lose 10kg in 3 weeks", reject the unsafe timeline and suggest a safer timeline based on profile.weight when available.
 - Workout plan safety flow:
   1. For every workout plan, fat loss, muscle gain, core, cardio, or strength request, the user must provide target muscles/body focus before drafting. If the app already asked and the user answered, save it with update_workout_focus.
-  2. If user asks for a workout plan and profile.healthLimitations is missing, ask whether they have joint pain, previous fractures, surgeries, injuries, or medical restrictions. Do not draft yet.
-  3. When they answer, save it with update_profile_safety.
-  4. If goal timeline is missing, ask the timeline question before plan days.
-  5. Ask how many days they prefer: 3, 4, 5, 6, or custom.
-  6. Draft only a short weekly split with the realistic timeline and saved workoutFocusMuscles/workoutFocusGoal. Ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
-  7. If they request changes, update the draft and ask for confirmation again.
-  8. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
+  2. If profile.gender is female and profile.workoutTrainingStyle is missing, ask whether they prefer machine-based training, mat/bodyweight training, or a mix. Save the answer with update_workout_training_style.
+  3. If user asks for a workout plan and profile.healthLimitations is missing, ask whether they have joint pain, previous fractures, surgeries, injuries, or medical restrictions. Do not draft yet.
+  4. When they answer, save it with update_profile_safety.
+  5. If goal timeline is missing, ask the timeline question before plan days.
+  6. Ask how many days they prefer: 3, 4, 5, 6, or custom.
+  7. Draft only a short weekly split with the realistic timeline, saved workoutFocusMuscles/workoutFocusGoal, and profile.workoutTrainingStyle. Ask for confirmation. Do not create workout templates until they say proceed/confirm/create/save/looks good.
+  8. If they request changes, update the draft and ask for confirmation again.
+  9. After confirmation, create workout templates with exercises for each non-rest day. Create missing exercises first by using exerciseName in create_workout_template.
 - Strict workout focus rules:
   - Treat profile.workoutFocusMuscles as mandatory priority for plan structure, exercise selection, warmups, and template muscleGroups.
   - profile.workoutFocusMuscles is ordered by the user's priority. Preserve that order when choosing split days and exercise volume.
@@ -1660,6 +1771,9 @@ Rules:
   - If profile.gender is male, bias defaults toward upper-body strength/hypertrophy and balanced posterior-chain work, unless the saved focus says otherwise.
   - If profile.gender is other or unspecified, use balanced defaults and ask clarifying preference questions when needed.
   - Never let gender override the user's saved focus muscles. User focus always wins.
+  - Default missing profile.workoutTrainingStyle to indian_gym for male, other, or unspecified users.
+  - If the user says they go to Cult, Cult Fit, or an Indian gym, use indian_gym or mixed and avoid uncommon/specialty machines.
+  - For female fat-loss/body-shaping requests with mat_bodyweight or mixed style, include low-impact cardio, core, glutes, thighs, mobility, and simple dumbbell/cable work where useful.
   - Fat loss plans must include conditioning/cardio and calorie-burning structure while still training the selected focus areas hard.
   - Muscle gain plans must prioritize hypertrophy volume and progressive overload while staying recoverable.
   - Core/cardio plans must still honor selected focus muscles and include appropriate core/cardio blocks.
@@ -1681,8 +1795,11 @@ Rules:
   - For chest/shoulders/arms/back priority, rotate emphasis across days instead of training every upper-body muscle with multiple exercises on the same day.
   - Every selected workoutFocusMuscles area must appear directly in the weekly split unless healthLimitations make it unsafe; if unsafe, explain the safer substitution.
   - For fat loss focus areas, combine direct strength exercises for those areas with cardio/conditioning instead of pretending fat can be reduced only from one body part.
-  - Keep exercises simple, effective, and easy to perform with common gym equipment.
-  - Prefer reliable basics over novelty: machine presses, dumbbell presses, rows, pulldowns, lateral raises, curls, pushdowns, leg press, Romanian deadlift, hip thrust, leg curl, calf raise, planks, cable woodchops.
+  - Keep exercises simple, effective, and easy to perform with equipment common in Indian commercial gyms and Cult-style gyms.
+  - Prefer reliable India-friendly basics: dumbbell press, barbell press, dumbbell row, cable row, lat pulldown, seated cable row, cable fly, rope pushdown, dumbbell curls, leg press, leg extension, leg curl, goblet squat, Romanian deadlift, hip thrust/glute bridge, calf raises, planks, dead bugs, bicycle crunches, mountain climbers, treadmill, cycle, cross trainer, and mat/bodyweight drills.
+  - Avoid uncommon/specialty machines unless the user explicitly says they have them: hack squat, pendulum squat, reverse pec deck, machine lateral raise, glute drive machine, assisted dip/pull-up machine, landmine setup, specialty T-bar row machine.
+  - If a machine may not be available, include a practical fallback in the exercise name or notes, such as "Leg Press or Goblet Squat", "Seated Cable Row or One-Arm Dumbbell Row", or "Leg Curl or Stability-Ball Hamstring Curl".
+  - For mat_bodyweight style, do not create machine exercises. Use bodyweight, mat, bands when mentioned, light dumbbells when useful, and low-impact cardio.
   - Avoid overcomplicating with too many advanced or high-skill movements unless the user specifically asks.
   - Sets/reps should be practical: mostly 2-3 sets of 8-12 reps, isolation 10-15 reps, core 30-60 seconds or 10-15 reps. Use 4 sets only for one top priority compound on that day.
   - With joint pain, reduce total volume first. Prefer moderate effort, controlled tempo, pain-free range, and no forced reps.
@@ -1733,6 +1850,9 @@ ${JSON.stringify({
 - A food image by itself counts as a request to identify and log the food if the food and approximate portion are clear.
 - If the image has multiple possible foods, unclear portion size, hidden ingredients, or low confidence, ask for quantity/serving details instead of logging.
 - If you log food from an image, mention that calories/macros are estimates from the photo.
+- If profile.micronutrientTrackingEnabled is true, include reasonable micronutrient estimates in create_food_log.micronutrients for visible foods. Use only keys from context.micronutrients.nutrients.
+- For micronutrient-enabled users, mention useful highlights in the response, such as "this orange gives about X mg vitamin C" and how much remains versus context.micronutrients.targets/context.micronutrients.todayTotals.
+- If micronutrient tracking is disabled and the user asks for vitamin/mineral tracking, tell them to enable "Track vitamins & minerals" in Profile first.
 - A payment, receipt, bank, UPI, card, or wallet screenshot counts as a request to log a spend only if merchant/payee and amount are clear.
 - For spend screenshots, use create_spend_log when merchant/payee and amount are clear. Use INR for Indian rupees, USD only when dollars are visible or implied.
 - If the merchant/payee is visibly truncated or partial, still log it with the visible partial name instead of asking. Add a note like "Merchant name appears partial from bank SMS." Use category "Other" when category is uncertain.
@@ -1767,7 +1887,7 @@ ${JSON.stringify({
 
 Available action examples:
 {"type":"create_exercise","name":"Chest Press","muscleGroup":"chest","equipment":"machine","category":"compound","description":"Machine chest pressing movement for chest, shoulders, and triceps.","formTips":"Keep shoulder blades back, press smoothly, and avoid locking elbows hard."}
-{"type":"create_food_log","foodName":"Chicken breast","mealType":"lunch","servingSize":"200g","calories":330,"protein":62,"carbs":0,"fat":7,"fiber":0}
+{"type":"create_food_log","foodName":"Orange","mealType":"snack","servingSize":"1 medium","calories":62,"protein":1.2,"carbs":15.4,"fat":0.2,"fiber":3.1,"micronutrients":{"vitaminC":70,"potassium":237,"folate":40,"calcium":52}}
 {"type":"create_progress_entry","weight":80.5,"notes":"Felt strong today"}
 {"type":"create_spend_log","merchant":"Swiggy","amount":420,"currency":"INR","category":"Food","notes":"Logged from payment screenshot."}
 {"type":"create_spend_log","merchant":"Amazon","amount":1499,"currency":"INR","category":"Shopping","creditCardName":"HDFC Regalia","notes":"Logged on credit card."}
@@ -1783,6 +1903,7 @@ Available action examples:
 {"type":"update_wellness_targets","targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetLiftVolume":25000,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
 {"type":"update_workout_focus","workoutFocusMuscles":"core,legs","workoutFocusGoal":"fat_loss"}
+{"type":"update_workout_training_style","workoutTrainingStyle":"mixed"}
 {"type":"update_goal_timeline","goalOutcome":"muscle gain","goalTimelineDays":56,"goalTargetWeight":55,"reason":"User confirmed saving/creating the plan with visible muscle gain in 8 weeks."}
 {"type":"create_workout_template","name":"Monday - Chest & Triceps","dayOfWeek":"Monday","muscleGroups":"chest,arms","warmups":[{"name":"Light cardio","duration":"5-7 min","notes":"Easy treadmill, bike, or cross-trainer"},{"name":"Shoulder and elbow mobility","duration":"3-5 min","notes":"Arm circles, band pull-aparts, light pushdowns"}],"stretches":[{"name":"Chest doorway stretch","duration":"30-45 sec each side","notes":"Pain-free range only"},{"name":"Triceps and shoulder stretch","duration":"30 sec each","notes":"No elbow pinching"}],"exercises":[{"exerciseName":"Barbell Bench Press","muscleGroup":"chest","sets":4,"reps":"6-8"},{"exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}]}
 {"type":"remove_exercise_from_template","templateName":"Monday - Chest","exerciseName":"Skull Crushers"}
@@ -1793,11 +1914,12 @@ Available action examples:
 {"type":"delete_diet_plan","planName":"Muscle Gain Diet"}`;
 
     const profileContext = profile
-      ? { ...profile, ...workoutFocusOverride, ...(healthLimitationsOverride ? { healthLimitations: healthLimitationsOverride } : {}) }
-      : { ...workoutFocusOverride, ...(healthLimitationsOverride ? { healthLimitations: healthLimitationsOverride } : {}) };
+      ? { ...profile, ...workoutFocusOverride, ...workoutTrainingStyleOverride, ...(healthLimitationsOverride ? { healthLimitations: healthLimitationsOverride } : {}) }
+      : { ...workoutFocusOverride, ...workoutTrainingStyleOverride, ...(healthLimitationsOverride ? { healthLimitations: healthLimitationsOverride } : {}) };
     const context = {
       profile: profileContext,
-      todayFoodLogs,
+      todayFoodLogs: todayFoodLogsWithMicronutrients,
+      micronutrients: micronutrientContext,
       recentWorkouts,
       recentProgress,
       exercises,
@@ -1889,6 +2011,7 @@ Available action examples:
         healthLimitations: context.profile?.healthLimitations,
         userWantsJointStrengthening: context.userWantsJointStrengthening,
         workoutFocusMuscles: context.profile?.workoutFocusMuscles,
+        micronutrientTrackingEnabled: context.micronutrients.enabled,
       });
       if (result) actionResults.push(result);
     }

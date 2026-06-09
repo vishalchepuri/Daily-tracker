@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { mergeWithDefaultMicronutrientTargets, parseMicronutrientMap } from "@/lib/micronutrients";
 
 function profileErrorResponse(error: any, fallback: string) {
   const message = error?.message ?? fallback;
@@ -27,11 +28,12 @@ async function getProfileWithRawPlanningFields(userId: string) {
   const rows = await prisma.$queryRaw<Array<{
     workoutFocusMuscles: string | null;
     workoutFocusGoal: string | null;
+    workoutTrainingStyle: string | null;
     goalOutcome: string | null;
     goalTimelineDays: number | null;
     goalTargetWeight: number | null;
   }>>`
-    SELECT "workoutFocusMuscles", "workoutFocusGoal", "goalOutcome", "goalTimelineDays", "goalTargetWeight"
+    SELECT "workoutFocusMuscles", "workoutFocusGoal", "workoutTrainingStyle", "goalOutcome", "goalTimelineDays", "goalTargetWeight"
     FROM "UserProfile"
     WHERE "userId" = ${userId}
     LIMIT 1
@@ -51,6 +53,7 @@ async function ensureProfileRow(userId: string) {
 async function saveRawPlanningFields(userId: string, data: {
   workoutFocusMuscles?: string | null;
   workoutFocusGoal?: string | null;
+  workoutTrainingStyle?: string | null;
   goalOutcome?: string | null;
   goalTimelineDays?: number | null;
   goalTargetWeight?: number | null;
@@ -67,6 +70,13 @@ async function saveRawPlanningFields(userId: string, data: {
     await prisma.$executeRaw`
       UPDATE "UserProfile"
       SET "workoutFocusGoal" = ${data.workoutFocusGoal ?? null}, "updatedAt" = NOW()
+      WHERE "userId" = ${userId}
+    `;
+  }
+  if ("workoutTrainingStyle" in data) {
+    await prisma.$executeRaw`
+      UPDATE "UserProfile"
+      SET "workoutTrainingStyle" = ${data.workoutTrainingStyle ?? "indian_gym"}, "updatedAt" = NOW()
       WHERE "userId" = ${userId}
     `;
   }
@@ -130,6 +140,11 @@ export async function POST(req: Request) {
         ? data.workoutFocusGoal.trim()
         : null;
     }
+    if ("workoutTrainingStyle" in data) {
+      workoutFocusData.workoutTrainingStyle = typeof data.workoutTrainingStyle === "string" && data.workoutTrainingStyle.trim()
+        ? data.workoutTrainingStyle.trim()
+        : "indian_gym";
+    }
     const timelineData: Record<string, string | number | null> = {};
     if ("goalOutcome" in data) {
       timelineData.goalOutcome = typeof data.goalOutcome === "string" && data.goalOutcome.trim() ? data.goalOutcome.trim() : null;
@@ -173,10 +188,19 @@ export async function POST(req: Request) {
 
     await saveRawPlanningFields(userId, { ...workoutFocusData, ...timelineData });
 
+    const micronutrientData: Record<string, any> = {};
+    if ("micronutrientTrackingEnabled" in data) {
+      micronutrientData.micronutrientTrackingEnabled = Boolean(data.micronutrientTrackingEnabled);
+    }
+    if ("micronutrientTargets" in data || "micronutrientTargetsJson" in data) {
+      const targets = mergeWithDefaultMicronutrientTargets(data.micronutrientTargets ?? data.micronutrientTargetsJson);
+      micronutrientData.micronutrientTargetsJson = JSON.stringify(parseMicronutrientMap(targets));
+    }
+
     const profileResult = await prisma.userProfile.upsert({
       where: { userId },
-      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
-      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...connectionData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      update: { age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...connectionData, ...micronutrientData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
+      create: { userId, age, weight, height, gender, activityLevel, goal, healthLimitations, foodAllergies, ...connectionData, ...micronutrientData, tdee, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetWaterMl },
     });
     const updatedUser = "firstName" in data || "lastName" in data
       ? await prisma.user.update({

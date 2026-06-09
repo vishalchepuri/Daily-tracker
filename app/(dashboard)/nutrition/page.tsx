@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck } from "lucide-react";
+import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck, Sparkles } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
+import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
 
 const mealSuggestions = [
   { name: "Grilled Chicken Breast", calories: 165, protein: 31, carbs: 0, fat: 3.6, serving: "100g" },
@@ -28,6 +29,14 @@ const mealSuggestions = [
   { name: "Cottage Cheese", calories: 163, protein: 28, carbs: 6, fat: 2.3, serving: "1 cup" },
   { name: "Lean Ground Turkey", calories: 170, protein: 21, carbs: 0, fat: 9, serving: "100g" },
 ];
+
+function numericMicronutrientPayload(values: Record<string, string>) {
+  return Object.fromEntries(
+    Object.entries(values)
+      .map(([key, value]) => [key, parseFloat(value) || 0] as const)
+      .filter((entry) => entry[1] > 0)
+  );
+}
 
 export default function NutritionPage() {
   const [foodLogs, setFoodLogs] = useState<any[]>([]);
@@ -47,6 +56,7 @@ export default function NutritionPage() {
   const [waterAmount, setWaterAmount] = useState("250");
   const [form, setForm] = useState({
     foodName: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "", fiber: "", servingSize: "",
+    micronutrients: {} as Record<string, string>,
   });
   const [targetForm, setTargetForm] = useState({
     targetCalories: "",
@@ -55,6 +65,7 @@ export default function NutritionPage() {
     targetFat: "",
     targetFiber: "",
     targetWaterMl: "",
+    micronutrients: {} as Record<string, string>,
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [dietForm, setDietForm] = useState({
@@ -89,6 +100,9 @@ export default function NutritionPage() {
           targetFat: String(profileData?.profile?.targetFat ?? 70),
           targetFiber: String(profileData?.profile?.targetFiber ?? 30),
           targetWaterMl: String(profileData?.profile?.targetWaterMl ?? 3000),
+          micronutrients: Object.fromEntries(
+            Object.entries(mergeWithDefaultMicronutrientTargets(profileData?.profile?.micronutrientTargetsJson)).map(([key, value]) => [key, String(value ?? "")])
+          ),
         });
       })
       .catch(console.error);
@@ -111,7 +125,7 @@ export default function NutritionPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const resetFoodForm = () => {
-    setForm({ foodName: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "", fiber: "", servingSize: "" });
+    setForm({ foodName: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "", fiber: "", servingSize: "", micronutrients: {} });
     setEditingFoodId(null);
     setSearchTerm("");
   };
@@ -168,6 +182,7 @@ export default function NutritionPage() {
       fat: String(log?.fat ?? 0),
       fiber: String(log?.fiber ?? 0),
       servingSize: log?.servingSize ?? "",
+      micronutrients: Object.fromEntries(Object.entries(parseMicronutrientMap(log?.micronutrients)).map(([key, value]) => [key, String(value ?? "")])),
     });
     setSearchTerm("");
     setDialogOpen(true);
@@ -189,6 +204,7 @@ export default function NutritionPage() {
           fat: parseFloat(form.fat) || 0,
           fiber: parseFloat(form.fiber) || 0,
           servingSize: form.servingSize || null,
+          micronutrients: numericMicronutrientPayload(form.micronutrients),
           date: selectedDate,
         }),
       });
@@ -342,6 +358,7 @@ export default function NutritionPage() {
           targetFat: parseFloat(targetForm.targetFat) || null,
           targetFiber: parseFloat(targetForm.targetFiber) || null,
           targetWaterMl: parseFloat(targetForm.targetWaterMl) || null,
+          micronutrientTargets: numericMicronutrientPayload(targetForm.micronutrients),
         }),
       });
       if (!res.ok) {
@@ -405,6 +422,7 @@ export default function NutritionPage() {
       fat: String(s?.fat ?? 0),
       fiber: String(s?.fiber ?? 0),
       servingSize: s?.serving ?? "",
+      micronutrients: Object.fromEntries(Object.entries(parseMicronutrientMap(s?.micronutrients)).map(([key, value]) => [key, String(value ?? "")])),
     });
     setSearchTerm("");
   };
@@ -456,6 +474,9 @@ export default function NutritionPage() {
   const targetFiber = profile?.targetFiber ?? 30;
   const waterTotal = (waterLogs ?? []).reduce((sum: number, log: any) => sum + (log?.amountMl ?? 0), 0);
   const targetWater = profile?.targetWaterMl ?? 3000;
+  const micronutrientTrackingEnabled = Boolean(profile?.micronutrientTrackingEnabled);
+  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson);
+  const micronutrientTotals = sumMicronutrients((foodLogs ?? []).map((log: any) => log?.micronutrients));
   const remaining = {
     calories: Math.max(0, targetCal - totals.calories),
     protein: Math.max(0, targetProtein - totals.protein),
@@ -520,6 +541,30 @@ export default function NutritionPage() {
                 <div><Label>Fiber (g)</Label><Input type="number" value={targetForm.targetFiber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTargetForm({ ...targetForm, targetFiber: e.target.value })} className="mt-1" /></div>
                 <div><Label>Water (ml)</Label><Input type="number" value={targetForm.targetWaterMl} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTargetForm({ ...targetForm, targetWaterMl: e.target.value })} className="mt-1" /></div>
               </div>
+              {micronutrientTrackingEnabled && (
+                <div className="mt-4 space-y-3">
+                  <div>
+                    <p className="text-sm font-medium">Vitamin & mineral targets</p>
+                    <p className="text-xs text-muted-foreground">These detailed targets are used for daily remaining amounts and agent food-photo estimates.</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    {MICRONUTRIENTS.map((item) => (
+                      <div key={item.key}>
+                        <Label>{item.label} ({item.unit})</Label>
+                        <Input
+                          type="number"
+                          value={targetForm.micronutrients[item.key] ?? ""}
+                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTargetForm({
+                            ...targetForm,
+                            micronutrients: { ...targetForm.micronutrients, [item.key]: e.target.value },
+                          })}
+                          className="mt-1"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <Button onClick={handleSaveTargets} className="w-full mt-4">Save Targets</Button>
             </DialogContent>
           </Dialog>
@@ -604,6 +649,30 @@ export default function NutritionPage() {
                   <div><Label>Fat (g)</Label><Input type="number" value={form.fat} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, fat: e.target.value })} className="mt-1" /></div>
                   <div><Label>Fiber (g)</Label><Input type="number" value={form.fiber} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, fiber: e.target.value })} className="mt-1" /></div>
                 </div>
+                {micronutrientTrackingEnabled && (
+                  <div className="space-y-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-orange-400" />
+                      <p className="text-sm font-medium">Vitamins & minerals</p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {MICRONUTRIENTS.slice(0, 8).map((item) => (
+                        <div key={item.key}>
+                          <Label>{item.label} ({item.unit})</Label>
+                          <Input
+                            type="number"
+                            value={form.micronutrients[item.key] ?? ""}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({
+                              ...form,
+                              micronutrients: { ...form.micronutrients, [item.key]: e.target.value },
+                            })}
+                            className="mt-1"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <Button onClick={handleSaveFood} className="w-full">{editingFoodId ? "Update Food" : "Add Food"}</Button>
               </div>
             </DialogContent>
@@ -699,6 +768,41 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
+      {micronutrientTrackingEnabled && (
+        <FadeIn delay={0.12}>
+          <Card className="border-orange-500/20 bg-orange-500/5">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Sparkles className="h-5 w-5 text-orange-400" />
+                Vitamins & Minerals
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {MICRONUTRIENTS.map((item) => {
+                  const value = micronutrientTotals[item.key] ?? 0;
+                  const target = micronutrientTargets[item.key] ?? item.target;
+                  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
+                  const left = Math.max(0, target - value);
+                  return (
+                    <div key={item.key} className="rounded-lg bg-background/70 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{item.label}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{Math.round(left * 10) / 10} {item.unit} left</span>
+                      </div>
+                      <Progress value={pct} className="h-2" />
+                      <p className="mt-2 font-mono text-xs text-muted-foreground">
+                        {Math.round(value * 10) / 10} / {target} {item.unit}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       <FadeIn delay={0.15}>
         <Card>
           <CardHeader>
@@ -791,6 +895,15 @@ export default function NutritionPage() {
                             <span className="rounded-md bg-background/70 px-2 py-1">F {Math.round(log?.fat ?? 0)}g</span>
                             <span className="rounded-md bg-background/70 px-2 py-1">Fi {Math.round(log?.fiber ?? 0)}g</span>
                           </div>
+                          {micronutrientTrackingEnabled && Object.keys(parseMicronutrientMap(log?.micronutrients)).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {MICRONUTRIENTS.filter((item) => (parseMicronutrientMap(log?.micronutrients)[item.key] ?? 0) > 0).slice(0, 6).map((item) => (
+                                <span key={item.key} className="rounded-md bg-orange-500/10 px-2 py-1 text-xs text-orange-200">
+                                  {item.label} {Math.round((parseMicronutrientMap(log?.micronutrients)[item.key] ?? 0) * 10) / 10}{item.unit}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
