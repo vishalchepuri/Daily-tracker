@@ -28,10 +28,13 @@ import {
   Clock3,
   Dumbbell,
   Inbox,
+  KeyRound,
   Pill,
   Save,
   Send,
   MessageCircle,
+  Eye,
+  EyeOff,
   RefreshCw,
   Trash2,
   TrendingUp,
@@ -45,6 +48,8 @@ import { toast } from "sonner";
 import { WeeklyReportPanel } from "../_components/weekly-report-panel";
 import { ProgressPanel } from "../_components/progress-panel";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
+import { getFirebaseClientAuth } from "@/lib/firebase-client";
+import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
 
 const RESET_FEATURE_OPTIONS = [
   { id: "profile", label: "Profile", detail: "Body stats, goals, targets, safety notes, Telegram link settings" },
@@ -72,6 +77,8 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
@@ -80,6 +87,7 @@ export default function ProfilePage() {
   const [resetFeatures, setResetFeatures] = useState<string[]>([]);
   const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
     age: "", weight: "", height: "", gender: "male", activityLevel: "moderate", goal: "muscle_gain",
@@ -189,6 +197,52 @@ export default function ProfilePage() {
       }
     } catch { toast.error("Failed to save"); }
     finally { setSaving(false); }
+  };
+
+  const handleSetAccountPassword = async () => {
+    if (savingPassword) return;
+    const password = passwordForm.password.trim();
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== passwordForm.confirmPassword.trim()) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      const auth = getFirebaseClientAuth();
+      const user = auth.currentUser;
+      if (!user?.email) {
+        toast.error("Please sign in again before setting a password.");
+        return;
+      }
+      const credential = EmailAuthProvider.credential(user.email, password);
+      const hasPasswordProvider = user.providerData.some((provider) => provider.providerId === "password");
+      if (hasPasswordProvider) {
+        await updatePassword(user, password);
+        toast.success("Password updated. You can sign in with Google or password.");
+      } else {
+        await linkWithCredential(user, credential);
+        toast.success("Password created. You can sign in with Google or password.");
+      }
+      setPasswordForm({ password: "", confirmPassword: "" });
+    } catch (error: any) {
+      const message =
+        error?.code === "auth/requires-recent-login"
+          ? "Please sign out, sign in with Google again, then set the password."
+          : error?.code === "auth/provider-already-linked"
+            ? "Password login is already enabled for this account."
+            : error?.code === "auth/email-already-in-use" || error?.code === "auth/credential-already-in-use"
+              ? "This email is already linked to another password account."
+              : error?.code === "auth/weak-password"
+                ? "Password is too weak. Use at least 6 characters."
+                : error?.message ?? "Could not set account password.";
+      toast.error(message);
+    } finally {
+      setSavingPassword(false);
+    }
   };
 
   const clearMemoryFields = (fields: Array<keyof typeof form>) => {
@@ -753,6 +807,59 @@ export default function ProfilePage() {
         </TabsContent>
 
         <TabsContent value="integrations" className="space-y-6">
+      <FadeIn delay={0.14}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <KeyRound className="h-5 w-5 text-primary" />
+              Account Password
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Add a password to this account so you can sign in with Google or email/password.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>New Password</Label>
+                <div className="relative mt-1">
+                  <Input
+                    type={showAccountPassword ? "text" : "password"}
+                    value={passwordForm.password}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })}
+                    placeholder="Min 6 characters"
+                    className="pr-10"
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAccountPassword(!showAccountPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showAccountPassword ? "Hide password" : "Show password"}
+                  >
+                    {showAccountPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <Label>Confirm Password</Label>
+                <Input
+                  type={showAccountPassword ? "text" : "password"}
+                  value={passwordForm.confirmPassword}
+                  onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                  placeholder="Repeat password"
+                  className="mt-1"
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+            <Button type="button" onClick={handleSetAccountPassword} loading={savingPassword}>
+              <KeyRound className="mr-2 h-4 w-4" />
+              Save Password
+            </Button>
+          </CardContent>
+        </Card>
+      </FadeIn>
       <FadeIn delay={0.18}>
         <Card>
           <CardHeader>
