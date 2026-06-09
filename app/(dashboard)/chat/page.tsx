@@ -365,11 +365,10 @@ export default function ChatPage() {
   }, [returnTo, router]);
 
   const quickActions = [
-    "Daily check-in",
-    "Log my food",
-    "Replace a workout exercise",
-    "Analyze my spending",
-    "Create a reminder",
+    { label: "Daily check-in", detail: "Workout, meals, water, meds" },
+    { label: "Log food", detail: "Macros and minerals" },
+    { label: "Replace exercise", detail: "Fresh gym-friendly option" },
+    { label: "Analyze spending", detail: "Cards, banks, budgets" },
   ];
 
   return (
@@ -504,21 +503,25 @@ export default function ChatPage() {
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 pb-4 sm:space-y-4 sm:p-4">
           {(messages ?? [])?.length === 0 && (
-            <div className="text-center py-12">
-              <Bot className="w-12 h-12 text-primary/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">Ask me anything about fitness, nutrition, or your workout plan!</p>
-              <div className="mt-4 flex flex-wrap justify-center gap-2">
-                {quickActions.map((q: string) => (
-                  <Button key={q} variant="secondary" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={() => setInput(q)}>
-                    {q}
-                  </Button>
-                ))}
+            <div className="mx-auto flex min-h-full max-w-md flex-col justify-center py-6 text-center sm:py-10">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Bot className="h-7 w-7" />
               </div>
-              <div className="mt-4 grid gap-2 min-[420px]:grid-cols-2">
-                {["Best exercises for chest?", "How much protein do I need?", "Meal prep ideas for muscle gain", "How to break a plateau?"].map((q: string) => (
-                  <Button key={q} variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal text-left leading-snug" onClick={() => { setInput(q); }}>
-                    {q}
-                  </Button>
+              <h3 className="font-display text-lg font-bold tracking-tight">How can Dayza help?</h3>
+              <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
+                Pick a quick action or type naturally. Dayza can log, plan, review, and explain.
+              </p>
+              <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
+                {quickActions.map((action) => (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => setInput(action.label)}
+                    className="rounded-lg border border-border bg-background/70 px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/40"
+                  >
+                    <span className="block text-sm font-semibold leading-tight">{action.label}</span>
+                    <span className="mt-1 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -569,19 +572,6 @@ export default function ChatPage() {
         </div>
 
         <div className="shrink-0 border-t border-border bg-card p-2.5 sm:p-4">
-          <div className="mb-2 flex gap-2 overflow-x-auto pb-1 ios-scroll">
-            {quickActions.slice(0, 4).map((q) => (
-              <button
-                key={q}
-                type="button"
-                onClick={() => setInput(q)}
-                disabled={streaming}
-                className="shrink-0 rounded-full border border-border bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-50"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
