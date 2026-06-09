@@ -30,9 +30,13 @@ const navItems = [
 
 const adminNavItem = { label: "Admin", href: "/admin", icon: Shield };
 
-const mobileNavItems = navItems.filter((item) =>
-  ["/dashboard", "/reminders", "/medications", "/spends", "/workouts"].includes(item.href)
-);
+const mobileNavItems = [
+  { label: "Today", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Agent", href: "/chat", icon: MessageSquare },
+  { label: "Workouts", href: "/workouts", icon: Dumbbell },
+  { label: "Spends", href: "/spends", icon: WalletCards },
+  { label: "Profile", href: "/profile", icon: UserCircle },
+];
 
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
   "/dashboard": {
@@ -406,7 +410,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       )}
 
       {pathname !== "/chat" && (
-      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
+      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 hidden max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4 lg:flex">
         {coachOpen && (
           <div className="hidden max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl ios-scroll lg:block">
             <div className="mb-3 flex items-start gap-3">

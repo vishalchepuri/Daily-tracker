@@ -72,6 +72,7 @@ export default function ProfilePage() {
   const [reviewCounts, setReviewCounts] = useState<any[]>([]);
   const [reviewFilter, setReviewFilter] = useState("open");
   const [reviewLoading, setReviewLoading] = useState(false);
+  const [pendingExercises, setPendingExercises] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState("profile");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -139,6 +140,9 @@ export default function ProfilePage() {
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
       setActivityCounts(d?.counts ?? {});
+    }).catch(console.error);
+    fetch("/api/exercises?compact=1").then(r => r.ok ? r.json() : { exercises: [] }).then(d => {
+      setPendingExercises((d?.exercises ?? []).filter((exercise: any) => exercise?.status === "pending"));
     }).catch(console.error);
   }, []);
 
@@ -431,6 +435,28 @@ export default function ProfilePage() {
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
       </FadeIn>
 
+      {pendingExercises.length > 0 && (
+        <FadeIn delay={0.05}>
+          <Card className="border-amber-500/30 bg-amber-500/5">
+            <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Dumbbell className="h-4 w-4 text-amber-500" />
+                  <p className="font-semibold">{pendingExercises.length} exercise{pendingExercises.length === 1 ? "" : "s"} waiting for admin approval</p>
+                </div>
+                <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                  {pendingExercises.slice(0, 3).map((exercise) => exercise.name).join(", ")}
+                  {pendingExercises.length > 3 ? ` and ${pendingExercises.length - 3} more` : ""}
+                </p>
+              </div>
+              <Button type="button" variant="outline" onClick={() => setActiveTab("review")}>
+                View Status
+              </Button>
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
+
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="flex h-auto w-full gap-2 overflow-x-auto bg-transparent p-0">
           <TabsTrigger value="profile" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Profile</TabsTrigger>
@@ -669,6 +695,31 @@ export default function ProfilePage() {
         </TabsContent>
 
         <TabsContent value="review" className="space-y-6">
+      {pendingExercises.length > 0 && (
+        <FadeIn delay={0.1}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Dumbbell className="h-5 w-5 text-primary" />
+                Pending Exercise Submissions
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {pendingExercises.map((exercise) => (
+                <div key={exercise.id} className="rounded-lg border border-border bg-muted/30 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">{exercise.name}</p>
+                    <Badge variant="secondary" className="capitalize">{exercise.muscleGroup}</Badge>
+                    {exercise.equipment && <Badge variant="outline">{exercise.equipment}</Badge>}
+                    <Badge className="bg-amber-500/15 text-amber-500 hover:bg-amber-500/15">Pending approval</Badge>
+                  </div>
+                  {exercise.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{exercise.description}</p>}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
       <FadeIn delay={0.16}>
         <Card>
           <CardHeader>

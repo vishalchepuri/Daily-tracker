@@ -364,6 +364,14 @@ export default function ChatPage() {
     router.push(returnTo);
   }, [returnTo, router]);
 
+  const quickActions = [
+    "Daily check-in",
+    "Log my food",
+    "Replace a workout exercise",
+    "Analyze my spending",
+    "Create a reminder",
+  ];
+
   return (
     <div className="flex h-[calc(100svh_-_7rem_-_env(safe-area-inset-bottom))] min-h-[32rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
@@ -499,6 +507,13 @@ export default function ChatPage() {
             <div className="text-center py-12">
               <Bot className="w-12 h-12 text-primary/30 mx-auto mb-3" />
               <p className="text-muted-foreground">Ask me anything about fitness, nutrition, or your workout plan!</p>
+              <div className="mt-4 flex flex-wrap justify-center gap-2">
+                {quickActions.map((q: string) => (
+                  <Button key={q} variant="secondary" size="sm" className="h-8 rounded-full px-3 text-xs" onClick={() => setInput(q)}>
+                    {q}
+                  </Button>
+                ))}
+              </div>
               <div className="mt-4 grid gap-2 min-[420px]:grid-cols-2">
                 {["Best exercises for chest?", "How much protein do I need?", "Meal prep ideas for muscle gain", "How to break a plateau?"].map((q: string) => (
                   <Button key={q} variant="outline" size="sm" className="h-auto min-h-9 whitespace-normal text-left leading-snug" onClick={() => { setInput(q); }}>
@@ -554,6 +569,19 @@ export default function ChatPage() {
         </div>
 
         <div className="shrink-0 border-t border-border bg-card p-2.5 sm:p-4">
+          <div className="mb-2 flex gap-2 overflow-x-auto pb-1 ios-scroll">
+            {quickActions.slice(0, 4).map((q) => (
+              <button
+                key={q}
+                type="button"
+                onClick={() => setInput(q)}
+                disabled={streaming}
+                className="shrink-0 rounded-full border border-border bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-50"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
