@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { safeService } from "./service-utils";
+import { listFoodMicronutrientLogsForFoodLogs } from "@/lib/firestore-app-data";
+import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, sumMicronutrients } from "@/lib/micronutrients";
 
 function todayRange() {
   const today = new Date();
@@ -45,7 +47,7 @@ export async function getDashboardData(userId: string) {
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
   sevenDaysAgo.setHours(0, 0, 0, 0);
 
-  const [profile, todayFoodLogs, todayWorkout, recentProgress, workoutCount, streak, weekFoodLogs, weekWaterLogs] = await Promise.all([
+  const [profile, todayFoodLogs, todayWorkout, recentProgress, workoutCount, streak, weekFoodLogs, weekWaterLogs, todayReminders, todayMedicationLogs] = await Promise.all([
     safeService(null, () => prisma.userProfile.findUnique({ where: { userId } })),
     safeService([], () => prisma.foodLog.findMany({ where: { userId, date: { gte: startOfDay, lte: endOfDay } } })),
     safeService(null, () =>
@@ -76,9 +78,40 @@ export async function getDashboardData(userId: string) {
     safeService(0, () => getWorkoutStreak(userId)),
     safeService([], () => prisma.foodLog.findMany({ where: { userId, date: { gte: sevenDaysAgo } }, select: { date: true, calories: true, protein: true } })),
     safeService([], () => prisma.waterLog.findMany({ where: { userId, date: { gte: sevenDaysAgo } }, select: { date: true, amountMl: true } })),
+    safeService([], () => prisma.reminder.findMany({
+      where: { userId, dueDate: { gte: startOfDay, lte: endOfDay } },
+      orderBy: [{ completed: "asc" }, { dueDate: "asc" }],
+      take: 6,
+      select: { id: true, title: true, completed: true, dueDate: true, priority: true },
+    })),
+    safeService([], () => prisma.medicationLog.findMany({
+      where: { userId, scheduledFor: { gte: startOfDay, lte: endOfDay } },
+      take: 8,
+      select: { id: true, status: true, scheduledFor: true, medication: { select: { name: true, dosage: true } } },
+    })),
   ]);
 
   const logs = todayFoodLogs.data ?? [];
+  const micronutrientTrackingEnabled = Boolean(profile.data?.micronutrientTrackingEnabled);
+  const micronutrientLogs = micronutrientTrackingEnabled
+    ? await safeService({}, () => listFoodMicronutrientLogsForFoodLogs(userId, logs.map((log: any) => log.id)))
+    : { data: {}, ok: true, error: null };
+  const micronutrientTotals = micronutrientTrackingEnabled
+    ? sumMicronutrients(Object.values(micronutrientLogs.data ?? {}).map((item: any) => item?.micronutrients))
+    : {};
+  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile.data?.micronutrientTargetsJson);
+  const lowMicronutrients = micronutrientTrackingEnabled
+    ? MICRONUTRIENTS
+        .map((item) => {
+          const value = micronutrientTotals[item.key] ?? 0;
+          const target = micronutrientTargets[item.key] ?? item.target;
+          const percent = target > 0 ? Math.round((value / target) * 100) : 0;
+          return { ...item, value, target, remaining: Math.max(0, target - value), percent };
+        })
+        .filter((item) => item.percent < 70)
+        .sort((a, b) => a.percent - b.percent)
+        .slice(0, 4)
+    : [];
   const todayMacros = logs.reduce(
     (acc: any, log: any) => ({
       calories: acc.calories + (log?.calories ?? 0),
@@ -123,6 +156,14 @@ export async function getDashboardData(userId: string) {
     workoutCount: workoutCount.data,
     streak: streak.data,
     todayFoodLogs: logs,
+    todayReminders: todayReminders.data,
+    todayMedicationLogs: todayMedicationLogs.data,
+    micronutrients: {
+      enabled: micronutrientTrackingEnabled,
+      low: lowMicronutrients,
+      totals: micronutrientTotals,
+      targets: micronutrientTargets,
+    },
     weeklyTrends,
     serviceStatus: {
       profile: { ok: profile.ok, error: profile.error },
