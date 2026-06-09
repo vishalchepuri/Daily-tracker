@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { BrandLogo } from "@/components/brand-logo";
 import Link from "next/link";
 import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
-import { sendEmailVerification, signInWithEmailAndPassword, type User } from "firebase/auth";
+import { getRedirectResult, sendEmailVerification, signInWithEmailAndPassword, type User } from "firebase/auth";
 import { getGoogleAuthErrorMessage, signInWithGoogle } from "@/lib/firebase-google-auth";
 
 export default function LoginPage() {
@@ -48,6 +48,33 @@ export default function LoginPage() {
     router.refresh();
     return true;
   };
+
+  useEffect(() => {
+    if (!hasFirebaseClientConfig()) return;
+    let cancelled = false;
+
+    const completeRedirectLogin = async () => {
+      try {
+        const credential = await getRedirectResult(getFirebaseClientAuth());
+        if (!credential || cancelled) return;
+        setGoogleLoading(true);
+        const firebaseIdToken = await credential.user.getIdToken();
+        const started = await startAppSessionFromFirebase(firebaseIdToken);
+        if (!started && !cancelled) setGoogleLoading(false);
+      } catch (error: any) {
+        if (cancelled) return;
+        const message = getGoogleAuthErrorMessage(error);
+        setAuthError(message);
+        toast.error(message);
+        setGoogleLoading(false);
+      }
+    };
+
+    completeRedirectLogin();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

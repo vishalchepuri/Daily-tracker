@@ -2,6 +2,7 @@
 
 import {
   GoogleAuthProvider,
+  signInWithRedirect,
   signInWithPopup,
 } from "firebase/auth";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
@@ -15,6 +16,15 @@ export function getGoogleProvider() {
 export async function signInWithGoogle() {
   const auth = getFirebaseClientAuth();
   const provider = getGoogleProvider();
+  const isCapacitorWebView =
+    typeof window !== "undefined" &&
+    Boolean((window as any).Capacitor?.isNativePlatform?.());
+
+  if (isCapacitorWebView) {
+    await signInWithRedirect(auth, provider);
+    return null;
+  }
+
   return signInWithPopup(auth, provider);
 }
 
