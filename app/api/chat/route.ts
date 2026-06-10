@@ -971,6 +971,34 @@ async function getCreditCardSpendBlocker(userId: string, action: Extract<AgentAc
   return "Before I log this credit card spend, please tell me the last 4 digits of the card. I will not save this transaction until you confirm the card ending digits.";
 }
 
+function isDestructiveAgentAction(action: AgentAction) {
+  return ["delete_workout_template", "delete_diet_plan", "remove_exercise_from_template"].includes(action.type);
+}
+
+function hasExplicitDestructiveConfirmation(message: string) {
+  return /\b(confirm|confirmed|yes|go ahead|proceed|do it|delete it|remove it)\b/i.test(message);
+}
+
+function destructiveActionLabel(action: AgentAction) {
+  if (action.type === "delete_workout_template") return `delete workout plan "${action.templateName}"`;
+  if (action.type === "delete_diet_plan") return `delete diet plan "${action.planName}"`;
+  if (action.type === "remove_exercise_from_template") return `remove "${action.exerciseName}" from "${action.templateName}"`;
+  return "make this change";
+}
+
+function getDestructiveConfirmationMessage(actions: AgentAction[], message: string) {
+  if (hasExplicitDestructiveConfirmation(message)) return null;
+  const destructiveActions = actions.filter(isDestructiveAgentAction);
+  if (destructiveActions.length === 0) return null;
+  const labels = destructiveActions.map(destructiveActionLabel);
+  return [
+    "Please confirm before I make this change:",
+    ...labels.map((label) => `- ${label}`),
+    "",
+    "Reply with \"confirm\" and I will do it.",
+  ].join("\n");
+}
+
 async function withUndo(
   userId: string,
   result: AgentActionResult,
@@ -1923,6 +1951,7 @@ ${JSON.stringify({
   - If multiple diet plans or meals could match, ask which diet/meal to use.
 - If the user asks to log multiple workouts or create multiple workout days, complete all requested tasks. If an exercise is missing, create it first and continue the log/template action.
 - If the user asks to remove an exercise from a plan and does not provide a replacement, remove it and ask what they want to add instead. If they provide a replacement, remove and add in the same response.
+- Destructive actions require confirmation. If the user asks to delete a workout plan, delete a diet plan, or remove an exercise from a saved plan, ask for confirmation first unless they explicitly say confirm/proceed/go ahead in the same message.
 - If the user asks to delete a full workout program/day, use delete_workout_template only when the target name/day is clear. If unclear, ask which program to delete.
 - If the user asks to modify a workout program, use remove_exercise_from_template and add_exercise_to_template as needed. Do not just describe the change when the request is actionable.
 - If the user asks you to add an exercise, use create_exercise. Choose the best muscleGroup from: chest, back, shoulders, legs, arms, core.
@@ -2069,6 +2098,12 @@ Available action examples:
     }
 
     const actions = Array.isArray(agentResult.actions) ? agentResult.actions.slice(0, 20) : [];
+    const destructiveConfirmation = getDestructiveConfirmationMessage(actions, message);
+    if (destructiveConfirmation) {
+      await saveAssistantMessageBestEffort(userId, chatSession.id, destructiveConfirmation);
+      await pruneChatRetention(userId);
+      return streamSingleMessage(destructiveConfirmation);
+    }
     for (const action of actions) {
       if (action.type !== "create_spend_log") continue;
       const blocker = await getCreditCardSpendBlocker(userId, action, message);
