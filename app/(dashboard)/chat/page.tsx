@@ -32,6 +32,7 @@ export default function ChatPage() {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [agentStatus, setAgentStatus] = useState("");
+  const [undoingId, setUndoingId] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
@@ -208,6 +209,19 @@ export default function ChatPage() {
                   return updated;
                 });
               }
+              if (Array.isArray(parsed?.undoActions) && parsed.undoActions.length > 0) {
+                setMessages(prev => {
+                  const updated = [...(prev ?? [])];
+                  const last = updated[updated.length - 1];
+                  if (last?.role === "assistant") {
+                    updated[updated.length - 1] = {
+                      ...last,
+                      undoActions: [...(last.undoActions ?? []), ...parsed.undoActions],
+                    };
+                  }
+                  return updated;
+                });
+              }
             } catch {}
           }
         }
@@ -248,6 +262,34 @@ export default function ChatPage() {
     if (!lastFailedMessage) return;
     await sendMessage(lastFailedMessage.message, lastFailedMessage.imageDataUrl);
   }, [lastFailedMessage, sendMessage]);
+
+  const undoAgentAction = useCallback(async (messageId: string, undoId: string) => {
+    if (undoingId) return;
+    setUndoingId(undoId);
+    try {
+      const res = await dayzaFetch("/api/agent-undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ undoId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Undo failed");
+      setMessages(prev => (prev ?? []).map((message) => {
+        if (message.id !== messageId) return message;
+        return {
+          ...message,
+          undoActions: (message.undoActions ?? []).map((action: any) =>
+            action.id === undoId ? { ...action, undone: true, label: "Undone" } : action
+          ),
+        };
+      }));
+      toast.success(data?.message ?? "Action undone");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Undo failed");
+    } finally {
+      setUndoingId(null);
+    }
+  }, [undoingId]);
 
   const startNewChat = useCallback(async () => {
     setActiveSessionId(null);
@@ -561,6 +603,25 @@ export default function ChatPage() {
                   </div>
                 )}
                 {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
+                {msg?.role === "assistant" && Array.isArray(msg?.undoActions) && msg.undoActions.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-2">
+                    {msg.undoActions.map((action: any) => (
+                      <Button
+                        key={action.id}
+                        type="button"
+                        size="sm"
+                        variant={action.undone ? "secondary" : "outline"}
+                        className="h-8 rounded-full px-3 text-xs"
+                        disabled={Boolean(action.undone) || undoingId === action.id}
+                        onClick={() => undoAgentAction(msg.id, action.id)}
+                        title={action.actionLabel ? `Undo: ${action.actionLabel}` : "Undo this agent action"}
+                      >
+                        {undoingId === action.id && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                        {action.undone ? "Undone" : "Undo"}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </div>
               {msg?.role === "user" && (
                 <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary sm:flex">

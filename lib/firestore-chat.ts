@@ -36,6 +36,7 @@ export type FirestoreChatMessage = {
   content: string;
   createdAt: Date;
   attachments?: FirestoreChatAttachment[];
+  undoActions?: any[];
 };
 
 function db() {
@@ -108,6 +109,7 @@ function messageFromDoc(doc: FirebaseFirestore.DocumentSnapshot): FirestoreChatM
     role: data.role === "assistant" ? "assistant" : "user",
     content: String(data.content ?? ""),
     createdAt: toDate(data.createdAt),
+    undoActions: Array.isArray(data.undoActions) ? data.undoActions : [],
   };
 }
 
@@ -142,6 +144,7 @@ export async function addFirestoreChatMessage(input: {
   sessionId: string;
   role: ChatRole;
   content: string;
+  undoActions?: any[];
 }) {
   const ref = messagesRef(input.userId, input.sessionId).doc();
   const now = Timestamp.now();
@@ -150,6 +153,7 @@ export async function addFirestoreChatMessage(input: {
     sessionId: input.sessionId,
     role: input.role,
     content: input.content,
+    undoActions: input.undoActions ?? [],
     createdAt: now,
   });
   await sessionRef(input.userId, input.sessionId).set(
