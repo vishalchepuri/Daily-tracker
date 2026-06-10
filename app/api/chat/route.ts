@@ -10,7 +10,12 @@ import {
   pruneFirestoreChatRetention,
 } from "@/lib/firestore-chat";
 import { uploadBuffer } from "@/lib/s3";
-import { createReviewItemOnce, listFoodMicronutrientLogsForFoodLogs, upsertFoodMicronutrientLog } from "@/lib/firestore-app-data";
+import {
+  createAgentUndoAction,
+  createReviewItemOnce,
+  listFoodMicronutrientLogsForFoodLogs,
+  upsertFoodMicronutrientLog,
+} from "@/lib/firestore-app-data";
 import { BODY_PART_REFERENCE, GYM_TRAINING_SPLITS } from "@/lib/workout-split-library";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
 
@@ -28,9 +33,27 @@ function chatErrorMessage(error: any, fallback: string) {
 
 type WorkoutExerciseWithExercise = {
   id: string;
+  workoutTemplateId?: string;
+  exerciseId?: string;
+  sets?: number;
+  reps?: string;
+  restSeconds?: number;
+  orderIndex?: number;
   exercise: {
     name: string;
   };
+};
+
+type AgentUndoButton = {
+  id: string;
+  label: string;
+};
+
+type AgentActionResult = {
+  type: string;
+  label: string;
+  id: string;
+  undo?: AgentUndoButton;
 };
 
 type AgentAction =
@@ -310,8 +333,8 @@ async function pruneChatRetention(userId: string) {
   });
 }
 
-async function saveAssistantMessageBestEffort(userId: string, sessionId: string, content: string) {
-  await addFirestoreChatMessage({ userId, sessionId, role: "assistant", content }).catch((error) => {
+async function saveAssistantMessageBestEffort(userId: string, sessionId: string, content: string, undoActions?: any[]) {
+  await addFirestoreChatMessage({ userId, sessionId, role: "assistant", content, undoActions }).catch((error) => {
     console.error("Could not save assistant chat message", error);
   });
 }
@@ -948,19 +971,73 @@ async function getCreditCardSpendBlocker(userId: string, action: Extract<AgentAc
   return "Before I log this credit card spend, please tell me the last 4 digits of the card. I will not save this transaction until you confirm the card ending digits.";
 }
 
+function isDestructiveAgentAction(action: AgentAction) {
+  return ["delete_workout_template", "delete_diet_plan", "remove_exercise_from_template"].includes(action.type);
+}
+
+function hasExplicitDestructiveConfirmation(message: string) {
+  return /\b(confirm|confirmed|yes|go ahead|proceed|do it|delete it|remove it)\b/i.test(message);
+}
+
+function destructiveActionLabel(action: AgentAction) {
+  if (action.type === "delete_workout_template") return `delete workout plan "${action.templateName}"`;
+  if (action.type === "delete_diet_plan") return `delete diet plan "${action.planName}"`;
+  if (action.type === "remove_exercise_from_template") return `remove "${action.exerciseName}" from "${action.templateName}"`;
+  return "make this change";
+}
+
+function getDestructiveConfirmationMessage(actions: AgentAction[], message: string) {
+  if (hasExplicitDestructiveConfirmation(message)) return null;
+  const destructiveActions = actions.filter(isDestructiveAgentAction);
+  if (destructiveActions.length === 0) return null;
+  const labels = destructiveActions.map(destructiveActionLabel);
+  return [
+    "Please confirm before I make this change:",
+    ...labels.map((label) => `- ${label}`),
+    "",
+    "Reply with \"confirm\" and I will do it.",
+  ].join("\n");
+}
+
+async function withUndo(
+  userId: string,
+  result: AgentActionResult,
+  undo: { targetType: string; targetId?: string | null; payload?: any; label?: string }
+): Promise<AgentActionResult> {
+  if (!undo.targetId) return result;
+  const record = await createAgentUndoAction(userId, {
+    actionType: result.type,
+    label: undo.label ?? `Undo ${result.label}`,
+    targetType: undo.targetType,
+    targetId: undo.targetId,
+    payload: undo.payload,
+  });
+  return {
+    ...result,
+    undo: {
+      id: record.id,
+      label: "Undo",
+    },
+  };
+}
+
 async function executeAgentAction(
   userId: string,
   action: AgentAction,
   rawMessage = "",
   options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null; micronutrientTrackingEnabled?: boolean } = {}
-) {
+): Promise<AgentActionResult | null> {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
-    return {
+    const result = {
       type: action.type,
       label: exercise.status === "pending" ? `Sent ${exercise.name} to admin for approval` : `Added ${exercise.name} to Exercise Library`,
       id: exercise.id,
     };
+    if (exercise.status === "pending") {
+      return withUndo(userId, result, { targetType: "exercise", targetId: exercise.id });
+    }
+    return result;
   }
 
   if (action.type === "create_food_log") {
@@ -989,7 +1066,7 @@ async function executeAgentAction(
         source: "agent_estimate",
       });
     }
-    return { type: action.type, label: `Logged ${log.foodName}`, id: log.id };
+    return withUndo(userId, { type: action.type, label: `Logged ${log.foodName}`, id: log.id }, { targetType: "foodLog", targetId: log.id });
   }
 
   if (action.type === "create_progress_entry") {
@@ -1006,7 +1083,7 @@ async function executeAgentAction(
         date: action.date ? new Date(action.date) : new Date(),
       },
     });
-    return { type: action.type, label: "Saved progress entry", id: entry.id };
+    return withUndo(userId, { type: action.type, label: "Saved progress entry", id: entry.id }, { targetType: "progressEntry", targetId: entry.id });
   }
 
   if (action.type === "create_spend_log") {
@@ -1095,7 +1172,11 @@ async function executeAgentAction(
       return created;
     });
     const sourceLabel = card ? ` on ${card.name}` : bankAccount ? ` from ${bankAccount.name}` : "";
-    return { type: action.type, label: `Logged spend at ${spend.merchant}${sourceLabel}`, id: spend.id };
+    return withUndo(
+      userId,
+      { type: action.type, label: `Logged spend at ${spend.merchant}${sourceLabel}`, id: spend.id },
+      { targetType: "spend", targetId: spend.id }
+    );
   }
 
   if (action.type === "update_spend_target") {
@@ -1140,7 +1221,7 @@ async function executeAgentAction(
         dueDay: action.dueDay == null ? null : Math.min(31, Math.max(1, Math.round(toNumber(action.dueDay)))),
       },
     });
-    return { type: action.type, label: `Added credit card ${card.name}`, id: card.id };
+    return withUndo(userId, { type: action.type, label: `Added credit card ${card.name}`, id: card.id }, { targetType: "creditCard", targetId: card.id });
   }
 
   if (action.type === "create_bank_account") {
@@ -1155,7 +1236,7 @@ async function executeAgentAction(
         currency: action.currency || "INR",
       },
     });
-    return { type: action.type, label: `Added bank account ${account.name}`, id: account.id };
+    return withUndo(userId, { type: action.type, label: `Added bank account ${account.name}`, id: account.id }, { targetType: "bankAccount", targetId: account.id });
   }
 
   if (action.type === "create_money_link") {
@@ -1170,7 +1251,11 @@ async function executeAgentAction(
         notes: action.notes || "Logged by Dayza Agent.",
       },
     });
-    return { type: action.type, label: `${moneyLink.type === "lend" ? "Lent" : "Borrowed"} INR ${moneyLink.amount} ${moneyLink.type === "lend" ? "to" : "from"} ${moneyLink.person}`, id: moneyLink.id };
+    return withUndo(
+      userId,
+      { type: action.type, label: `${moneyLink.type === "lend" ? "Lent" : "Borrowed"} INR ${moneyLink.amount} ${moneyLink.type === "lend" ? "to" : "from"} ${moneyLink.person}`, id: moneyLink.id },
+      { targetType: "moneyLink", targetId: moneyLink.id }
+    );
   }
 
   if (action.type === "create_workout_log") {
@@ -1195,7 +1280,7 @@ async function executeAgentAction(
         },
       },
     });
-    return { type: action.type, label: "Logged workout", id: log.id };
+    return withUndo(userId, { type: action.type, label: "Logged workout", id: log.id }, { targetType: "workoutLog", targetId: log.id });
   }
 
   if (action.type === "update_wellness_targets") {
@@ -1334,7 +1419,7 @@ async function executeAgentAction(
         exercises: { create: exerciseRows },
       },
     });
-    return { type: action.type, label: `Created ${template.name}`, id: template.id };
+    return withUndo(userId, { type: action.type, label: `Created ${template.name}`, id: template.id }, { targetType: "workoutTemplate", targetId: template.id });
   }
 
   if (action.type === "remove_exercise_from_template") {
@@ -1346,10 +1431,21 @@ async function executeAgentAction(
     const matches = template.exercises.filter((item: WorkoutExerciseWithExercise) =>
       item.exercise.name.toLowerCase().includes(action.exerciseName.toLowerCase())
     );
+    const removedExercises = matches.map((match: WorkoutExerciseWithExercise & { exerciseId?: string; sets?: number; reps?: string; restSeconds?: number; orderIndex?: number }) => ({
+      workoutTemplateId: template.id,
+      exerciseId: match.exerciseId,
+      sets: match.sets,
+      reps: match.reps,
+      restSeconds: match.restSeconds,
+      orderIndex: match.orderIndex,
+    }));
     for (const match of matches) {
       await prisma.workoutExercise.delete({ where: { id: match.id } });
     }
-    return { type: action.type, label: `Removed ${action.exerciseName} from ${template.name}`, id: template.id };
+    const result = { type: action.type, label: `Removed ${action.exerciseName} from ${template.name}`, id: template.id };
+    return removedExercises.length > 0
+      ? withUndo(userId, result, { targetType: "workoutExerciseRemoval", targetId: template.id, payload: { exercises: removedExercises } })
+      : result;
   }
 
   if (action.type === "add_exercise_to_template") {
@@ -1359,7 +1455,7 @@ async function executeAgentAction(
     });
     if (!template) return { type: action.type, label: `Could not find ${action.templateName}`, id: action.templateName };
     const exercise = await findOrCreateExercise({ exerciseName: action.exerciseName, muscleGroup: action.muscleGroup }, userId);
-    await prisma.workoutExercise.create({
+    const workoutExercise = await prisma.workoutExercise.create({
       data: {
         workoutTemplateId: template.id,
         exerciseId: exercise.id,
@@ -1369,7 +1465,11 @@ async function executeAgentAction(
         orderIndex: template.exercises.length,
       },
     });
-    return { type: action.type, label: `Added ${exercise.name} to ${template.name}`, id: template.id };
+    return withUndo(
+      userId,
+      { type: action.type, label: `Added ${exercise.name} to ${template.name}`, id: template.id },
+      { targetType: "workoutExercise", targetId: workoutExercise.id }
+    );
   }
 
   if (action.type === "delete_workout_template") {
@@ -1377,8 +1477,16 @@ async function executeAgentAction(
       where: { userId, name: { contains: action.templateName } },
     });
     if (!template) return { type: action.type, label: `Could not find ${action.templateName}`, id: action.templateName };
+    const templateWithExercises = await prisma.workoutTemplate.findUnique({
+      where: { id: template.id },
+      include: { exercises: true },
+    });
     await prisma.workoutTemplate.delete({ where: { id: template.id } });
-    return { type: action.type, label: `Deleted ${template.name}`, id: template.id };
+    return withUndo(
+      userId,
+      { type: action.type, label: `Deleted ${template.name}`, id: template.id },
+      { targetType: "deletedWorkoutTemplate", targetId: template.id, payload: templateWithExercises }
+    );
   }
 
   if (action.type === "create_diet_plan") {
@@ -1391,7 +1499,7 @@ async function executeAgentAction(
         mealsJson: JSON.stringify(action.meals ?? []),
       },
     });
-    return { type: action.type, label: `Created diet plan ${plan.name}`, id: plan.id };
+    return withUndo(userId, { type: action.type, label: `Created diet plan ${plan.name}`, id: plan.id }, { targetType: "dietPlan", targetId: plan.id });
   }
 
   if (action.type === "update_diet_plan") {
@@ -1843,6 +1951,7 @@ ${JSON.stringify({
   - If multiple diet plans or meals could match, ask which diet/meal to use.
 - If the user asks to log multiple workouts or create multiple workout days, complete all requested tasks. If an exercise is missing, create it first and continue the log/template action.
 - If the user asks to remove an exercise from a plan and does not provide a replacement, remove it and ask what they want to add instead. If they provide a replacement, remove and add in the same response.
+- Destructive actions require confirmation. If the user asks to delete a workout plan, delete a diet plan, or remove an exercise from a saved plan, ask for confirmation first unless they explicitly say confirm/proceed/go ahead in the same message.
 - If the user asks to delete a full workout program/day, use delete_workout_template only when the target name/day is clear. If unclear, ask which program to delete.
 - If the user asks to modify a workout program, use remove_exercise_from_template and add_exercise_to_template as needed. Do not just describe the change when the request is actionable.
 - If the user asks you to add an exercise, use create_exercise. Choose the best muscleGroup from: chest, back, shoulders, legs, arms, core.
@@ -1989,6 +2098,12 @@ Available action examples:
     }
 
     const actions = Array.isArray(agentResult.actions) ? agentResult.actions.slice(0, 20) : [];
+    const destructiveConfirmation = getDestructiveConfirmationMessage(actions, message);
+    if (destructiveConfirmation) {
+      await saveAssistantMessageBestEffort(userId, chatSession.id, destructiveConfirmation);
+      await pruneChatRetention(userId);
+      return streamSingleMessage(destructiveConfirmation);
+    }
     for (const action of actions) {
       if (action.type !== "create_spend_log") continue;
       const blocker = await getCreditCardSpendBlocker(userId, action, message);
@@ -2005,7 +2120,7 @@ Available action examples:
       await pruneChatRetention(userId);
       return streamSingleMessage(blocker);
     }
-    const actionResults = [];
+    const actionResults: AgentActionResult[] = [];
     for (const action of actions) {
       const result = await executeAgentAction(userId, action, message, {
         healthLimitations: context.profile?.healthLimitations,
@@ -2023,13 +2138,23 @@ Available action examples:
         ? `\n\nActions completed:\n${actionResults.map((result) => `- ${result.label}`).join("\n")}`
         : "";
     const fullContent = `${agentResult.response ?? "Done."}${actionSummary}`;
+    const undoActions = actionResults
+      .filter((result): result is AgentActionResult & { undo: AgentUndoButton } => Boolean(result.undo?.id))
+      .map((result) => ({
+        id: result.undo.id,
+        label: result.undo.label,
+        actionLabel: result.label,
+      }));
 
-    await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent);
+    await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent, undoActions);
     await pruneChatRetention(userId);
 
     const stream = new ReadableStream({
       async start(controller) {
         await writeSse(controller, { content: fullContent });
+        if (undoActions.length > 0) {
+          await writeSse(controller, { undoActions });
+        }
         const encoder = new TextEncoder();
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

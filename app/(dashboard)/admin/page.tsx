@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { listFirestoreChatSessions, pruneFirestoreChatRetention } from "@/lib/firestore-chat";
+import { pruneFirestoreChatRetention } from "@/lib/firestore-chat";
 import { listRecentIssueReports } from "@/lib/firestore-app-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,12 +16,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-function formatDate(value?: Date | null) {
+function formatDate(value?: Date | string | number | null) {
   if (!value) return "Never";
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) return "Unknown";
   return new Intl.DateTimeFormat("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(value);
+  }).format(date);
 }
 
 function formatNumber(value?: number | null) {
@@ -161,19 +163,6 @@ export default async function AdminPage() {
     user._count.medications +
     user._count.progressEntries
   ), 0);
-  const usersWithChatCounts = await Promise.all(
-    users.map(async (user) => {
-      const sessions = await listFirestoreChatSessions(user.id, 0, 7).catch(() => []);
-      return {
-        ...user,
-        chatCount: sessions.reduce((sum, session) => sum + (session.messageCount ?? 0), 0),
-      };
-    })
-  );
-  const topActiveUsers = usersWithChatCounts
-    .filter((user) => user.chatCount > 0)
-    .sort((a, b) => b.chatCount - a.chatCount)
-    .slice(0, 5);
   const reviewQueue = [
     ...pendingExercises.map((exercise) => ({
       id: exercise.id,
@@ -335,18 +324,11 @@ export default async function AdminPage() {
 
       <div className="grid gap-4 xl:grid-cols-3">
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-primary" />Top Chat Users</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><MessageSquare className="h-5 w-5 text-primary" />Admin Notes</CardTitle></CardHeader>
           <CardContent className="space-y-2">
-            {topActiveUsers.length === 0 ? (
-              <EmptyState label="No chat usage yet." />
-            ) : topActiveUsers.map((user) => (
-              <AdminListRow
-                key={user.id}
-                title={user.name || user.email}
-                detail={user.email}
-                value={`${formatNumber(user.chatCount)} chats`}
-              />
-            ))}
+            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+              Chat data is stored in Firestore and is intentionally not scanned on page load, keeping the admin panel fast as usage grows.
+            </div>
           </CardContent>
         </Card>
 
@@ -428,11 +410,10 @@ export default async function AdminPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {usersWithChatCounts.map((user) => {
+              {users.map((user) => {
                 const providers = user.accounts.map((account) => account.provider);
                 const profileReady = Boolean(user.profile?.age && user.profile?.weight && user.profile?.height);
                 const totalActivity =
-                  user.chatCount +
                   user._count.workoutLogs +
                   user._count.foodLogs +
                   user._count.spends +
@@ -464,7 +445,7 @@ export default async function AdminPage() {
                     <TableCell>
                       <div className="grid gap-1 text-xs text-muted-foreground">
                         <span>{totalActivity} total records</span>
-                        <span>{user.chatCount} chats, {user._count.spends} spends</span>
+                        <span>{user._count.spends} spends, {user._count.reminders} reminders</span>
                         <span>{user._count.workoutLogs} workouts, {user._count.foodLogs} meals</span>
                       </div>
                     </TableCell>

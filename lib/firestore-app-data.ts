@@ -187,3 +187,49 @@ export async function deleteReviewItemsForUser(userId: string) {
   await Promise.all(docs.map((doc) => doc.delete()));
   return docs.length;
 }
+
+export type AgentUndoActionInput = {
+  actionType: string;
+  label: string;
+  targetType: string;
+  targetId: string;
+  payload?: any;
+  expiresAt?: Date;
+};
+
+export async function createAgentUndoAction(userId: string, input: AgentUndoActionInput) {
+  const ref = userDoc(userId).collection("agentUndoActions").doc();
+  const expiresAt = input.expiresAt ?? new Date(Date.now() + 15 * 60 * 1000);
+  await ref.set({
+    userId,
+    actionType: input.actionType,
+    label: input.label,
+    targetType: input.targetType,
+    targetId: input.targetId,
+    payload: input.payload ?? null,
+    status: "open",
+    expiresAt: Timestamp.fromDate(expiresAt),
+    usedAt: null,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return docData(await ref.get());
+}
+
+export async function getAgentUndoAction(userId: string, id: string) {
+  const snap = await userDoc(userId).collection("agentUndoActions").doc(id).get();
+  return snap.exists ? docData(snap) : null;
+}
+
+export async function markAgentUndoActionUsed(userId: string, id: string) {
+  const ref = userDoc(userId).collection("agentUndoActions").doc(id);
+  await ref.set(
+    {
+      status: "used",
+      usedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
