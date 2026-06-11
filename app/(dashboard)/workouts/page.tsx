@@ -25,6 +25,7 @@ import { dayzaFetch } from "@/lib/firebase-session-client";
 
 const PersonalRecordsTab = dynamic(() => import('./_components/personal-records').then(m => ({ default: m.PersonalRecordsTab })), { ssr: false, loading: () => <div className="h-48 bg-muted animate-pulse rounded-lg" /> });
 const ACTIVE_WORKOUT_STORAGE_KEY = "dayza.activeWorkout.v1";
+const RECENT_REPLACEMENTS_STORAGE_KEY = "dayza.recentWorkoutReplacements.v1";
 const ACTIVE_WORKOUT_INACTIVITY_LIMIT_MS = 60 * 60 * 1000;
 
 type RoutineItem = {
@@ -301,6 +302,14 @@ export default function WorkoutsPage() {
   };
 
   const fetchReplacementExercise = async (exercise: any, usedIds: string[], usedNames: string[]) => {
+    const recentReplacementNames = (() => {
+      try {
+        const stored = window.localStorage.getItem(RECENT_REPLACEMENTS_STORAGE_KEY);
+        return stored ? JSON.parse(stored) : [];
+      } catch {
+        return [];
+      }
+    })();
     const res = await dayzaFetch("/api/workouts/replace-exercise", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -309,6 +318,7 @@ export default function WorkoutsPage() {
         muscleGroup: exercise?.muscleGroup,
         usedExerciseIds: usedIds,
         usedExerciseNames: usedNames,
+        recentReplacementNames,
       }),
     });
     const data = await res.json();
@@ -321,7 +331,13 @@ export default function WorkoutsPage() {
     }
     if (data?.source === "ai_pending") {
       toast.info(`${data.exercise.name} was generated and sent to admin for approval.`);
+    } else if (data?.reason) {
+      toast.info(data.reason);
     }
+    try {
+      const nextRecent = [data.exercise.name, ...recentReplacementNames.filter((name: string) => name !== data.exercise.name)].slice(0, 20);
+      window.localStorage.setItem(RECENT_REPLACEMENTS_STORAGE_KEY, JSON.stringify(nextRecent));
+    } catch {}
     return data.exercise;
   };
 
