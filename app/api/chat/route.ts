@@ -142,6 +142,25 @@ type AgentAction =
       notes?: string;
     }
   | {
+      type: "create_reminder";
+      title: string;
+      notes?: string;
+      dueDate?: string;
+      recurrence?: string;
+      recurrenceCustom?: string;
+      priority?: "none" | "low" | "medium" | "high";
+      flagged?: boolean;
+      listId?: string;
+      listName?: string;
+      contextTag?: string;
+      sourceLabel?: string;
+    }
+  | {
+      type: "complete_reminder";
+      reminderId?: string;
+      title?: string;
+    }
+  | {
       type: "create_workout_log";
       templateName?: string;
       duration?: number;
@@ -383,6 +402,91 @@ function normalizePersonName(value: string) {
     .replace(/\b(cash\s+lend|lend|lent|borrowed?|from|to)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeReminderContextTag(value?: string | null) {
+  const normalized = String(value ?? "general")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "general";
+}
+
+function parseOptionalDate(value?: string | null) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+async function resolveReminderListId(userId: string, listId?: string, listName?: string) {
+  if (listId) {
+    const existingById = await prisma.reminderList.findFirst({
+      where: { id: listId, userId },
+      select: { id: true },
+    });
+    if (existingById) return existingById.id;
+  }
+
+  const trimmedName = String(listName ?? "").trim();
+  if (trimmedName) {
+    const existingByName = await prisma.reminderList.findFirst({
+      where: { userId, name: { equals: trimmedName, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (existingByName) return existingByName.id;
+    const created = await prisma.reminderList.create({
+      data: { userId, name: trimmedName, color: "#22c55e" },
+      select: { id: true },
+    });
+    return created.id;
+  }
+
+  const firstList = await prisma.reminderList.findFirst({
+    where: { userId },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (firstList) return firstList.id;
+
+  const created = await prisma.reminderList.create({
+    data: { userId, name: "Reminders", color: "#22c55e" },
+    select: { id: true },
+  });
+  return created.id;
+}
+
+async function findReminderForCompletion(userId: string, action: Extract<AgentAction, { type: "complete_reminder" }>) {
+  if (action.reminderId) {
+    return prisma.reminder.findFirst({
+      where: { id: action.reminderId, userId },
+      select: { id: true, title: true, completed: true, completedAt: true },
+    });
+  }
+
+  const title = String(action.title ?? "").trim();
+  if (!title) return null;
+
+  const exact = await prisma.reminder.findFirst({
+    where: {
+      userId,
+      completed: false,
+      title: { equals: title, mode: "insensitive" },
+    },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    select: { id: true, title: true, completed: true, completedAt: true },
+  });
+  if (exact) return exact;
+
+  return prisma.reminder.findFirst({
+    where: {
+      userId,
+      completed: false,
+      title: { contains: title, mode: "insensitive" },
+    },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    select: { id: true, title: true, completed: true, completedAt: true },
+  });
 }
 
 function parseFriendMoneyMentions(text: string) {
@@ -1258,6 +1362,61 @@ async function executeAgentAction(
     );
   }
 
+  if (action.type === "create_reminder") {
+    const listId = await resolveReminderListId(userId, action.listId, action.listName);
+    const reminder = await prisma.reminder.create({
+      data: {
+        userId,
+        listId,
+        title: action.title.trim(),
+        notes: action.notes?.trim() || null,
+        dueDate: parseOptionalDate(action.dueDate),
+        recurrence: action.recurrence || "none",
+        recurrenceCustom: action.recurrence === "custom" ? action.recurrenceCustom?.trim() || null : null,
+        priority: action.priority || "none",
+        flagged: Boolean(action.flagged),
+        contextTag: normalizeReminderContextTag(action.contextTag),
+        sourceLabel: action.sourceLabel?.trim() || null,
+      },
+    });
+    return withUndo(
+      userId,
+      { type: action.type, label: `Added reminder: ${reminder.title}`, id: reminder.id },
+      { targetType: "reminder", targetId: reminder.id }
+    );
+  }
+
+  if (action.type === "complete_reminder") {
+    const reminder = await findReminderForCompletion(userId, action);
+    if (!reminder) {
+      return {
+        type: action.type,
+        label: `Could not find a matching reminder${action.title ? ` for "${action.title}"` : ""}`,
+        id: "missing-reminder",
+      };
+    }
+    if (reminder.completed) {
+      return { type: action.type, label: `${reminder.title} was already completed`, id: reminder.id };
+    }
+    const completedReminder = await prisma.reminder.update({
+      where: { id: reminder.id },
+      data: { completed: true, completedAt: new Date() },
+      select: { id: true, title: true, completed: true, completedAt: true },
+    });
+    return withUndo(
+      userId,
+      { type: action.type, label: `Marked reminder complete: ${completedReminder.title}`, id: completedReminder.id },
+      {
+        targetType: "reminderCompletion",
+        targetId: completedReminder.id,
+        payload: {
+          previousCompleted: reminder.completed,
+          previousCompletedAt: reminder.completedAt ? reminder.completedAt.toISOString() : null,
+        },
+      }
+    );
+  }
+
   if (action.type === "create_workout_log") {
     const exerciseRows = [];
     for (const exercise of action.exercises ?? []) {
@@ -1628,7 +1787,7 @@ export async function POST(req: Request) {
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
 
-    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, financeProfile, bankAccounts, creditCards, moneyLinks, recentChat] =
+    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, financeProfile, bankAccounts, creditCards, moneyLinks, pendingReminders, reminderLists, recentChat] =
       await Promise.all([
         prisma.userProfile.findUnique({ where: { userId } }),
         prisma.foodLog.findMany({
@@ -1681,6 +1840,31 @@ export async function POST(req: Request) {
           where: { userId },
           orderBy: [{ settled: "asc" }, { date: "desc" }],
           take: 10,
+        }),
+        prisma.reminder.findMany({
+          where: { userId, completed: false },
+          select: {
+            id: true,
+            title: true,
+            notes: true,
+            contextTag: true,
+            sourceLabel: true,
+            dueDate: true,
+            recurrence: true,
+            recurrenceCustom: true,
+            priority: true,
+            flagged: true,
+            listId: true,
+            list: { select: { id: true, name: true, color: true } },
+          },
+          orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+          take: 20,
+        }),
+        prisma.reminderList.findMany({
+          where: { userId },
+          select: { id: true, name: true, color: true },
+          orderBy: { createdAt: "asc" },
+          take: 12,
         }),
         listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
       ]);
@@ -1816,6 +2000,8 @@ You can answer questions and, when the user clearly asks you to do it, perform t
 - create_bank_account: add a bank account with balance.
 - create_credit_card: add a credit card with optional bank, current payable amount, and due day.
 - create_money_link: track money lent to someone or borrowed from someone.
+- create_reminder: save a task/reminder with optional date, time, source, context, and priority.
+- complete_reminder: mark an existing task/reminder as completed.
 - create_workout_log: save a completed workout. Only use exercise IDs that appear in context.
 - update_wellness_targets: update personalized Health/Fitness targets when the screenshot clearly shows current goals, averages, or repeated actuals that justify better targets.
 - update_profile_safety: save health limitations and/or food allergies after the user answers safety questions.
@@ -1975,6 +2161,12 @@ ${JSON.stringify({
 - If the user asks to save current balance or total amount, use update_finance_profile.
 - If the user asks to add a bank account or save a bank balance, use create_bank_account when it is a new account. Ask only if the account name is missing.
 - If the user asks to add a credit card, use create_credit_card. Ask only if the card name is missing.
+- If the user asks to remind/save/track a task, chore, office item, bill, bring-item note, or follow-up, use create_reminder.
+- For reminder/task context, prefer these contextTag values when they fit: general, home, office, leaving_home, tonight, shopping, billing, bring, follow_up.
+- Use sourceLabel for who asked or where the task came from, such as Dad, friend, manager, self, or WhatsApp.
+- If the user says a saved task is done, completed, finished, paid, delivered, or taken care of, use complete_reminder when a matching pending reminder exists.
+- If the user asks what to do today, tonight, before leaving home, or at office, answer from context.pendingReminders and prioritize high priority, flagged, and due-soon items first.
+- If there are several tasks due today and the user asks for help prioritizing, first surface the top 3 and ask which one must not be missed if priorities are still unclear.
 - If a credit-card/card-dues message includes "My spends" plus another person's name and amount, treat that named amount as money the user paid for that person. Add the card due with create_credit_card and also add create_money_link with linkType "lend" for each named person/amount. Do not ask again when the person name and amount are already present.
 - In shorthand like "HDFC card - 5964 - My spends - 2000 - Pratsa - 3964", save the card due as 5964 and save a lend entry for Pratsa 3964 with a note mentioning the related card message.
 - If the user logs a spend and says it was on a saved credit card, include creditCardName or cardLast4 so the spend is attached to that card.
@@ -2008,6 +2200,8 @@ Available action examples:
 {"type":"create_bank_account","name":"Salary Account","bankName":"HDFC","accountType":"savings","last4":"4567","balance":35000,"currency":"INR"}
 {"type":"create_credit_card","name":"HDFC Regalia","bankName":"HDFC","last4":"1234","currentDue":12000,"dueDay":5}
 {"type":"create_money_link","person":"Rahul","linkType":"lend","amount":2000,"currency":"INR","notes":"To return next week."}
+{"type":"create_reminder","title":"Take lunch box to office","notes":"Do not forget before leaving home.","dueDate":"2026-06-17T08:30:00","priority":"high","contextTag":"leaving_home","sourceLabel":"self"}
+{"type":"complete_reminder","title":"Pay current bill"}
 {"type":"create_workout_log","templateName":"Push Day","duration":60,"notes":"Good session","exercises":[{"exerciseId":"barbell-bench-press","setNumber":1,"reps":8,"weight":70}]}
 {"type":"update_wellness_targets","targetSteps":9000,"targetActiveEnergy":550,"targetExerciseMinutes":45,"targetWorkoutSessions":4,"targetTrainingMinutes":220,"targetLiftVolume":25000,"targetWeeklyActiveEnergy":2800,"reason":"Matched visible screenshot goals and recent averages."}
 {"type":"update_profile_safety","healthLimitations":"None","foodAllergies":"Peanuts"}
@@ -2039,6 +2233,8 @@ Available action examples:
       bankAccounts,
       creditCards,
       moneyLinks,
+      pendingReminders,
+      reminderLists,
       requiresJointAwarePlan: isJointSensitive(profile?.healthLimitations) || isJointSensitive(message) || conversationMentionsJointSensitive(recentChat),
       userWantsJointStrengthening:
         (lastAssistantAskedJointStrengthening(recentChat) && isAffirmativeAnswer(message)) ||

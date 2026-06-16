@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { requireAdminUser, requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ensureStarterExerciseLibrarySafe } from "@/lib/exercise-library";
@@ -119,21 +120,41 @@ export async function PATCH(req: Request) {
     const admin = await requireAdminUser();
     if (!admin) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     const data = await req.json();
-    if (!data?.id || !data?.name || !data?.muscleGroup) {
+    if (!data?.id) {
+      return NextResponse.json({ error: "Exercise ID is required" }, { status: 400 });
+    }
+
+    const existing = await prisma.exercise.findUnique({ where: { id: data.id } });
+    if (!existing) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+
+    const requestedStatus = typeof data.status === "string" ? String(data.status).trim().toLowerCase() : null;
+    if (requestedStatus && !["approved", "rejected", "pending"].includes(requestedStatus)) {
+      return NextResponse.json({ error: "Invalid exercise status" }, { status: 400 });
+    }
+
+    if (!requestedStatus && (!data?.name || !data?.muscleGroup)) {
       return NextResponse.json({ error: "ID, name, and muscle group are required" }, { status: 400 });
     }
 
     const exercise = await prisma.exercise.update({
       where: { id: data.id },
       data: {
-        name: data.name,
-        muscleGroup: data.muscleGroup,
-        equipment: data.equipment || null,
-        category: data.category || null,
-        description: data.description || null,
-        formTips: data.formTips || null,
+        name: data.name ?? existing.name,
+        muscleGroup: data.muscleGroup ?? existing.muscleGroup,
+        equipment: data.equipment === undefined ? existing.equipment : data.equipment || null,
+        category: data.category === undefined ? existing.category : data.category || null,
+        description: data.description === undefined ? existing.description : data.description || null,
+        formTips: data.formTips === undefined ? existing.formTips : data.formTips || null,
+        status: requestedStatus ?? existing.status,
+        reviewedById: requestedStatus ? admin.id : existing.reviewedById,
+        reviewedAt: requestedStatus ? new Date() : existing.reviewedAt,
       },
     });
+    if (requestedStatus) {
+      revalidatePath("/admin");
+      revalidatePath("/workouts");
+      revalidatePath("/profile");
+    }
     return NextResponse.json({ exercise });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });

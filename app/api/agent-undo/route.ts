@@ -40,6 +40,17 @@ export async function POST(req: Request) {
     if (targetType === "foodLog") {
       undone = await deleteOwnedRecord(prisma.foodLog, user.id, targetId);
       if (undone) await deleteFoodMicronutrientLog(user.id, targetId);
+    } else if (targetType === "reminder") {
+      undone = await deleteOwnedRecord(prisma.reminder, user.id, targetId);
+    } else if (targetType === "reminderCompletion") {
+      const result = await prisma.reminder.updateMany({
+        where: { id: targetId, userId: user.id },
+        data: {
+          completed: Boolean(undo.payload?.previousCompleted),
+          completedAt: undo.payload?.previousCompletedAt ? new Date(String(undo.payload.previousCompletedAt)) : null,
+        },
+      });
+      undone = result.count > 0;
     } else if (targetType === "progressEntry") {
       undone = await deleteOwnedRecord(prisma.progressEntry, user.id, targetId);
     } else if (targetType === "spend") {

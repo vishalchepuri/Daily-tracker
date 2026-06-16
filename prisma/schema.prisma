@@ -366,6 +366,8 @@ model Reminder {
   list        ReminderList? @relation(fields: [listId], references: [id], onDelete: SetNull)
   title       String
   notes       String?
+  contextTag  String   @default("general")
+  sourceLabel String?
   dueDate     DateTime?
   recurrence  String   @default("none")
   recurrenceCustom String?
@@ -378,6 +380,7 @@ model Reminder {
   updatedAt   DateTime @updatedAt
   @@index([userId, dueDate])
   @@index([userId, completed])
+  @@index([userId, contextTag, completed])
 }
 
 model Medication {
