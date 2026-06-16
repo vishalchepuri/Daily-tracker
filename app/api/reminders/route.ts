@@ -9,6 +9,15 @@ function parseDueDate(value?: string | null) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+function normalizeContextTag(value?: string | null) {
+  const normalized = String(value ?? "general")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || "general";
+}
+
 export async function GET(req: Request) {
   try {
     const user = await requireCurrentUser();
@@ -24,6 +33,8 @@ export async function GET(req: Request) {
         listId: true,
         title: true,
         notes: true,
+        contextTag: true,
+        sourceLabel: true,
         dueDate: true,
         recurrence: true,
         recurrenceCustom: true,
@@ -62,6 +73,8 @@ export async function POST(req: Request) {
         listId: data.listId || null,
         title: data.title,
         notes: data.notes || null,
+        contextTag: normalizeContextTag(data.contextTag),
+        sourceLabel: data.sourceLabel?.trim() || null,
         dueDate: parseDueDate(data.dueDate),
         recurrence: data.recurrence || "none",
         recurrenceCustom: data.recurrence === "custom" ? data.recurrenceCustom || null : null,
@@ -91,6 +104,8 @@ export async function PATCH(req: Request) {
         listId: data.listId === undefined ? existing.listId : data.listId || null,
         title: data.title ?? existing.title,
         notes: data.notes === undefined ? existing.notes : data.notes || null,
+        contextTag: data.contextTag === undefined ? existing.contextTag : normalizeContextTag(data.contextTag),
+        sourceLabel: data.sourceLabel === undefined ? existing.sourceLabel : data.sourceLabel?.trim() || null,
         dueDate: data.dueDate === undefined ? existing.dueDate : parseDueDate(data.dueDate),
         recurrence: data.recurrence ?? existing.recurrence,
         recurrenceCustom: data.recurrence === "custom" ? data.recurrenceCustom || null : data.recurrence === undefined ? existing.recurrenceCustom : null,

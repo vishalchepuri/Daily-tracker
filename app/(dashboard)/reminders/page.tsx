@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
+import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,8 @@ const blankReminder = {
   id: "",
   title: "",
   notes: "",
+  contextTag: "general",
+  sourceLabel: "",
   dueDate: "",
   dueTime: "",
   recurrence: "none",
@@ -31,6 +33,17 @@ const blankReminder = {
 const listColors = ["#22c55e", "#3b82f6", "#a855f7", "#f97316", "#ef4444", "#06b6d4"];
 const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"));
 const minutes = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
+const contextOptions = [
+  { value: "general", label: "General" },
+  { value: "home", label: "Home" },
+  { value: "office", label: "Office" },
+  { value: "leaving_home", label: "Leaving Home" },
+  { value: "tonight", label: "Tonight" },
+  { value: "shopping", label: "Shopping" },
+  { value: "billing", label: "Bills" },
+  { value: "bring", label: "Bring" },
+  { value: "follow_up", label: "Follow Up" },
+];
 
 function splitDateTime(value?: string | null) {
   if (!value) return { dueDate: "", dueTime: "" };
@@ -56,6 +69,30 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function contextLabel(value?: string | null) {
+  return contextOptions.find((item) => item.value === value)?.label || String(value ?? "General").replace(/_/g, " ");
+}
+
+function priorityWeight(priority?: string | null) {
+  if (priority === "high") return 3;
+  if (priority === "medium") return 2;
+  if (priority === "low") return 1;
+  return 0;
+}
+
+function reminderImportanceScore(item: any) {
+  const due = item?.dueDate ? new Date(item.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+  const now = Date.now();
+  const overdueBoost = due < now ? 1_000_000_000_000 : 0;
+  const flaggedBoost = item?.flagged ? 100_000_000_000 : 0;
+  const priorityBoost = priorityWeight(item?.priority) * 10_000_000_000;
+  return overdueBoost + flaggedBoost + priorityBoost - due;
+}
+
+function sortRemindersByImportance(items: any[]) {
+  return [...items].sort((a, b) => reminderImportanceScore(b) - reminderImportanceScore(a));
 }
 
 export default function RemindersPage() {
@@ -138,7 +175,10 @@ export default function RemindersPage() {
       all: reminders.filter((item) => !item.completed).length,
       overdue: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) < now).length,
       today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd).length,
+      tonight: reminders.filter((item) => !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= new Date(`${dateInputValue(todayStart)}T18:00:00`) && new Date(item.dueDate) <= todayEnd))).length,
       tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd).length,
+      office: reminders.filter((item) => !item.completed && item.contextTag === "office").length,
+      leaving_home: reminders.filter((item) => !item.completed && item.contextTag === "leaving_home").length,
       scheduled: reminders.filter((item) => !item.completed && item.dueDate).length,
       flagged: reminders.filter((item) => !item.completed && item.flagged).length,
       completed: reminders.filter((item) => item.completed).length,
@@ -155,16 +195,20 @@ export default function RemindersPage() {
     const tomorrowEnd = new Date(tomorrowStart);
     tomorrowEnd.setHours(23, 59, 59, 999);
     const now = new Date();
-    return reminders.filter((item) => {
+    const nextItems = reminders.filter((item) => {
       if (filter === "all") return !item.completed;
       if (filter === "overdue") return !item.completed && item.dueDate && new Date(item.dueDate) < now;
       if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd;
       if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd;
+      if (filter === "tonight") return !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= new Date(`${dateInputValue(todayStart)}T18:00:00`) && new Date(item.dueDate) <= todayEnd));
+      if (filter === "office") return !item.completed && item.contextTag === "office";
+      if (filter === "leaving_home") return !item.completed && item.contextTag === "leaving_home";
       if (filter === "scheduled") return !item.completed && item.dueDate;
       if (filter === "flagged") return !item.completed && item.flagged;
       if (filter === "completed") return item.completed;
       return item.listId === filter && !item.completed;
     });
+    return sortRemindersByImportance(nextItems);
   }, [filter, reminders]);
 
   const openAddReminder = () => {
@@ -176,10 +220,10 @@ export default function RemindersPage() {
     const today = new Date();
     const tomorrow = addDays(today, 1);
     const presets = {
-      water: { title: "Drink water", notes: "Hydration check", dueDate: dateInputValue(today), dueTime: "18:00", recurrence: "daily", priority: "medium" },
-      meds: { title: "Take medication", notes: "Confirm dose in Medications", dueDate: dateInputValue(today), dueTime: "21:00", recurrence: "daily", priority: "high" },
-      workout: { title: "Workout session", notes: "Warm up first, then follow today's plan", dueDate: dateInputValue(tomorrow), dueTime: "07:00", recurrence: "none", priority: "medium" },
-      meal: { title: "Meal prep", notes: "Prepare next planned meal", dueDate: dateInputValue(today), dueTime: "20:00", recurrence: "none", priority: "low" },
+      water: { title: "Drink water", notes: "Hydration check", contextTag: "general", dueDate: dateInputValue(today), dueTime: "18:00", recurrence: "daily", priority: "medium" },
+      meds: { title: "Take medication", notes: "Confirm dose in Medications", contextTag: "tonight", dueDate: dateInputValue(today), dueTime: "21:00", recurrence: "daily", priority: "high" },
+      workout: { title: "Workout session", notes: "Warm up first, then follow today's plan", contextTag: "office", dueDate: dateInputValue(tomorrow), dueTime: "07:00", recurrence: "none", priority: "medium" },
+      meal: { title: "Meal prep", notes: "Prepare next planned meal", contextTag: "home", dueDate: dateInputValue(today), dueTime: "20:00", recurrence: "none", priority: "low" },
     } as const;
     setReminderForm({ ...blankReminder, ...presets[preset], listId: lists[0]?.id ?? "" });
     setReminderOpen(true);
@@ -191,6 +235,8 @@ export default function RemindersPage() {
       id: item.id,
       title: item.title ?? "",
       notes: item.notes ?? "",
+      contextTag: item.contextTag ?? "general",
+      sourceLabel: item.sourceLabel ?? "",
       dueDate: due.dueDate,
       dueTime: due.dueTime,
       recurrence: item.recurrence ?? "none",
@@ -322,6 +368,24 @@ export default function RemindersPage() {
       .slice(0, 5);
   }, [reminders]);
 
+  const topPriorityToday = useMemo(() => {
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setHours(23, 59, 59, 999);
+    return sortRemindersByImportance(
+      reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd)
+    ).slice(0, 3);
+  }, [reminders]);
+
+  const leavingHomeTasks = useMemo(() => sortRemindersByImportance(
+    reminders.filter((item) => !item.completed && item.contextTag === "leaving_home")
+  ).slice(0, 5), [reminders]);
+
+  const officeTasks = useMemo(() => sortRemindersByImportance(
+    reminders.filter((item) => !item.completed && item.contextTag === "office")
+  ).slice(0, 5), [reminders]);
+
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
@@ -428,10 +492,55 @@ export default function RemindersPage() {
         </Card>
       </div>
 
+      <div className="grid gap-3 lg:grid-cols-3">
+        <Card>
+          <CardContent className="space-y-3 p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold"><Flag className="h-4 w-4 text-primary" />Top Priorities Today</div>
+            {topPriorityToday.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No urgent tasks for today.</p>
+            ) : topPriorityToday.map((item) => (
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+                <span className="min-w-0 truncate">{item.title}</span>
+                <Badge variant="outline">{item.priority}</Badge>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="space-y-3 p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold"><Home className="h-4 w-4 text-primary" />Leaving Home</div>
+            {leavingHomeTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No leaving-home tasks right now.</p>
+            ) : leavingHomeTasks.map((item) => (
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+                <span className="min-w-0 truncate">{item.title}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? new Date(item.dueDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "No time"}</span>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="space-y-3 p-3 sm:p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="h-4 w-4 text-primary" />Office Queue</div>
+            {officeTasks.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No office tasks lined up.</p>
+            ) : officeTasks.map((item) => (
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+                <span className="min-w-0 truncate">{item.title}</span>
+                <Badge variant="secondary">{item.priority === "none" ? "task" : item.priority}</Badge>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+
       <div className="flex gap-2 overflow-x-auto pb-1 ios-scroll">
         <SmartButton active={filter === "overdue"} icon={AlertTriangle} label="Overdue" count={smartCounts.overdue} onClick={() => setFilter("overdue")} />
         <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
+        <SmartButton active={filter === "tonight"} icon={Clock3} label="Tonight" count={smartCounts.tonight} onClick={() => setFilter("tonight")} />
         <SmartButton active={filter === "tomorrow"} icon={CalendarDays} label="Tomorrow" count={smartCounts.tomorrow} onClick={() => setFilter("tomorrow")} />
+        <SmartButton active={filter === "office"} icon={BriefcaseBusiness} label="Office" count={smartCounts.office} onClick={() => setFilter("office")} />
+        <SmartButton active={filter === "leaving_home"} icon={Home} label="Leaving Home" count={smartCounts.leaving_home} onClick={() => setFilter("leaving_home")} />
         <SmartButton active={filter === "scheduled"} icon={CalendarDays} label="Scheduled" count={smartCounts.scheduled} onClick={() => setFilter("scheduled")} />
         <SmartButton active={filter === "all"} icon={Inbox} label="All" count={smartCounts.all} onClick={() => setFilter("all")} />
         <SmartButton active={filter === "flagged"} icon={Flag} label="Flagged" count={smartCounts.flagged} onClick={() => setFilter("flagged")} />
@@ -470,6 +579,8 @@ export default function RemindersPage() {
                         {item.priority !== "none" && <Badge variant="outline">{item.priority}</Badge>}
                         {item.recurrence !== "none" && <Badge variant="outline"><Repeat className="mr-1 h-3 w-3" />{item.recurrence === "custom" ? item.recurrenceCustom || "custom" : item.recurrence}</Badge>}
                         {item.list && <Badge variant="secondary">{item.list.name}</Badge>}
+                        {item.contextTag && <Badge variant="secondary">{contextLabel(item.contextTag)}</Badge>}
+                        {item.sourceLabel && <Badge variant="outline">from {item.sourceLabel}</Badge>}
                       </div>
                       {item.notes && <p className="mt-1 text-sm text-muted-foreground">{item.notes}</p>}
                       {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleString()}</p>}
@@ -579,6 +690,28 @@ export default function RemindersPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
+                <Label>Context</Label>
+                <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
+                  <SelectTrigger className="mt-1"><SelectValue placeholder="Context" /></SelectTrigger>
+                  <SelectContent>
+                    {contextOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Asked By / Source</Label>
+                <Input
+                  value={reminderForm.sourceLabel}
+                  onChange={(e) => setReminderForm({ ...reminderForm, sourceLabel: e.target.value })}
+                  className="mt-1"
+                  placeholder="Dad, friend, self"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
                 <Label>List</Label>
                 <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
                   <SelectTrigger className="mt-1"><SelectValue placeholder="List" /></SelectTrigger>
@@ -610,6 +743,17 @@ function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
 }
 
 function viewTitle(filter: string, lists: any[]) {
-  const smart: Record<string, string> = { overdue: "Overdue", today: "Today", tomorrow: "Tomorrow", scheduled: "Scheduled", all: "All", flagged: "Flagged", completed: "Completed" };
+  const smart: Record<string, string> = {
+    overdue: "Overdue",
+    today: "Today",
+    tonight: "Tonight",
+    tomorrow: "Tomorrow",
+    office: "Office",
+    leaving_home: "Leaving Home",
+    scheduled: "Scheduled",
+    all: "All",
+    flagged: "Flagged",
+    completed: "Completed",
+  };
   return smart[filter] ?? lists.find((list) => list.id === filter)?.name ?? "Reminders";
 }

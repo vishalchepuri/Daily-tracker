@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
+import { AlertCircle, Banknote, CalendarClock, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { pruneFirestoreChatRetention } from "@/lib/firestore-chat";
 import { listRecentIssueReports } from "@/lib/firestore-app-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ExerciseReviewActions } from "./exercise-review-actions";
 import {
   Table,
   TableBody,
@@ -32,40 +33,6 @@ function formatNumber(value?: number | null) {
 
 function formatInr(value?: number | null) {
   return `INR ${Number(value ?? 0).toFixed(0)}`;
-}
-
-async function approveExerciseSubmission(formData: FormData) {
-  "use server";
-  const admin = await requireAdminUser();
-  if (!admin) return;
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  await prisma.exercise.update({
-    where: { id },
-    data: {
-      status: "approved",
-      reviewedById: admin.id,
-      reviewedAt: new Date(),
-    },
-  });
-  revalidatePath("/admin");
-}
-
-async function rejectExerciseSubmission(formData: FormData) {
-  "use server";
-  const admin = await requireAdminUser();
-  if (!admin) return;
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  await prisma.exercise.update({
-    where: { id },
-    data: {
-      status: "rejected",
-      reviewedById: admin.id,
-      reviewedAt: new Date(),
-    },
-  });
-  revalidatePath("/admin");
 }
 
 async function runRetentionCleanup() {
@@ -236,20 +203,7 @@ export default async function AdminPage() {
                       <p className="mt-1 text-xs text-muted-foreground">{item.user} - {formatDate(item.createdAt)}</p>
                     </div>
                     {item.kind === "exercise" ? (
-                      <div className="flex flex-wrap gap-2">
-                        <form action={approveExerciseSubmission}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                            <CheckCircle2 className="h-4 w-4" /> Approve
-                          </button>
-                        </form>
-                        <form action={rejectExerciseSubmission}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">
-                            <XCircle className="h-4 w-4" /> Reject
-                          </button>
-                        </form>
-                      </div>
+                      <ExerciseReviewActions id={item.id} name={item.title} />
                     ) : (
                       <Badge variant="outline">Open</Badge>
                     )}
@@ -302,18 +256,7 @@ export default async function AdminPage() {
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <form action={approveExerciseSubmission}>
-                      <input type="hidden" name="id" value={exercise.id} />
-                      <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                        <CheckCircle2 className="h-4 w-4" /> Approve
-                      </button>
-                    </form>
-                    <form action={rejectExerciseSubmission}>
-                      <input type="hidden" name="id" value={exercise.id} />
-                      <button className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">
-                        <XCircle className="h-4 w-4" /> Reject
-                      </button>
-                    </form>
+                    <ExerciseReviewActions id={exercise.id} name={exercise.name} />
                   </div>
                 </div>
               ))}
