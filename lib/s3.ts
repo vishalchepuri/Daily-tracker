@@ -12,14 +12,15 @@ function useFirebaseStorage() {
 export async function generatePresignedUploadUrl(
   fileName: string,
   contentType: string,
-  isPublic: boolean = false
+  isPublic: boolean = false,
+  folder?: string
 ) {
   if (useFirebaseStorage()) {
-    return generateFirebaseUploadUrl(fileName, contentType, isPublic);
+    return generateFirebaseUploadUrl(fileName, contentType, isPublic, folder);
   }
 
   const { bucketName, folderPrefix } = getBucketConfig();
-  const prefix = isPublic ? "public/uploads" : "uploads";
+  const prefix = folder || (isPublic ? "public/uploads" : "uploads");
   const cloud_storage_path = `${folderPrefix}${prefix}/${Date.now()}-${fileName}`;
 
   const command = new PutObjectCommand({

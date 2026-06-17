@@ -26,7 +26,7 @@ export async function POST() {
     const result = await cleanupUser(userId);
     return NextResponse.json({ ok: true, ...result });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -39,6 +39,6 @@ export async function DELETE() {
     for (const user of users) results.push(await cleanupUser(user.id));
     return NextResponse.json({ ok: true, users: users.length, results });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

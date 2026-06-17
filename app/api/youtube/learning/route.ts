@@ -36,7 +36,7 @@ export async function GET() {
     const items = await listYoutubeLearningItems(user.id);
     return NextResponse.json({ items });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ item });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -89,7 +89,7 @@ export async function PATCH(req: Request) {
     if (!item) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json({ item });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -103,6 +103,6 @@ export async function DELETE(req: Request) {
     await deleteYoutubeLearningItem(user.id, videoId);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

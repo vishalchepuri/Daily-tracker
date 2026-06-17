@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -103,7 +104,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "integrations", "danger"].includes(tab)) {
+    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "notifications", "integrations", "danger"].includes(tab)) {
       setActiveTab(tab);
     }
     fetch("/api/profile").then(r => r.json()).then(d => {
@@ -420,6 +421,14 @@ export default function ProfilePage() {
     }
   };
 
+  const togglePushNotifications = async (enabled: boolean) => {
+    if (enabled) {
+      await enablePushNotifications();
+    } else {
+      await disablePushNotifications();
+    }
+  };
+
   const sendPushTest = async () => {
     setPushSending(true);
     try {
@@ -557,6 +566,7 @@ export default function ProfilePage() {
           <TabsTrigger value="report" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Report</TabsTrigger>
           <TabsTrigger value="progress" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Progress</TabsTrigger>
           <TabsTrigger value="activity" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Activity</TabsTrigger>
+          <TabsTrigger value="notifications" className="min-w-32 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Notifications</TabsTrigger>
           <TabsTrigger value="integrations" className="min-w-28 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Integrations</TabsTrigger>
           <TabsTrigger value="danger" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Danger</TabsTrigger>
         </TabsList>
@@ -949,6 +959,74 @@ export default function ProfilePage() {
       </FadeIn>
         </TabsContent>
 
+        <TabsContent value="notifications" className="space-y-6">
+      <FadeIn delay={0.14}>
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <BellRing className="h-5 w-5 text-primary" />
+                  Mobile Notifications
+                </CardTitle>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Enable push notifications for reminders, tasks, medications, and due alerts on this device.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <Label htmlFor="push-notifications-enabled" className="text-sm">
+                  {pushStatus.subscribed ? "On" : "Off"}
+                </Label>
+                <Switch
+                  id="push-notifications-enabled"
+                  checked={pushStatus.subscribed}
+                  onCheckedChange={togglePushNotifications}
+                  disabled={!pushStatus.supported || !pushStatus.configured || pushLoading}
+                  aria-label="Enable mobile push notifications"
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!pushStatus.supported && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                This browser or device does not support web push notifications. On iPhone, open Dayza from the Home Screen app icon.
+              </div>
+            )}
+            {pushStatus.supported && !pushStatus.configured && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Push notifications are not configured on the server yet. Add VAPID keys first.
+              </div>
+            )}
+            {pushStatus.supported && pushStatus.permission === "denied" && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                Notifications are blocked in this browser. Enable them from browser or app settings, then return here.
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
+              <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Enabled" : "Disabled"}</Badge>
+              <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
+                Enable
+              </Button>
+              <Button type="button" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
+                Disable
+              </Button>
+              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={!pushStatus.subscribed}>
+                Test Notification
+              </Button>
+              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={!pushStatus.subscribed}>
+                Send Due Now
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </FadeIn>
+        </TabsContent>
+
         <TabsContent value="integrations" className="space-y-6">
       <FadeIn delay={0.14}>
         <Card>
@@ -1000,50 +1078,6 @@ export default function ProfilePage() {
               <KeyRound className="mr-2 h-4 w-4" />
               Save Password
             </Button>
-          </CardContent>
-        </Card>
-      </FadeIn>
-      <FadeIn delay={0.18}>
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BellRing className="h-5 w-5 text-primary" />
-              Push Notifications
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
-              Enable real push notifications for reminders so Dayza can reach your phone even when the app is closed.
-            </div>
-            {!pushStatus.supported && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
-                This browser/device does not support web push notifications.
-              </div>
-            )}
-            {pushStatus.supported && !pushStatus.configured && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
-                Push notifications are not configured on the server yet. Add VAPID keys first.
-              </div>
-            )}
-            <div className="flex flex-wrap gap-2 text-xs">
-              <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
-              <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Subscribed" : "Not subscribed"}</Badge>
-              <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
-                Enable Push
-              </Button>
-              <Button type="button" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
-                Disable Push
-              </Button>
-              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={!pushStatus.subscribed}>
-                Test Push
-              </Button>
-              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={!pushStatus.subscribed}>
-                Send Due Now
-              </Button>
-            </div>
           </CardContent>
         </Card>
       </FadeIn>

@@ -23,6 +23,6 @@ export async function GET() {
     }));
     return NextResponse.json({ subscriptions });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to load subscriptions" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to load subscriptions" : error?.message ?? "Failed to load subscriptions" }, { status: 500 });
   }
 }

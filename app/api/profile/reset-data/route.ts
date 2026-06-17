@@ -129,6 +129,6 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, features, deleted });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to reset selected data" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to reset selected data" : error?.message ?? "Failed to reset selected data" }, { status: 500 });
   }
 }

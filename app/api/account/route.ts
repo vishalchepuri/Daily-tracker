@@ -20,6 +20,6 @@ export async function DELETE() {
     await prisma.user.delete({ where: { id: userId } });
     return NextResponse.json({ message: "Account deleted" });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to delete account" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to delete account" : error?.message ?? "Failed to delete account" }, { status: 500 });
   }
 }

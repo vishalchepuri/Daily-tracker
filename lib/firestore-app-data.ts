@@ -99,7 +99,7 @@ export async function createProgressPhotoMetadata(userId: string, input: any) {
   await ref.set({
     userId,
     cloudStoragePath: input.cloudStoragePath,
-    isPublic: Boolean(input.isPublic),
+    isPublic: false,
     label: input.label ?? null,
     date: input.date ? Timestamp.fromDate(new Date(input.date)) : FieldValue.serverTimestamp(),
     createdAt: FieldValue.serverTimestamp(),

@@ -15,7 +15,7 @@ export async function GET() {
       botConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -40,6 +40,6 @@ export async function PATCH(req: Request) {
       botConfigured: Boolean(process.env.TELEGRAM_BOT_TOKEN),
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

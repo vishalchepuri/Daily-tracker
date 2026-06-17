@@ -222,6 +222,6 @@ export async function POST(req: Request) {
     }
     return NextResponse.json({ error: `No alternate ${muscleGroup} exercise found` }, { status: 404 });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to replace exercise" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to replace exercise" : error?.message ?? "Failed to replace exercise" }, { status: 500 });
   }
 }

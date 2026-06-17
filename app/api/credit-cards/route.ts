@@ -33,7 +33,7 @@ export async function GET() {
     });
     return NextResponse.json({ creditCards });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -57,7 +57,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ creditCard });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -101,7 +101,7 @@ export async function PATCH(req: Request) {
     });
     return NextResponse.json({ creditCard });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -118,6 +118,6 @@ export async function DELETE(req: Request) {
     await prisma.creditCard.update({ where: { id }, data: { active: false } });
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

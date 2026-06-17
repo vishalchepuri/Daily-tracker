@@ -194,6 +194,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ subscriptions, videos, sort: "publishedAt:desc" });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to load subscription feed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to load subscription feed" : error?.message ?? "Failed to load subscription feed" }, { status: 500 });
   }
 }

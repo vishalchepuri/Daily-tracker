@@ -418,6 +418,8 @@ model Medication {
   doseUnits   Int      @default(1)
   refillAt    Int?
   refillNotes String?
+  lastPushSentAt DateTime?
+  lastRefillPushAt DateTime?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

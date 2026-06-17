@@ -23,6 +23,7 @@ export async function POST(req: Request) {
     await sendTelegramMessage(chatId, response);
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    return NextResponse.json({ ok: false, error: error?.message ?? "Failed" }, { status: 500 });
+    const message = process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }

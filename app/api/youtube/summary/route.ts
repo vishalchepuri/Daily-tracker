@@ -108,6 +108,6 @@ export async function POST(req: Request) {
       takeaways: extractTakeaways(summary),
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to summarize video" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to summarize video" : error?.message ?? "Failed to summarize video" }, { status: 500 });
   }
 }

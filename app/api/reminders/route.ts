@@ -56,7 +56,7 @@ export async function GET(req: Request) {
       hasMore: reminders.length > limit,
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -85,7 +85,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ reminder });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -98,6 +98,11 @@ export async function PATCH(req: Request) {
     const existing = await prisma.reminder.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
     const completed = data.completed == null ? existing.completed : Boolean(data.completed);
+    const nextDueDate = data.dueDate === undefined ? existing.dueDate : parseDueDate(data.dueDate);
+    const dueDateChanged = data.dueDate !== undefined && (
+      (existing.dueDate?.toISOString() ?? null) !== (nextDueDate?.toISOString() ?? null)
+    );
+    const resetNotificationState = dueDateChanged || (!completed && existing.completed) || (!completed && data.dueDate !== undefined);
     const reminder = await prisma.reminder.update({
       where: { id: data.id },
       data: {
@@ -106,19 +111,21 @@ export async function PATCH(req: Request) {
         notes: data.notes === undefined ? existing.notes : data.notes || null,
         contextTag: data.contextTag === undefined ? existing.contextTag : normalizeContextTag(data.contextTag),
         sourceLabel: data.sourceLabel === undefined ? existing.sourceLabel : data.sourceLabel?.trim() || null,
-        dueDate: data.dueDate === undefined ? existing.dueDate : parseDueDate(data.dueDate),
+        dueDate: nextDueDate,
         recurrence: data.recurrence ?? existing.recurrence,
         recurrenceCustom: data.recurrence === "custom" ? data.recurrenceCustom || null : data.recurrence === undefined ? existing.recurrenceCustom : null,
         priority: data.priority ?? existing.priority,
         flagged: data.flagged == null ? existing.flagged : Boolean(data.flagged),
         completed,
         completedAt: completed ? existing.completedAt ?? new Date() : null,
+        pushSentAt: resetNotificationState ? null : existing.pushSentAt,
+        telegramSentAt: resetNotificationState ? null : existing.telegramSentAt,
       },
       include: { list: true },
     });
     return NextResponse.json({ reminder });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -135,6 +142,6 @@ export async function DELETE(req: Request) {
     await prisma.reminder.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
