@@ -157,7 +157,7 @@ export default async function AdminPage() {
 
   return (
     <div className="space-y-5">
-      <div>
+      <div className="hidden sm:block">
         <div className="flex items-center gap-2 text-primary">
           <Shield className="h-5 w-5" />
           <span className="text-sm font-semibold uppercase tracking-wide">Admin</span>

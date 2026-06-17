@@ -416,8 +416,8 @@ export default function ChatPage() {
   return (
     <div className="flex h-[calc(100svh_-_7rem_-_env(safe-area-inset-bottom))] min-h-[32rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
       <FadeIn>
-        <div className="mb-2 grid gap-2 sm:mb-3 sm:flex sm:items-start sm:justify-between">
-          <div className="min-w-0">
+        <div className="mb-2 flex items-center justify-end gap-2 sm:mb-3 sm:items-start sm:justify-between">
+          <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
             <p className="mt-1 hidden text-sm text-muted-foreground min-[390px]:block">Ask about fitness, food, spends, reminders, and progress</p>
           </div>

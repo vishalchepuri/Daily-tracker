@@ -12,8 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { dateTimeInputToIso, formatLocalDateInput } from "@/lib/local-dates";
 
 const blankReminder = {
   id: "",
@@ -31,8 +30,6 @@ const blankReminder = {
 };
 
 const listColors = ["#22c55e", "#3b82f6", "#a855f7", "#f97316", "#ef4444", "#06b6d4"];
-const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"));
-const minutes = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
 const contextOptions = [
   { value: "general", label: "General" },
   { value: "home", label: "Home" },
@@ -50,19 +47,17 @@ function splitDateTime(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { dueDate: "", dueTime: "" };
   return {
-    dueDate: date.toISOString().slice(0, 10),
+    dueDate: formatLocalDateInput(date),
     dueTime: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
   };
 }
 
 function buildDueDate(dateValue: string, timeValue: string) {
-  if (!dateValue) return "";
-  const time = timeValue || "09:00";
-  return `${dateValue}T${time}`;
+  return dateTimeInputToIso(dateValue, timeValue);
 }
 
 function dateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return formatLocalDateInput(date);
 }
 
 function addDays(date: Date, days: number) {
@@ -389,17 +384,17 @@ export default function RemindersPage() {
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+          <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Reminders</h2>
             <p className="mt-1 max-w-[20rem] text-sm text-muted-foreground sm:max-w-none">Local lists, smart views, due dates, flags, and priorities</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 min-[390px]:grid-cols-3 sm:flex">
+          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/70 bg-card/80 p-2 shadow-sm shadow-black/10 min-[390px]:grid-cols-3 sm:flex sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
             <Dialog open={listOpen} onOpenChange={setListOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><ListPlus className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">New </span>List</Button>
+                <Button variant="outline" className="h-11 w-full rounded-lg px-3 sm:h-10 sm:w-auto sm:px-4"><ListPlus className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">New </span>List</Button>
               </DialogTrigger>
-              <DialogContent className="max-w-sm">
+              <DialogContent className="max-w-sm sm:max-w-sm">
                 <DialogHeader><DialogTitle>New List</DialogTitle></DialogHeader>
                 <div className="space-y-4">
                   <div><Label>Name</Label><Input value={listForm.name} onChange={(e) => setListForm({ ...listForm, name: e.target.value })} className="mt-1" /></div>
@@ -414,7 +409,7 @@ export default function RemindersPage() {
             </Dialog>
             <Dialog open={telegramOpen} onOpenChange={setTelegramOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><Send className="w-4 h-4 sm:mr-2" />Telegram</Button>
+                <Button variant="outline" className="h-11 w-full rounded-lg px-3 sm:h-10 sm:w-auto sm:px-4"><Send className="w-4 h-4 sm:mr-2" />Telegram</Button>
               </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader><DialogTitle>Telegram Reminders</DialogTitle></DialogHeader>
@@ -452,7 +447,7 @@ export default function RemindersPage() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button onClick={openAddReminder} className="col-span-2 w-full px-3 min-[390px]:col-span-1 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" /><span className="hidden min-[390px]:inline sm:hidden">New</span><span className="min-[390px]:hidden sm:inline">New Reminder</span></Button>
+            <Button onClick={openAddReminder} className="col-span-2 h-11 w-full rounded-lg px-3 min-[390px]:col-span-1 sm:h-10 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" /><span className="sm:hidden">New</span><span className="hidden sm:inline">New Reminder</span></Button>
           </div>
         </div>
       </FadeIn>
@@ -465,10 +460,10 @@ export default function RemindersPage() {
               Quick Add
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("water")} className="justify-start">Water</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("meds")} className="justify-start">Medication</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("workout")} className="justify-start">Workout</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("meal")} className="justify-start">Meal prep</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("water")} className="h-11 justify-start rounded-lg bg-background/50">Water</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("meds")} className="h-11 justify-start rounded-lg bg-background/50">Medication</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("workout")} className="h-11 justify-start rounded-lg bg-background/50">Workout</Button>
+            <Button type="button" variant="outline" onClick={() => openQuickReminder("meal")} className="h-11 justify-start rounded-lg bg-background/50">Meal prep</Button>
             </div>
           </CardContent>
         </Card>
@@ -482,7 +477,7 @@ export default function RemindersPage() {
             {upcomingReminders.length === 0 ? (
               <p className="text-sm text-muted-foreground">No upcoming reminders.</p>
             ) : upcomingReminders.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
               </button>
@@ -499,7 +494,7 @@ export default function RemindersPage() {
             {topPriorityToday.length === 0 ? (
               <p className="text-sm text-muted-foreground">No urgent tasks for today.</p>
             ) : topPriorityToday.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
                 <Badge variant="outline">{item.priority}</Badge>
               </button>
@@ -512,7 +507,7 @@ export default function RemindersPage() {
             {leavingHomeTasks.length === 0 ? (
               <p className="text-sm text-muted-foreground">No leaving-home tasks right now.</p>
             ) : leavingHomeTasks.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
                 <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? new Date(item.dueDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "No time"}</span>
               </button>
@@ -525,7 +520,7 @@ export default function RemindersPage() {
             {officeTasks.length === 0 ? (
               <p className="text-sm text-muted-foreground">No office tasks lined up.</p>
             ) : officeTasks.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
+              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
                 <Badge variant="secondary">{item.priority === "none" ? "task" : item.priority}</Badge>
               </button>
@@ -534,7 +529,7 @@ export default function RemindersPage() {
         </Card>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto pb-1 ios-scroll">
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 ios-scroll">
         <SmartButton active={filter === "overdue"} icon={AlertTriangle} label="Overdue" count={smartCounts.overdue} onClick={() => setFilter("overdue")} />
         <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
         <SmartButton active={filter === "tonight"} icon={Clock3} label="Tonight" count={smartCounts.tonight} onClick={() => setFilter("tonight")} />
@@ -561,15 +556,15 @@ export default function RemindersPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle>{viewTitle(filter, lists)}</CardTitle></CardHeader>
-          <CardContent>
+          <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3"><CardTitle>{viewTitle(filter, lists)}</CardTitle></CardHeader>
+          <CardContent className="p-4 pt-2 sm:p-6 sm:pt-0">
             {filteredReminders.length === 0 ? (
               <div className="text-center py-12 text-sm text-muted-foreground">No reminders here.</div>
             ) : (
               <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
                 {filteredReminders.map((item) => (
-                  <div key={item.id} className={`grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
-                    <button onClick={() => toggleComplete(item)} className="mt-1 justify-self-start">
+                  <div key={item.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-xl border border-border/60 bg-card/80 p-3 shadow-sm shadow-black/5 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
+                    <button onClick={() => toggleComplete(item)} className="mt-0 justify-self-start sm:mt-1">
                       {item.completed ? <CheckCircle2 className="w-5 h-5 text-primary" /> : <Circle className="w-5 h-5 text-muted-foreground" />}
                     </button>
                     <div className="min-w-0 flex-1">
@@ -586,7 +581,7 @@ export default function RemindersPage() {
                       {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleString()}</p>}
                     </div>
                     {!item.completed && (
-                      <div className="flex shrink-0 flex-wrap gap-1">
+                      <div className="col-span-2 flex shrink-0 flex-wrap gap-1 sm:col-auto">
                         <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 15)}>
                           <Clock3 className="mr-1 h-3 w-3" />15m
                         </Button>
@@ -595,7 +590,7 @@ export default function RemindersPage() {
                         </Button>
                       </div>
                     )}
-                    <div className="grid grid-cols-2 gap-2 sm:contents">
+                    <div className="col-span-2 grid grid-cols-2 gap-2 sm:contents">
                       <Button variant="ghost" size="icon" onClick={() => openEditReminder(item)}><Pencil className="w-4 h-4" /></Button>
                       <Button variant="ghost" size="icon" onClick={() => deleteReminder(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
                     </div>
@@ -613,61 +608,44 @@ export default function RemindersPage() {
       </div>
 
       <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md sm:max-w-md">
           <DialogHeader><DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div><Label>Title</Label><Input value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} className="mt-1" /></div>
             <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1" /></div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
               <div>
                 <Label>Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button type="button" variant="outline" className="mt-1 w-full justify-start">
-                      <CalendarDays className="mr-2 h-4 w-4" />
-                      {reminderForm.dueDate ? new Date(`${reminderForm.dueDate}T00:00:00`).toLocaleDateString() : "Pick date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={reminderForm.dueDate ? new Date(`${reminderForm.dueDate}T00:00:00`) : undefined}
-                      onSelect={(date) => setReminderForm({ ...reminderForm, dueDate: date ? date.toISOString().slice(0, 10) : "" })}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
+                <Input
+                  type="date"
+                  value={reminderForm.dueDate}
+                  onChange={(event) => setReminderForm({ ...reminderForm, dueDate: event.target.value })}
+                  className="mt-1"
+                />
               </div>
               <div>
-                <Label>Priority</Label>
-                <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label>Time</Label>
+                <Input
+                  type="time"
+                  value={reminderForm.dueTime || "09:00"}
+                  onChange={(event) => setReminderForm({ ...reminderForm, dueTime: event.target.value })}
+                  className="mt-1"
+                />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Hour</Label>
-                <Select value={(reminderForm.dueTime || "09:00").split(":")[0]} onValueChange={(value) => setReminderForm({ ...reminderForm, dueTime: `${value}:${(reminderForm.dueTime || "09:00").split(":")[1]}` })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{hours.map((hour) => <SelectItem key={hour} value={hour}>{hour}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Minute</Label>
-                <Select value={(reminderForm.dueTime || "09:00").split(":")[1]} onValueChange={(value) => setReminderForm({ ...reminderForm, dueTime: `${(reminderForm.dueTime || "09:00").split(":")[0]}:${value}` })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{minutes.map((minute) => <SelectItem key={minute} value={minute}>{minute}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
+            <div>
+              <Label>Priority</Label>
+              <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
+                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
               <div>
                 <Label>Repeat</Label>
                 <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
@@ -688,7 +666,7 @@ export default function RemindersPage() {
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
               <div>
                 <Label>Context</Label>
                 <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
@@ -710,7 +688,7 @@ export default function RemindersPage() {
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
               <div>
                 <Label>List</Label>
                 <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
@@ -732,12 +710,12 @@ export default function RemindersPage() {
 
 function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
   return (
-    <button onClick={onClick} className={`min-w-[5.75rem] rounded-lg border border-border p-3 text-left transition-colors sm:min-w-36 sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
+    <button onClick={onClick} className={`min-w-[6.25rem] rounded-xl border p-2.5 text-left shadow-sm shadow-black/5 transition-colors sm:min-w-36 sm:p-4 ${active ? "border-primary/40 bg-primary/10 text-primary" : "border-border/70 bg-card/90 hover:bg-muted"}`}>
       <div className="flex items-center justify-between gap-2">
-        <Icon className="h-5 w-5 shrink-0" />
-        <span className="shrink-0 text-xl font-semibold">{count}</span>
+        <Icon className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+        <span className="shrink-0 text-lg font-semibold sm:text-xl">{count}</span>
       </div>
-      <p className="mt-2 text-sm font-medium leading-tight">{label}</p>
+      <p className="mt-2 text-xs font-medium leading-tight sm:text-sm">{label}</p>
     </button>
   );
 }

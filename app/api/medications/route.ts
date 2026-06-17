@@ -86,6 +86,23 @@ export async function PATCH(req: Request) {
     if (!data?.id) return NextResponse.json({ error: "ID required" }, { status: 400 });
     const existing = await prisma.medication.findUnique({ where: { id: data.id } });
     if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    const nextTimeOfDay = data.timeOfDay ?? existing.timeOfDay;
+    const nextRecurrence = data.recurrence ?? existing.recurrence;
+    const nextStartDate = data.startDate === undefined ? existing.startDate : parseDate(data.startDate);
+    const nextEndDate = data.endDate === undefined ? existing.endDate : parseDate(data.endDate);
+    const scheduleChanged = (
+      nextTimeOfDay !== existing.timeOfDay
+      || nextRecurrence !== existing.recurrence
+      || (data.daysOfWeek !== undefined && data.daysOfWeek !== existing.daysOfWeek)
+      || (data.dayOfMonth !== undefined && parseDayOfMonth(data.dayOfMonth) !== existing.dayOfMonth)
+      || (nextStartDate?.toISOString() ?? null) !== (existing.startDate?.toISOString() ?? null)
+      || (nextEndDate?.toISOString() ?? null) !== (existing.endDate?.toISOString() ?? null)
+    );
+    const refillChanged = (
+      data.stockCount !== undefined
+      || data.refillAt !== undefined
+      || data.refillNotes !== undefined
+    );
 
     const medication = await prisma.medication.update({
       where: { id: data.id },
@@ -93,18 +110,20 @@ export async function PATCH(req: Request) {
         name: data.name ?? existing.name,
         dosage: data.dosage === undefined ? existing.dosage : data.dosage || null,
         instructions: data.instructions === undefined ? existing.instructions : data.instructions || null,
-        timeOfDay: data.timeOfDay ?? existing.timeOfDay,
-        recurrence: data.recurrence ?? existing.recurrence,
+        timeOfDay: nextTimeOfDay,
+        recurrence: nextRecurrence,
         recurrenceCustom: data.recurrence === "custom" ? data.recurrenceCustom || null : data.recurrence === undefined ? existing.recurrenceCustom : null,
         daysOfWeek: data.recurrence === "weekly" ? data.daysOfWeek || null : data.recurrence === undefined ? existing.daysOfWeek : null,
         dayOfMonth: data.recurrence === "monthly" ? parseDayOfMonth(data.dayOfMonth) : data.recurrence === undefined ? existing.dayOfMonth : null,
-        startDate: data.startDate === undefined ? existing.startDate : parseDate(data.startDate),
-        endDate: data.endDate === undefined ? existing.endDate : parseDate(data.endDate),
+        startDate: nextStartDate,
+        endDate: nextEndDate,
         stockCount: data.stockCount === undefined ? existing.stockCount : parsePositiveInt(data.stockCount),
         doseUnits: data.doseUnits === undefined ? existing.doseUnits : parseDoseUnits(data.doseUnits),
         refillAt: data.refillAt === undefined ? existing.refillAt : parsePositiveInt(data.refillAt),
         refillNotes: data.refillNotes === undefined ? existing.refillNotes : data.refillNotes || null,
         active: data.active == null ? existing.active : Boolean(data.active),
+        lastPushSentAt: scheduleChanged ? null : existing.lastPushSentAt,
+        lastRefillPushAt: refillChanged ? null : existing.lastRefillPushAt,
       },
     });
     return NextResponse.json({ medication });

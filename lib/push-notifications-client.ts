@@ -41,7 +41,10 @@ export async function registerPushNotifications() {
   const saveRes = await fetch("/api/push/subscription", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(subscription.toJSON()),
+    body: JSON.stringify({
+      ...subscription.toJSON(),
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }),
   });
   const saveData = await saveRes.json().catch(() => ({}));
   if (!saveRes.ok) throw new Error(saveData?.error ?? "Could not save push subscription");

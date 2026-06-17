@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FadeIn } from "@/components/ui/animate";
+import { formatLocalDateInput } from "@/lib/local-dates";
 
 const blankForm = {
   id: "",
@@ -46,7 +47,7 @@ function todayAt(timeOfDay: string) {
 }
 
 function dateInputValue(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return formatLocalDateInput(date);
 }
 
 function dateLabel(date: Date) {
@@ -198,8 +199,8 @@ export default function MedicationsPage() {
       recurrenceCustom: med.recurrenceCustom ?? "",
       daysOfWeek: med.daysOfWeek ?? "",
       dayOfMonth: med.dayOfMonth ? String(med.dayOfMonth) : "",
-      startDate: med.startDate ? new Date(med.startDate).toISOString().slice(0, 10) : "",
-      endDate: med.endDate ? new Date(med.endDate).toISOString().slice(0, 10) : "",
+      startDate: med.startDate ? formatLocalDateInput(new Date(med.startDate)) : "",
+      endDate: med.endDate ? formatLocalDateInput(new Date(med.endDate)) : "",
       stockCount: med.stockCount == null ? "" : String(med.stockCount),
       doseUnits: med.doseUnits == null ? "1" : String(med.doseUnits),
       refillAt: med.refillAt == null ? "" : String(med.refillAt),
@@ -334,24 +335,24 @@ export default function MedicationsPage() {
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+          <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Medications</h2>
             <p className="mt-1 text-sm text-muted-foreground">Track medicine timings, repeats, and daily dose status</p>
           </div>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button onClick={openAdd} className="w-full sm:w-auto">
+              <Button onClick={openAdd} className="h-11 w-full rounded-xl sm:h-10 sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Medication
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
+            <DialogContent className="max-w-2xl sm:max-w-2xl">
               <DialogHeader>
                 <DialogTitle>{form.id ? "Edit Medication" : "Add Medication"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 min-[420px]:grid-cols-2">
                   <div>
                     <Label>Name</Label>
                     <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Vitamin D" />
@@ -419,7 +420,7 @@ export default function MedicationsPage() {
                   </div>
                 )}
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 min-[420px]:grid-cols-2">
                   <div>
                     <Label>Start Date</Label>
                     <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="mt-1" />
@@ -430,12 +431,12 @@ export default function MedicationsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                <div className="rounded-xl border border-border bg-muted/20 p-3">
                   <div className="mb-3 flex items-center gap-2">
                     <Package className="h-4 w-4 text-primary" />
                     <Label>Refill Tracking</Label>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 min-[420px]:grid-cols-3">
                     <div>
                       <Label>Remaining pills</Label>
                       <Input type="number" min="0" value={form.stockCount} onChange={(e) => setForm({ ...form, stockCount: e.target.value })} className="mt-1" placeholder="30" />
@@ -464,11 +465,11 @@ export default function MedicationsPage() {
         </div>
       </FadeIn>
 
-      <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 p-3 text-sm sm:grid-cols-4">
-        <div><span className="text-muted-foreground">Active</span><p className="font-mono font-semibold">{activeMeds.length}</p></div>
-        <div><span className="text-muted-foreground">Due today</span><p className="font-mono font-semibold">{dueTodayMeds.length}</p></div>
-        <div><span className="text-muted-foreground">Missed</span><p className="font-mono font-semibold">{missedToday}</p></div>
-        <div><span className="text-muted-foreground">Adherence</span><p className="font-mono font-semibold">{logs.length ? `${adherenceRate}%` : "0%"}</p></div>
+      <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/80 bg-muted/10 p-2 text-sm sm:grid-cols-4 sm:gap-3 sm:p-3">
+        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Active</span><p className="font-mono font-semibold">{activeMeds.length}</p></div>
+        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Due today</span><p className="font-mono font-semibold">{dueTodayMeds.length}</p></div>
+        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Missed</span><p className="font-mono font-semibold">{missedToday}</p></div>
+        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Adherence</span><p className="font-mono font-semibold">{logs.length ? `${adherenceRate}%` : "0%"}</p></div>
       </div>
 
       {refillAlerts.length > 0 && (
@@ -531,9 +532,9 @@ export default function MedicationsPage() {
               type="date"
               value={selectedDate}
               onChange={(event) => setSelectedDate(event.target.value)}
-              className="lg:w-44"
+              className="w-full lg:w-44"
             />
-            <Button type="button" variant="outline" onClick={markSelectedScheduleTaken}>
+            <Button type="button" variant="outline" onClick={markSelectedScheduleTaken} className="w-full lg:w-auto">
               <CheckCircle2 className="mr-2 h-4 w-4" />
               Mark all taken
             </Button>
@@ -549,8 +550,8 @@ export default function MedicationsPage() {
                 const scheduled = atDateTime(med.timeOfDay, scheduleDate);
                 const isOverdue = isSameDay(scheduleDate, new Date()) && !todaysLog && scheduled.getTime() < Date.now();
                 return (
-                <Card key={med.id} className={isOverdue ? "border-destructive/40 bg-destructive/5" : "bg-muted/20"}>
-                  <CardContent className="space-y-4 p-4">
+                <div key={med.id} className={`rounded-xl border p-4 shadow-sm shadow-black/5 ${isOverdue ? "border-destructive/40 bg-destructive/5" : "border-border/60 bg-card/80"}`}>
+                  <div className="space-y-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h3 className="break-words font-semibold">{med.name}</h3>
@@ -581,8 +582,8 @@ export default function MedicationsPage() {
                         Skip
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               )})}
             </div>
           )}
@@ -599,7 +600,7 @@ export default function MedicationsPage() {
         <CardContent>
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 ios-scroll lg:grid lg:grid-cols-7 lg:overflow-visible lg:px-0 lg:pb-0">
             {upcomingWeek.map((day) => (
-              <div key={day.date.toISOString()} className="min-w-[9.5rem] rounded-lg border border-border bg-muted/20 p-3 lg:min-w-0">
+              <div key={day.date.toISOString()} className="min-w-[9rem] rounded-xl border border-border/70 bg-card/80 p-3 shadow-sm shadow-black/5 lg:min-w-0">
                 <p className="text-sm font-semibold">{dateLabel(day.date)}</p>
                 <p className="mt-2 text-2xl font-bold">{day.due.length}</p>
                 <p className="text-xs text-muted-foreground">{day.taken}/{day.due.length} taken</p>
@@ -642,7 +643,7 @@ export default function MedicationsPage() {
           ) : (
             <div className="space-y-2">
               {filteredMedications.map((med) => (
-                <div key={med.id} className="grid gap-3 rounded-lg bg-muted/40 px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div key={med.id} className="grid gap-3 rounded-xl border border-border/60 bg-card/80 px-3 py-3 shadow-sm shadow-black/5 sm:grid-cols-[1fr_auto] sm:items-center">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{med.name}</p>
                     <p className="text-xs text-muted-foreground">{med.timeOfDay} - {formatRepeat(med)} {med.dosage ? `- ${med.dosage}` : ""}</p>
@@ -652,7 +653,7 @@ export default function MedicationsPage() {
                       </p>
                     )}
                   </div>
-                  <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-2 sm:flex sm:justify-end">
+                  <div className="flex items-center justify-between gap-2 sm:justify-end">
                     <Badge variant={med.active ? "secondary" : "outline"}>{med.active ? "Active" : "Paused"}</Badge>
                     <Button variant="ghost" size="icon" onClick={() => toggleMedicationActive(med)} title={med.active ? "Pause medication" : "Resume medication"}>
                       {med.active ? <PauseCircle className="h-4 w-4" /> : <PlayCircle className="h-4 w-4 text-primary" />}
@@ -679,7 +680,7 @@ export default function MedicationsPage() {
           ) : (
             <div className="space-y-2">
               {logs.slice(0, 10).map((log) => (
-                <div key={log.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-lg bg-muted/40 px-3 py-3 text-sm">
+                <div key={log.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-border/60 bg-card/80 px-3 py-3 text-sm shadow-sm shadow-black/5">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{log.medication?.name}</p>
                     <p className="text-xs text-muted-foreground">{new Date(log.scheduledFor).toLocaleString()}{log.notes ? ` - ${log.notes}` : ""}</p>
