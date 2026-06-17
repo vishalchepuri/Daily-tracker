@@ -42,9 +42,9 @@ function getFirebaseBucket() {
   return getStorage().bucket(bucketName);
 }
 
-export async function generateFirebaseUploadUrl(fileName: string, contentType: string, isPublic = false) {
+export async function generateFirebaseUploadUrl(fileName: string, contentType: string, isPublic = false, folder?: string) {
   const folderPrefix = process.env.FIREBASE_STORAGE_PREFIX ?? "";
-  const prefix = isPublic ? "public/uploads" : "uploads";
+  const prefix = folder || (isPublic ? "public/uploads" : "uploads");
   const cloud_storage_path = `${folderPrefix}${prefix}/${Date.now()}-${fileName}`;
   const file = getFirebaseBucket().file(cloud_storage_path);
   const [uploadUrl] = await file.getSignedUrl({

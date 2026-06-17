@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/db";
+import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 
 const YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
 
 export async function getGoogleAccount(userId: string) {
-  return prisma.account.findFirst({
+  const account = await prisma.account.findFirst({
     where: { userId, provider: "google" },
     orderBy: { id: "desc" },
   });
+  return decryptOAuthTokenFields(account);
 }
 
 export function googleNeedsReconnect(scope?: string | null) {
@@ -32,16 +34,19 @@ async function refreshGoogleAccessToken(account: Awaited<ReturnType<typeof getGo
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) return null;
 
-  return prisma.account.update({
+  const updated = await prisma.account.update({
     where: { id: account.id },
     data: {
-      access_token: data.access_token,
-      refresh_token: data.refresh_token ?? account.refresh_token,
+      ...encryptOAuthTokenFields({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token ?? account.refresh_token,
+      }),
       expires_at: data.expires_in ? Math.floor(Date.now() / 1000) + Number(data.expires_in) : account.expires_at,
       token_type: data.token_type ?? account.token_type,
       scope: data.scope ? Array.from(new Set(`${account.scope ?? ""} ${data.scope}`.split(/\s+/).filter(Boolean))).join(" ") : account.scope,
     },
   });
+  return decryptOAuthTokenFields(updated);
 }
 
 function youtubeErrorPayload(data: any, status: number) {

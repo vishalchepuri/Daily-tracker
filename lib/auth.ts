@@ -18,12 +18,14 @@ export function isAdminEmail(email?: string | null) {
 }
 
 async function getFirebaseTokenFromRequest() {
-  const authorization = headers().get("authorization") ?? "";
+  const requestHeaders = await headers();
+  const authorization = requestHeaders.get("authorization") ?? "";
   if (authorization.toLowerCase().startsWith("bearer ")) {
     return { type: "idToken" as const, value: authorization.slice(7).trim() };
   }
 
-  const sessionCookie = cookies().get(FIREBASE_SESSION_COOKIE)?.value;
+  const requestCookies = await cookies();
+  const sessionCookie = requestCookies.get(FIREBASE_SESSION_COOKIE)?.value;
   if (sessionCookie) return { type: "sessionCookie" as const, value: sessionCookie };
   return null;
 }

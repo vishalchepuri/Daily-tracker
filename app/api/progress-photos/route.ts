@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { createProgressPhotoMetadata, listProgressPhotoMetadata } from "@/lib/firestore-app-data";
 import { getFileUrl } from "@/lib/s3";
+import { isUserScopedUploadPath } from "@/lib/upload-security";
 
 export async function GET() {
   try {
@@ -18,7 +19,7 @@ export async function GET() {
     );
     return NextResponse.json({ photos: photosWithUrls });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -28,9 +29,13 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const data = await req.json();
+    if (!isUserScopedUploadPath(userId, data?.cloudStoragePath)) {
+      return NextResponse.json({ error: "Invalid upload path" }, { status: 400 });
+    }
+    data.isPublic = false;
     const photo = await createProgressPhotoMetadata(userId, data);
     return NextResponse.json({ photo });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

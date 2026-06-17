@@ -30,6 +30,7 @@ model User {
   moneyLinks    MoneyLink[]
   reminderLists ReminderList[]
   reminders     Reminder[]
+  webPushSubscriptions WebPushSubscription[]
   medications   Medication[]
   medicationLogs MedicationLog[]
   submittedExercises Exercise[] @relation("SubmittedExercises")
@@ -376,11 +377,27 @@ model Reminder {
   completed   Boolean  @default(false)
   completedAt DateTime?
   telegramSentAt DateTime?
+  pushSentAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   @@index([userId, dueDate])
   @@index([userId, completed])
   @@index([userId, contextTag, completed])
+}
+
+model WebPushSubscription {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint       String   @unique
+  p256dh         String
+  auth           String
+  expirationTime DateTime?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  lastUsedAt     DateTime?
+  @@index([userId, updatedAt])
 }
 
 model Medication {
@@ -401,6 +418,8 @@ model Medication {
   doseUnits   Int      @default(1)
   refillAt    Int?
   refillNotes String?
+  lastPushSentAt DateTime?
+  lastRefillPushAt DateTime?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

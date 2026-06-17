@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCurrentUser } from "@/lib/auth";
+import { encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 
 function mergeScopes(...scopes: Array<string | null | undefined>) {
   return Array.from(new Set(scopes.flatMap((scope) => scope?.split(/\s+/).filter(Boolean) ?? []))).join(" ");
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
         data: {
           type: "oauth",
           providerAccountId,
-          access_token: accessToken,
+          ...encryptOAuthTokenFields({ access_token: accessToken }),
           expires_at: Math.floor(Date.now() / 1000) + 3500,
           token_type: "Bearer",
           scope: mergeScopes(existing.scope, scope, "openid email profile"),
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
         type: "oauth",
         provider: "google",
         providerAccountId,
-        access_token: accessToken,
+        ...encryptOAuthTokenFields({ access_token: accessToken }),
         expires_at: Math.floor(Date.now() / 1000) + 3500,
         token_type: "Bearer",
         scope: mergeScopes(scope, "openid email profile"),
@@ -47,6 +48,6 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ account: { id: account.id, scope: account.scope } });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to connect Google" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to connect Google" : error?.message ?? "Failed to connect Google" }, { status: 500 });
   }
 }

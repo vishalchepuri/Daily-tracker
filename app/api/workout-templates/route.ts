@@ -24,7 +24,7 @@ export async function GET() {
     });
     return NextResponse.json({ templates }, { headers: { "Cache-Control": "private, max-age=30, stale-while-revalidate=120" } });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ template });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -137,7 +137,7 @@ export async function PATCH(req: Request) {
     });
     return NextResponse.json({ template });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -157,6 +157,6 @@ export async function DELETE(req: Request) {
     await prisma.workoutTemplate.delete({ where: { id: existing.id } });
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

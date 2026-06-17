@@ -101,7 +101,7 @@ export function ProgressPanel() {
       const presignRes = await fetch("/api/upload/presigned", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: false }),
+        body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size }),
       });
       const { uploadUrl, cloud_storage_path } = await presignRes.json();
       

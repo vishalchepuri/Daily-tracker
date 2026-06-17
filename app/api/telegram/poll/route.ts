@@ -1,13 +1,19 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
-import { requireCurrentUser } from "@/lib/auth";
+import { requireAdminUser, requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { processTelegramMessage, sendTelegramMessage } from "@/lib/telegram";
 
 export async function POST() {
   try {
-    const user = await requireCurrentUser();
-    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const admin = await requireAdminUser();
+    if (!admin && process.env.NODE_ENV === "production") {
+      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    }
+    if (!admin) {
+      const user = await requireCurrentUser();
+      if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const token = process.env.TELEGRAM_BOT_TOKEN;
     if (!token) return NextResponse.json({ error: "TELEGRAM_BOT_TOKEN is not configured" }, { status: 500 });
 
@@ -43,6 +49,6 @@ export async function POST() {
 
     return NextResponse.json({ processed });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

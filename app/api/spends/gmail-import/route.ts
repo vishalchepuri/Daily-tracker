@@ -5,6 +5,7 @@ import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { createReviewItemOnce } from "@/lib/firestore-app-data";
+import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
@@ -96,11 +97,13 @@ async function refreshGoogleAccessToken(account: any) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) return null;
 
-  return prisma.account.update({
+  const updated = await prisma.account.update({
     where: { id: account.id },
     data: {
-      access_token: data.access_token,
-      refresh_token: data.refresh_token ?? account.refresh_token,
+      ...encryptOAuthTokenFields({
+        access_token: data.access_token,
+        refresh_token: data.refresh_token ?? account.refresh_token,
+      }),
       expires_at: data.expires_in ? Math.floor(Date.now() / 1000) + Number(data.expires_in) : account.expires_at,
       token_type: data.token_type ?? account.token_type,
       scope: data.scope
@@ -108,6 +111,7 @@ async function refreshGoogleAccessToken(account: any) {
         : account.scope,
     },
   });
+  return decryptOAuthTokenFields(updated);
 }
 
 function parseSpendWithRegex(text: string, subject: string) {
@@ -295,6 +299,8 @@ export async function POST(req: Request) {
           orderBy: { id: "desc" },
         });
 
+    account = decryptOAuthTokenFields(account);
+
     if (!account?.access_token || !hasScope(account.scope)) {
       return NextResponse.json(
         {
@@ -459,6 +465,6 @@ export async function POST(req: Request) {
       },
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Gmail import failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Gmail import failed" : error?.message ?? "Gmail import failed" }, { status: 500 });
   }
 }

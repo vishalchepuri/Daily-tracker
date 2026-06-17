@@ -2,13 +2,30 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { AlertCircle, PlayCircle, RefreshCw, Sparkles, TrendingUp, Youtube, Bookmark, BookmarkCheck, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  Bookmark,
+  BookmarkCheck,
+  ListTodo,
+  NotebookText,
+  PlayCircle,
+  RefreshCw,
+  Search,
+  Sparkles,
+  Trash2,
+  TrendingUp,
+  Youtube,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
-import { connectGoogleFeature } from "@/lib/google-feature-client";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { completeGoogleFeatureRedirect, connectGoogleFeature } from "@/lib/google-feature-client";
 
 function formatDuration(seconds?: number) {
   if (!seconds) return "";
@@ -36,13 +53,54 @@ function priorityLabel(score?: number) {
   return "Low signal";
 }
 
+const learningCategories = [
+  { value: "fitness", label: "Fitness" },
+  { value: "nutrition", label: "Nutrition" },
+  { value: "finance", label: "Finance" },
+  { value: "productivity", label: "Productivity" },
+  { value: "other", label: "Other" },
+] as const;
+
+const learningStatuses = [
+  { value: "saved", label: "Saved" },
+  { value: "watched", label: "Watched" },
+  { value: "summarized", label: "Summarized" },
+  { value: "acted_on", label: "Action planned" },
+  { value: "completed", label: "Completed" },
+] as const;
+
 interface SavedSummary {
+  id?: string;
   videoId: string;
   title: string;
   channelTitle: string;
   thumbnail: string;
   summary: string;
+  source?: string | null;
+  category?: string | null;
+  status?: string | null;
+  notes?: string | null;
+  takeaways?: string[] | null;
+  nextAction?: string | null;
   savedAt: string;
+  updatedAt?: string | null;
+}
+
+function categoryLabel(value?: string | null) {
+  return learningCategories.find((item) => item.value === value)?.label ?? "Other";
+}
+
+function statusLabel(value?: string | null) {
+  return learningStatuses.find((item) => item.value === value)?.label ?? "Saved";
+}
+
+function inferLearningCategory(video: any) {
+  const haystack = `${video?.title ?? ""} ${video?.description ?? ""} ${video?.matchedTopics?.join(" ") ?? ""}`.toLowerCase();
+  if (/(protein|diet|meal|vitamin|nutrition|food|calorie)/.test(haystack)) return "nutrition";
+  if (/(workout|exercise|gym|fat loss|muscle|fitness|cardio)/.test(haystack)) return "fitness";
+  if (/(money|finance|invest|ipo|credit|bank|expense)/.test(haystack)) return "finance";
+  if (/(productivity|workflow|automation|ai|coding|builder|system)/.test(haystack)) return "productivity";
+  return "other";
 }
 
 export default function YtSummaryPage() {
@@ -63,6 +121,16 @@ export default function YtSummaryPage() {
   const [activeTab, setActiveTab] = useState("feed");
   const [importHealth, setImportHealth] = useState<any>(null);
   const [connectingYoutube, setConnectingYoutube] = useState(false);
+  const [savedSearch, setSavedSearch] = useState("");
+  const [savingLearning, setSavingLearning] = useState(false);
+  const [creatingReminder, setCreatingReminder] = useState(false);
+  const [learningForm, setLearningForm] = useState({
+    category: "other",
+    status: "saved",
+    notes: "",
+    takeawaysText: "",
+    nextAction: "",
+  });
 
   const errorMessage = (value: any, fallback: string) => {
     if (typeof value === "string") return value;
@@ -98,7 +166,7 @@ export default function YtSummaryPage() {
       setSelectedVideo(null);
       setSummary("");
       setSource("");
-    } catch (err) {
+    } catch {
       toast.error("Failed to load subscription feed");
     } finally {
       setLoadingSubscriptions(false);
@@ -116,10 +184,25 @@ export default function YtSummaryPage() {
     }
   };
 
+  const loadSavedLearning = async () => {
+    try {
+      const res = await fetch("/api/youtube/learning");
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(errorMessage(data?.error, "Failed to load saved learning"));
+        return;
+      }
+      setSavedSummaries(Array.isArray(data?.items) ? data.items : []);
+    } catch {
+      toast.error("Failed to load saved learning");
+    }
+  };
+
   const connectYoutube = async () => {
     setConnectingYoutube(true);
     try {
-      await connectGoogleFeature("https://www.googleapis.com/auth/youtube.readonly");
+      const result = await connectGoogleFeature("https://www.googleapis.com/auth/youtube.readonly");
+      if ((result as any)?.redirected) return;
       toast.success("YouTube connected");
       setNeedsConnection(false);
       await Promise.all([loadImportHealth(), loadSubscriptionFeed()]);
@@ -130,51 +213,147 @@ export default function YtSummaryPage() {
     }
   };
 
-  useEffect(() => { loadSubscriptionFeed(); }, []);
-  useEffect(() => { loadImportHealth(); }, []);
-
-  // Load saved summaries from localStorage
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("dayza_saved_summaries");
-      const saved = raw ? JSON.parse(raw) : [];
-      setSavedSummaries(Array.isArray(saved) ? saved : []);
-    } catch (e) {
-      setSavedSummaries([]);
-    }
+    void loadSubscriptionFeed();
+    void loadImportHealth();
+    void loadSavedLearning();
   }, []);
 
-  const isSaved = (vid: string) => savedSummaries.some((s) => s.videoId === vid);
+  useEffect(() => {
+    let cancelled = false;
 
-  const toggleSave = (video: any, summaryText: string) => {
-    const key = "dayza_saved_summaries";
-    if (isSaved(video.id)) {
-      const updated = savedSummaries.filter((s) => s.videoId !== video.id);
-      localStorage.setItem(key, JSON.stringify(updated));
-      setSavedSummaries(updated);
-      toast.success("Summary removed");
-    } else {
-      const item: SavedSummary = {
-        videoId: video.id,
-        title: video.title,
-        channelTitle: video.channelTitle,
-        thumbnail: video.thumbnail,
-        summary: summaryText,
-        savedAt: new Date().toISOString(),
-      };
-      const updated = [item, ...savedSummaries];
-      localStorage.setItem(key, JSON.stringify(updated));
-      setSavedSummaries(updated);
-      toast.success("Summary saved!");
+    const completeRedirect = async () => {
+      try {
+        const result = await completeGoogleFeatureRedirect();
+        if (!result || cancelled) return;
+        if (result.scope === "https://www.googleapis.com/auth/youtube.readonly") {
+          toast.success("YouTube connected");
+          setNeedsConnection(false);
+          await Promise.all([loadImportHealth(), loadSubscriptionFeed()]);
+        }
+      } catch (error: any) {
+        if (!cancelled) toast.error(error?.message ?? "Could not connect YouTube");
+      } finally {
+        if (!cancelled) setConnectingYoutube(false);
+      }
+    };
+
+    void completeRedirect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const isSaved = (vid: string) => savedSummaries.some((item) => item.videoId === vid);
+
+  const hydrateLearningForm = (video: any, summaryText: string, sourceText: string, takeaways: string[] = []) => {
+    const existing = savedSummaries.find((item) => item.videoId === video.id);
+    setLearningForm({
+      category: existing?.category ?? inferLearningCategory(video),
+      status: existing?.status ?? (summaryText ? "summarized" : "saved"),
+      notes: existing?.notes ?? "",
+      takeawaysText: (existing?.takeaways ?? takeaways).join("\n"),
+      nextAction: existing?.nextAction ?? "",
+    });
+    if (existing?.summary && !summaryText) setSummary(existing.summary);
+    if (existing?.source && !sourceText) setSource(existing.source);
+  };
+
+  const removeSaved = async (vid: string) => {
+    try {
+      const res = await fetch(`/api/youtube/learning?videoId=${encodeURIComponent(vid)}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(errorMessage(data?.error, "Failed to remove learning item"));
+        return;
+      }
+      setSavedSummaries((prev) => prev.filter((item) => item.videoId !== vid));
+      toast.success("Learning item removed");
+    } catch {
+      toast.error("Failed to remove learning item");
     }
   };
 
-  const removeSaved = (vid: string) => {
-    const key = "dayza_saved_summaries";
-    const updated = savedSummaries.filter((s) => s.videoId !== vid);
-    localStorage.setItem(key, JSON.stringify(updated));
-    setSavedSummaries(updated);
-    toast.success("Summary removed");
+  const saveLearningItem = async (video: any, summaryText: string, sourceText: string) => {
+    if (!video || !summaryText) {
+      toast.error("Summarize a video before saving it");
+      return;
+    }
+    setSavingLearning(true);
+    try {
+      const takeaways = learningForm.takeawaysText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const res = await fetch("/api/youtube/learning", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          videoId: video.id,
+          title: video.title,
+          channelTitle: video.channelTitle,
+          thumbnail: video.thumbnail,
+          summary: summaryText,
+          source: sourceText,
+          category: learningForm.category,
+          status: learningForm.status,
+          notes: learningForm.notes,
+          takeaways,
+          nextAction: learningForm.nextAction,
+          lastViewedAt: new Date().toISOString(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(errorMessage(data?.error, "Failed to save learning item"));
+        return;
+      }
+      setSavedSummaries((prev) => {
+        const filtered = prev.filter((item) => item.videoId !== video.id);
+        return [data.item, ...filtered];
+      });
+      toast.success(isSaved(video.id) ? "Learning item updated" : "Learning item saved");
+    } catch {
+      toast.error("Failed to save learning item");
+    } finally {
+      setSavingLearning(false);
+    }
+  };
+
+  const createReminderFromLearning = async () => {
+    if (!selectedVideo) {
+      toast.error("Choose a video first");
+      return;
+    }
+    setCreatingReminder(true);
+    try {
+      const title = learningForm.nextAction.trim() || `Review ${selectedVideo.title}`;
+      const notes = `From YT Learning: ${selectedVideo.title}${learningForm.notes.trim() ? `\n\nNotes: ${learningForm.notes.trim()}` : ""}`;
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          notes,
+          contextTag: "follow_up",
+          sourceLabel: "yt_learning",
+          priority: "medium",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(errorMessage(data?.error, "Failed to create reminder"));
+        return;
+      }
+      toast.success("Reminder created");
+      if (learningForm.status === "saved" || learningForm.status === "summarized") {
+        setLearningForm((prev) => ({ ...prev, status: "acted_on" }));
+      }
+    } catch {
+      toast.error("Failed to create reminder");
+    } finally {
+      setCreatingReminder(false);
+    }
   };
 
   const loadVideos = async (channel: any) => {
@@ -185,16 +364,27 @@ export default function YtSummaryPage() {
   };
 
   const visibleVideos = useMemo(() => {
-    const list = selectedChannel
-      ? videos.filter((video) => video.channelId === selectedChannel.channelId)
-      : videos;
+    const list = selectedChannel ? videos.filter((video) => video.channelId === selectedChannel.channelId) : videos;
     return [...list].sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
   }, [selectedChannel, videos]);
+
+  const filteredSavedSummaries = useMemo(() => {
+    const query = savedSearch.trim().toLowerCase();
+    if (!query) return savedSummaries;
+    return savedSummaries.filter((item) =>
+      [item.title, item.channelTitle, item.summary, item.notes, item.nextAction, ...(item.takeaways ?? [])]
+        .join(" ")
+        .toLowerCase()
+        .includes(query)
+    );
+  }, [savedSearch, savedSummaries]);
 
   const summarizeVideo = async (video: any) => {
     setSelectedVideo(video);
     setSummary("");
     setSource("");
+    const existing = savedSummaries.find((item) => item.videoId === video.id);
+    if (existing) hydrateLearningForm(video, existing.summary, existing.source ?? "", existing.takeaways ?? []);
     setSummarizing(true);
     try {
       const res = await fetch("/api/youtube/summary", {
@@ -209,9 +399,12 @@ export default function YtSummaryPage() {
         toast.error(errorMessage(data?.error, "Failed to summarize video"));
         return;
       }
-      setSummary(data.summary ?? "");
-      setSource(data.source ?? "");
-    } catch (err) {
+      const nextSummary = data.summary ?? "";
+      const nextSource = data.source ?? "";
+      setSummary(nextSummary);
+      setSource(nextSource);
+      hydrateLearningForm(video, nextSummary, nextSource, Array.isArray(data?.takeaways) ? data.takeaways : []);
+    } catch {
       toast.error("Failed to summarize video");
     } finally {
       setSummarizing(false);
@@ -220,10 +413,8 @@ export default function YtSummaryPage() {
 
   useEffect(() => {
     if (videos.length > 0 && videoId) {
-      const targetVideo = videos.find((v: any) => v.id === videoId);
-      if (targetVideo) {
-        summarizeVideo(targetVideo);
-      }
+      const targetVideo = videos.find((video: any) => video.id === videoId);
+      if (targetVideo) void summarizeVideo(targetVideo);
     }
   }, [videos, videoId]);
 
@@ -333,10 +524,10 @@ export default function YtSummaryPage() {
           </CardContent>
         </Card>
 
-        <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+        <div className="grid gap-4 xl:grid-cols-[1fr_24rem]">
           <Card>
             <CardHeader>
-                  <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
+              <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
                 <CardTitle className="flex min-w-0 items-center gap-2">
                   <PlayCircle className="h-5 w-5 text-primary" />
                   <span className="min-w-0 truncate">{selectedChannel ? selectedChannel.title : "Latest Subscription Videos"}</span>
@@ -358,7 +549,12 @@ export default function YtSummaryPage() {
               ) : (
                 <div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
                   {visibleVideos.map((video) => (
-                    <button key={video.id} type="button" onClick={() => summarizeVideo(video)} className={`overflow-hidden rounded-lg border bg-muted/30 text-left transition hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}>
+                    <button
+                      key={video.id}
+                      type="button"
+                      onClick={() => summarizeVideo(video)}
+                      className={`overflow-hidden rounded-lg border bg-muted/30 text-left transition hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}
+                    >
                       {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}
                       <div className="space-y-2 p-3">
                         <div className="flex items-center justify-between gap-2">
@@ -383,14 +579,7 @@ export default function YtSummaryPage() {
                           {video.durationSeconds > 0 && <Badge variant="outline">{formatDuration(video.durationSeconds)}</Badge>}
                           {video.viewCount > 0 && <Badge variant="outline">{formatViews(video.viewCount)}</Badge>}
                           <Badge variant={video.kind === "video" ? "default" : "outline"}>{video.kind === "video" ? "Video" : "Short"}</Badge>
-                          {(video.priorityScore ?? 0) >= 35 ? (
-                            <Badge variant="secondary" className="gap-1 text-primary">
-                              <Sparkles className="h-2.5 w-2.5" />
-                              AI Summary
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline">Summarize</Badge>
-                          )}
+                          {isSaved(video.id) && <Badge variant="secondary" className="gap-1 text-primary"><BookmarkCheck className="h-2.5 w-2.5" />Saved</Badge>}
                         </div>
                       </div>
                     </button>
@@ -404,12 +593,12 @@ export default function YtSummaryPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
-                Summary
+                Learning Notes
               </CardTitle>
             </CardHeader>
             <CardContent>
               {!selectedVideo ? (
-                <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Click a video to generate a summary.</div>
+                <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Click a video to generate a summary and save your notes.</div>
               ) : summarizing ? (
                 <div className="space-y-3">
                   <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
@@ -417,7 +606,7 @@ export default function YtSummaryPage() {
                   <div className="h-4 w-5/6 animate-pulse rounded bg-muted" />
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-4">
                   <div>
                     <p className="text-sm font-semibold">{selectedVideo.title}</p>
                     {source && <p className="mt-1 text-xs text-muted-foreground">Summary source: {source}</p>}
@@ -425,14 +614,72 @@ export default function YtSummaryPage() {
                   <div className="whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                     {summary || "No summary yet."}
                   </div>
+
                   {summary && (
-                    <Button variant="outline" size="sm" onClick={() => toggleSave(selectedVideo, summary)} className="w-full gap-2">
-                      {isSaved(selectedVideo.id) ? (
-                        <span className="flex items-center gap-2"><BookmarkCheck className="w-4 h-4 text-primary" /> Saved</span>
-                      ) : (
-                        <span className="flex items-center gap-2"><Bookmark className="w-4 h-4" /> Save Summary</span>
-                      )}
-                    </Button>
+                    <>
+                      <div className="grid gap-3">
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-1.5">
+                            <Label>Category</Label>
+                            <Select value={learningForm.category} onValueChange={(value) => setLearningForm((prev) => ({ ...prev, category: value }))}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {learningCategories.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label>Status</Label>
+                            <Select value={learningForm.status} onValueChange={(value) => setLearningForm((prev) => ({ ...prev, status: value }))}>
+                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                {learningStatuses.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="flex items-center gap-2"><NotebookText className="h-4 w-4 text-primary" />Takeaways</Label>
+                          <Textarea
+                            value={learningForm.takeawaysText}
+                            onChange={(event) => setLearningForm((prev) => ({ ...prev, takeawaysText: event.target.value }))}
+                            className="min-h-[110px]"
+                            placeholder="One takeaway per line"
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label>Notes</Label>
+                          <Textarea
+                            value={learningForm.notes}
+                            onChange={(event) => setLearningForm((prev) => ({ ...prev, notes: event.target.value }))}
+                            className="min-h-[90px]"
+                            placeholder="Why this matters, what to revisit, what felt useful..."
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label className="flex items-center gap-2"><ListTodo className="h-4 w-4 text-primary" />Next action</Label>
+                          <Input
+                            value={learningForm.nextAction}
+                            onChange={(event) => setLearningForm((prev) => ({ ...prev, nextAction: event.target.value }))}
+                            placeholder="Example: Try this workflow tomorrow morning"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button onClick={() => saveLearningItem(selectedVideo, summary, source)} loading={savingLearning}>
+                          {isSaved(selectedVideo.id) ? <BookmarkCheck className="h-4 w-4" /> : <Bookmark className="h-4 w-4" />}
+                          {isSaved(selectedVideo.id) ? "Update Learning" : "Save Learning"}
+                        </Button>
+                        <Button variant="outline" onClick={createReminderFromLearning} loading={creatingReminder}>
+                          <ListTodo className="h-4 w-4" />
+                          Create Reminder
+                        </Button>
+                      </div>
+                    </>
                   )}
                 </div>
               )}
@@ -445,28 +692,72 @@ export default function YtSummaryPage() {
 
   const savedContent = (
     <div className="space-y-3">
-      {savedSummaries.length === 0 ? (
+      <Card>
+        <CardContent className="p-4">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={savedSearch}
+              onChange={(event) => setSavedSearch(event.target.value)}
+              className="pl-9"
+              placeholder="Search saved learning, notes, next actions..."
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {filteredSavedSummaries.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center py-12 text-center text-muted-foreground">
-            <Bookmark className="w-10 h-10 mb-3 text-muted-foreground/30" />
-            <p className="font-semibold text-foreground">No saved summaries yet</p>
-            <p className="text-sm mt-1">Summarize a video and save it for later</p>
+            <Bookmark className="mb-3 h-10 w-10 text-muted-foreground/30" />
+            <p className="font-semibold text-foreground">{savedSummaries.length === 0 ? "No saved learning yet" : "No matches found"}</p>
+            <p className="mt-1 text-sm">{savedSummaries.length === 0 ? "Summarize a video and save it for later" : "Try a different search term"}</p>
           </CardContent>
         </Card>
       ) : (
-        savedSummaries.map((saved) => (
+        filteredSavedSummaries.map((saved) => (
           <Card key={saved.videoId}>
-            <CardContent className="p-4 space-y-2">
+            <CardContent className="space-y-3 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm line-clamp-2">{saved.title}</p>
+                  <p className="line-clamp-2 text-sm font-semibold">{saved.title}</p>
                   <p className="text-xs text-muted-foreground">{saved.channelTitle} · Saved {new Date(saved.savedAt).toLocaleDateString()}</p>
                 </div>
-                <button type="button" onClick={() => removeSaved(saved.videoId)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                  <Trash2 className="w-4 h-4" />
+                <button type="button" onClick={() => removeSaved(saved.videoId)} className="shrink-0 text-muted-foreground transition-colors hover:text-destructive">
+                  <Trash2 className="h-4 w-4" />
                 </button>
               </div>
-              <div className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="secondary">{categoryLabel(saved.category)}</Badge>
+                <Badge variant="outline">{statusLabel(saved.status)}</Badge>
+                {saved.source && <Badge variant="outline">{saved.source}</Badge>}
+              </div>
+
+              {saved.takeaways && saved.takeaways.length > 0 && (
+                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Takeaways</p>
+                  <ul className="space-y-1 text-xs leading-relaxed text-muted-foreground">
+                    {saved.takeaways.map((item, index) => <li key={`${saved.videoId}-${index}`}>- {item}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {saved.notes && (
+                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes</p>
+                  <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{saved.notes}</p>
+                </div>
+              )}
+
+              {saved.nextAction && (
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-primary">Next action</p>
+                  <p className="text-sm text-foreground">{saved.nextAction}</p>
+                </div>
+              )}
+
+              <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                 {saved.summary}
               </div>
             </CardContent>
@@ -482,7 +773,7 @@ export default function YtSummaryPage() {
         <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
           <div className="min-w-0">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, newest first, with focused summaries.</p>
+            <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, with notes, reminders, and saved takeaways.</p>
           </div>
           <Button variant="outline" onClick={loadSubscriptionFeed} disabled={loadingSubscriptions || loadingVideos}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
@@ -496,7 +787,7 @@ export default function YtSummaryPage() {
           Feed <Badge variant="secondary" className="ml-1.5">{videos.length}</Badge>
         </Button>
         <Button variant={activeTab === "saved" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("saved")}>
-          <Bookmark className="w-3.5 h-3.5 mr-1" />Saved <Badge variant="outline" className="ml-1.5">{savedSummaries.length}</Badge>
+          <Bookmark className="mr-1 h-3.5 w-3.5" />Saved <Badge variant="outline" className="ml-1.5">{savedSummaries.length}</Badge>
         </Button>
       </div>
 

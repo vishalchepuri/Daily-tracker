@@ -69,6 +69,6 @@ Do not include any text outside the JSON object.`;
     const report = JSON.parse(cleaned);
     return NextResponse.json({ report, stats, generatedAt: new Date().toISOString() });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to generate report" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to generate report" : error?.message ?? "Failed to generate report" }, { status: 500 });
   }
 }

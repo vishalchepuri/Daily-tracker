@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { connectGoogleFeature } from "@/lib/google-feature-client";
+import { completeGoogleFeatureRedirect, connectGoogleFeature } from "@/lib/google-feature-client";
 import { getBankThemeStyle } from "@/lib/bank-colors";
 
 const blankForm = {
@@ -218,6 +218,30 @@ export default function SpendsPage() {
       .then((res) => res.ok ? res.json() : null)
       .then(setImportHealth)
       .catch(() => setImportHealth(null));
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+
+    const completeRedirect = async () => {
+      try {
+        const result = await completeGoogleFeatureRedirect();
+        if (!result || cancelled) return;
+        if (result.scope === "https://www.googleapis.com/auth/gmail.readonly") {
+          toast.success("Gmail connected");
+          await loadData();
+          fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
+        }
+      } catch (error: any) {
+        if (!cancelled) toast.error(error?.message ?? "Could not connect Gmail");
+      } finally {
+        if (!cancelled) setConnectingGmail(false);
+      }
+    };
+
+    void completeRedirect();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const loadMoreSpends = async () => {
@@ -1079,7 +1103,8 @@ export default function SpendsPage() {
   const connectGmail = async () => {
     setConnectingGmail(true);
     try {
-      await connectGoogleFeature("https://www.googleapis.com/auth/gmail.readonly");
+      const result = await connectGoogleFeature("https://www.googleapis.com/auth/gmail.readonly");
+      if ((result as any)?.redirected) return;
       toast.success("Gmail connected");
       await loadData();
     } catch (error: any) {

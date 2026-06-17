@@ -22,7 +22,76 @@ function docData(doc: FirebaseFirestore.DocumentSnapshot): Record<string, any> {
     updatedAt: fromTimestamp(data.updatedAt),
     date: fromTimestamp(data.date),
     resolvedAt: fromTimestamp(data.resolvedAt),
+    savedAt: fromTimestamp(data.savedAt),
+    lastViewedAt: fromTimestamp(data.lastViewedAt),
   };
+}
+
+export async function upsertYoutubeLearningItem(userId: string, videoId: string, input: any) {
+  const ref = userDoc(userId).collection("youtubeLearning").doc(videoId);
+  const existing = await ref.get();
+  await ref.set(
+    {
+      userId,
+      videoId,
+      title: input.title ?? null,
+      channelTitle: input.channelTitle ?? null,
+      thumbnail: input.thumbnail ?? null,
+      summary: input.summary ?? "",
+      source: input.source ?? null,
+      category: input.category ?? "other",
+      status: input.status ?? "saved",
+      notes: input.notes ?? "",
+      takeaways: Array.isArray(input.takeaways) ? input.takeaways.filter(Boolean).slice(0, 8) : [],
+      nextAction: input.nextAction ?? "",
+      savedAt: existing.exists ? existing.data()?.savedAt ?? FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
+      lastViewedAt: input.lastViewedAt ? Timestamp.fromDate(new Date(input.lastViewedAt)) : FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: existing.exists ? existing.data()?.createdAt ?? FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
+
+export async function listYoutubeLearningItems(userId: string) {
+  const snap = await userDoc(userId).collection("youtubeLearning").orderBy("updatedAt", "desc").get();
+  return snap.docs.map(docData);
+}
+
+export async function updateYoutubeLearningItem(userId: string, videoId: string, input: any) {
+  const ref = userDoc(userId).collection("youtubeLearning").doc(videoId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  await ref.set(
+    {
+      title: input.title ?? snap.data()?.title ?? null,
+      channelTitle: input.channelTitle ?? snap.data()?.channelTitle ?? null,
+      thumbnail: input.thumbnail ?? snap.data()?.thumbnail ?? null,
+      summary: input.summary ?? snap.data()?.summary ?? "",
+      source: input.source ?? snap.data()?.source ?? null,
+      category: input.category ?? snap.data()?.category ?? "other",
+      status: input.status ?? snap.data()?.status ?? "saved",
+      notes: input.notes ?? snap.data()?.notes ?? "",
+      takeaways: Array.isArray(input.takeaways) ? input.takeaways.filter(Boolean).slice(0, 8) : snap.data()?.takeaways ?? [],
+      nextAction: input.nextAction ?? snap.data()?.nextAction ?? "",
+      lastViewedAt: input.lastViewedAt ? Timestamp.fromDate(new Date(input.lastViewedAt)) : snap.data()?.lastViewedAt ?? FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
+
+export async function deleteYoutubeLearningItem(userId: string, videoId: string) {
+  await userDoc(userId).collection("youtubeLearning").doc(videoId).delete();
+  return true;
+}
+
+export async function deleteYoutubeLearningItemsForUser(userId: string) {
+  const docs = await userDoc(userId).collection("youtubeLearning").listDocuments();
+  await Promise.all(docs.map((doc) => doc.delete()));
+  return docs.length;
 }
 
 export async function createProgressPhotoMetadata(userId: string, input: any) {
@@ -30,7 +99,7 @@ export async function createProgressPhotoMetadata(userId: string, input: any) {
   await ref.set({
     userId,
     cloudStoragePath: input.cloudStoragePath,
-    isPublic: Boolean(input.isPublic),
+    isPublic: false,
     label: input.label ?? null,
     date: input.date ? Timestamp.fromDate(new Date(input.date)) : FieldValue.serverTimestamp(),
     createdAt: FieldValue.serverTimestamp(),

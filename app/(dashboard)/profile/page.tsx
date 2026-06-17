@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -20,6 +21,7 @@ import {
   Activity,
   AlertTriangle,
   Banknote,
+  BellRing,
   Bot,
   Brain,
   Calculator,
@@ -50,6 +52,7 @@ import { ProgressPanel } from "../_components/progress-panel";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
+import { registerPushNotifications, supportsPushNotifications, unregisterPushNotifications } from "@/lib/push-notifications-client";
 
 const RESET_FEATURE_OPTIONS = [
   { id: "profile", label: "Profile", detail: "Body stats, goals, targets, safety notes, Telegram link settings" },
@@ -79,6 +82,8 @@ export default function ProfilePage() {
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushSending, setPushSending] = useState(false);
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -88,6 +93,7 @@ export default function ProfilePage() {
   const [resetFeatures, setResetFeatures] = useState<string[]>([]);
   const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const [pushStatus, setPushStatus] = useState({ supported: false, configured: false, subscribed: false, permission: "default" });
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
@@ -98,7 +104,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "integrations", "danger"].includes(tab)) {
+    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "notifications", "integrations", "danger"].includes(tab)) {
       setActiveTab(tab);
     }
     fetch("/api/profile").then(r => r.json()).then(d => {
@@ -137,6 +143,28 @@ export default function ProfilePage() {
         botConfigured: Boolean(d?.botConfigured),
       });
     }).catch(console.error);
+    if (supportsPushNotifications()) {
+      fetch("/api/push/subscription")
+        .then((r) => r.ok ? r.json() : { configured: false, subscribed: false })
+        .then((d) => {
+          setPushStatus({
+            supported: true,
+            configured: Boolean(d?.configured),
+            subscribed: Boolean(d?.subscribed),
+            permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+          });
+        })
+        .catch(() => {
+          setPushStatus({
+            supported: true,
+            configured: false,
+            subscribed: false,
+            permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+          });
+        });
+    } else {
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default" });
+    }
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
       setActivityCounts(d?.counts ?? {});
@@ -362,6 +390,79 @@ export default function ProfilePage() {
     }
   };
 
+  const enablePushNotifications = async () => {
+    setPushLoading(true);
+    try {
+      await registerPushNotifications();
+      setPushStatus({
+        supported: true,
+        configured: true,
+        subscribed: true,
+        permission: typeof Notification !== "undefined" ? Notification.permission : "granted",
+      });
+      toast.success("Push notifications enabled");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to enable push notifications");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const disablePushNotifications = async () => {
+    setPushLoading(true);
+    try {
+      await unregisterPushNotifications();
+      setPushStatus((current) => ({ ...current, subscribed: false }));
+      toast.success("Push notifications disabled");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to disable push notifications");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const togglePushNotifications = async (enabled: boolean) => {
+    if (enabled) {
+      await enablePushNotifications();
+    } else {
+      await disablePushNotifications();
+    }
+  };
+
+  const sendPushTest = async () => {
+    setPushSending(true);
+    try {
+      const res = await fetch("/api/push/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send test notification");
+        return;
+      }
+      toast.success(data?.sent ? "Test notification sent" : "No device subscription found");
+    } catch {
+      toast.error("Failed to send test notification");
+    } finally {
+      setPushSending(false);
+    }
+  };
+
+  const sendDuePush = async () => {
+    setPushSending(true);
+    try {
+      const res = await fetch("/api/reminders/push-dispatch", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send push reminders");
+        return;
+      }
+      toast.success(data?.sent ? `Sent ${data.sent} push notification(s)` : "No due reminders to send");
+    } catch {
+      toast.error("Failed to send push reminders");
+    } finally {
+      setPushSending(false);
+    }
+  };
+
   const sendDueTelegram = async () => {
     setCheckingTelegram(true);
     try {
@@ -465,6 +566,7 @@ export default function ProfilePage() {
           <TabsTrigger value="report" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Report</TabsTrigger>
           <TabsTrigger value="progress" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Progress</TabsTrigger>
           <TabsTrigger value="activity" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Activity</TabsTrigger>
+          <TabsTrigger value="notifications" className="min-w-32 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Notifications</TabsTrigger>
           <TabsTrigger value="integrations" className="min-w-28 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Integrations</TabsTrigger>
           <TabsTrigger value="danger" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Danger</TabsTrigger>
         </TabsList>
@@ -857,6 +959,74 @@ export default function ProfilePage() {
       </FadeIn>
         </TabsContent>
 
+        <TabsContent value="notifications" className="space-y-6">
+      <FadeIn delay={0.14}>
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <BellRing className="h-5 w-5 text-primary" />
+                  Mobile Notifications
+                </CardTitle>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Enable push notifications for reminders, tasks, medications, and due alerts on this device.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
+                <Label htmlFor="push-notifications-enabled" className="text-sm">
+                  {pushStatus.subscribed ? "On" : "Off"}
+                </Label>
+                <Switch
+                  id="push-notifications-enabled"
+                  checked={pushStatus.subscribed}
+                  onCheckedChange={togglePushNotifications}
+                  disabled={!pushStatus.supported || !pushStatus.configured || pushLoading}
+                  aria-label="Enable mobile push notifications"
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!pushStatus.supported && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                This browser or device does not support web push notifications. On iPhone, open Dayza from the Home Screen app icon.
+              </div>
+            )}
+            {pushStatus.supported && !pushStatus.configured && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Push notifications are not configured on the server yet. Add VAPID keys first.
+              </div>
+            )}
+            {pushStatus.supported && pushStatus.permission === "denied" && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                Notifications are blocked in this browser. Enable them from browser or app settings, then return here.
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
+              <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Enabled" : "Disabled"}</Badge>
+              <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
+                Enable
+              </Button>
+              <Button type="button" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
+                Disable
+              </Button>
+              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={!pushStatus.subscribed}>
+                Test Notification
+              </Button>
+              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={!pushStatus.subscribed}>
+                Send Due Now
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </FadeIn>
+        </TabsContent>
+
         <TabsContent value="integrations" className="space-y-6">
       <FadeIn delay={0.14}>
         <Card>
@@ -911,7 +1081,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
-      <FadeIn delay={0.18}>
+      <FadeIn delay={0.2}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -961,7 +1131,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
-      <FadeIn delay={0.22}>
+      <FadeIn delay={0.24}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
