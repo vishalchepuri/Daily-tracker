@@ -103,11 +103,12 @@ async function resetFeature(userId: string, feature: ResetFeature): Promise<Reco
   }
 
   const accounts = await prisma.account.deleteMany({ where: { userId } });
+  const webPushSubscriptions = await prisma.webPushSubscription.deleteMany({ where: { userId } });
   const profileUpdate = await prisma.userProfile.updateMany({
       where: { userId },
       data: { telegramChatId: null, telegramEnabled: false },
   });
-  return { connectedAccounts: accounts.count, telegramProfiles: profileUpdate.count };
+  return { connectedAccounts: accounts.count, webPushSubscriptions: webPushSubscriptions.count, telegramProfiles: profileUpdate.count };
 }
 
 export async function POST(req: Request) {

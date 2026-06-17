@@ -1,4 +1,4 @@
-const DAYZA_CACHE = "dayza-shell-v1";
+const DAYZA_CACHE = "dayza-shell-v2";
 const STATIC_ASSETS = ["/offline.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
 
 self.addEventListener("install", (event) => {
@@ -27,4 +27,39 @@ self.addEventListener("fetch", (event) => {
   if (STATIC_ASSETS.includes(url.pathname)) {
     event.respondWith(caches.match(request).then((cached) => cached || fetch(request)));
   }
+});
+
+self.addEventListener("push", (event) => {
+  const payload = event.data ? event.data.json() : {};
+  const title = payload.title || "Dayza";
+  const options = {
+    body: payload.body || "",
+    icon: payload.icon || "/icon-192.png",
+    badge: payload.badge || "/icon-192.png",
+    tag: payload.tag || "dayza-notification",
+    requireInteraction: Boolean(payload.requireInteraction),
+    data: {
+      url: payload.url || "/dashboard",
+      ...(payload.data || {}),
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || "/dashboard";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client && client.url.includes(self.location.origin)) {
+          client.navigate(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    })
+  );
 });

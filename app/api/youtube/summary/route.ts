@@ -14,6 +14,30 @@ function cleanSummaryText(value: string) {
     .trim();
 }
 
+function extractTakeaways(summary: string) {
+  const lines = summary
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const started = lines.findIndex((line) => /^important points[:\-]?/i.test(line));
+  const collected: string[] = [];
+  if (started >= 0) {
+    for (let i = started + 1; i < lines.length; i += 1) {
+      const line = lines[i];
+      if (/^(what you can use|watch or skip|verdict|short summary)[:\-]?/i.test(line)) break;
+      const normalized = line.replace(/^[\-\d.)\s]+/, "").trim();
+      if (normalized) collected.push(normalized);
+      if (collected.length >= 5) break;
+    }
+  }
+  if (collected.length > 0) return collected;
+  return lines
+    .filter((line) => !/^(verdict|short summary|important points|what you can use|watch or skip)[:\-]?/i.test(line))
+    .map((line) => line.replace(/^[\-\d.)\s]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 export async function POST(req: Request) {
   try {
     const user = await requireCurrentUser();
@@ -71,6 +95,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Summary failed: ${text}` }, { status: 500 });
     }
     const data = await response.json();
+    const summary = cleanSummaryText(data?.choices?.[0]?.message?.content ?? "No summary generated.");
     return NextResponse.json({
       video: {
         id: videoId,
@@ -79,7 +104,8 @@ export async function POST(req: Request) {
         thumbnail: video.snippet?.thumbnails?.medium?.url ?? video.snippet?.thumbnails?.default?.url,
       },
       source: sourceLabel,
-      summary: cleanSummaryText(data?.choices?.[0]?.message?.content ?? "No summary generated."),
+      summary,
+      takeaways: extractTakeaways(summary),
     });
   } catch (error: any) {
     return NextResponse.json({ error: error?.message ?? "Failed to summarize video" }, { status: 500 });

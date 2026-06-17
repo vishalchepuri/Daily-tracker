@@ -20,6 +20,7 @@ import {
   Activity,
   AlertTriangle,
   Banknote,
+  BellRing,
   Bot,
   Brain,
   Calculator,
@@ -50,6 +51,7 @@ import { ProgressPanel } from "../_components/progress-panel";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
+import { registerPushNotifications, supportsPushNotifications, unregisterPushNotifications } from "@/lib/push-notifications-client";
 
 const RESET_FEATURE_OPTIONS = [
   { id: "profile", label: "Profile", detail: "Body stats, goals, targets, safety notes, Telegram link settings" },
@@ -79,6 +81,8 @@ export default function ProfilePage() {
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushSending, setPushSending] = useState(false);
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -88,6 +92,7 @@ export default function ProfilePage() {
   const [resetFeatures, setResetFeatures] = useState<string[]>([]);
   const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const [pushStatus, setPushStatus] = useState({ supported: false, configured: false, subscribed: false, permission: "default" });
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
@@ -137,6 +142,28 @@ export default function ProfilePage() {
         botConfigured: Boolean(d?.botConfigured),
       });
     }).catch(console.error);
+    if (supportsPushNotifications()) {
+      fetch("/api/push/subscription")
+        .then((r) => r.ok ? r.json() : { configured: false, subscribed: false })
+        .then((d) => {
+          setPushStatus({
+            supported: true,
+            configured: Boolean(d?.configured),
+            subscribed: Boolean(d?.subscribed),
+            permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+          });
+        })
+        .catch(() => {
+          setPushStatus({
+            supported: true,
+            configured: false,
+            subscribed: false,
+            permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+          });
+        });
+    } else {
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default" });
+    }
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
       setActivityCounts(d?.counts ?? {});
@@ -359,6 +386,71 @@ export default function ProfilePage() {
       toast.error("Failed to save Telegram settings");
     } finally {
       setSavingTelegram(false);
+    }
+  };
+
+  const enablePushNotifications = async () => {
+    setPushLoading(true);
+    try {
+      await registerPushNotifications();
+      setPushStatus({
+        supported: true,
+        configured: true,
+        subscribed: true,
+        permission: typeof Notification !== "undefined" ? Notification.permission : "granted",
+      });
+      toast.success("Push notifications enabled");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to enable push notifications");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const disablePushNotifications = async () => {
+    setPushLoading(true);
+    try {
+      await unregisterPushNotifications();
+      setPushStatus((current) => ({ ...current, subscribed: false }));
+      toast.success("Push notifications disabled");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to disable push notifications");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const sendPushTest = async () => {
+    setPushSending(true);
+    try {
+      const res = await fetch("/api/push/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send test notification");
+        return;
+      }
+      toast.success(data?.sent ? "Test notification sent" : "No device subscription found");
+    } catch {
+      toast.error("Failed to send test notification");
+    } finally {
+      setPushSending(false);
+    }
+  };
+
+  const sendDuePush = async () => {
+    setPushSending(true);
+    try {
+      const res = await fetch("/api/reminders/push-dispatch", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send push reminders");
+        return;
+      }
+      toast.success(data?.sent ? `Sent ${data.sent} push notification(s)` : "No due reminders to send");
+    } catch {
+      toast.error("Failed to send push reminders");
+    } finally {
+      setPushSending(false);
     }
   };
 
@@ -915,6 +1007,50 @@ export default function ProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
+              <BellRing className="h-5 w-5 text-primary" />
+              Push Notifications
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+              Enable real push notifications for reminders so Dayza can reach your phone even when the app is closed.
+            </div>
+            {!pushStatus.supported && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                This browser/device does not support web push notifications.
+              </div>
+            )}
+            {pushStatus.supported && !pushStatus.configured && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Push notifications are not configured on the server yet. Add VAPID keys first.
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
+              <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Subscribed" : "Not subscribed"}</Badge>
+              <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
+                Enable Push
+              </Button>
+              <Button type="button" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
+                Disable Push
+              </Button>
+              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={!pushStatus.subscribed}>
+                Test Push
+              </Button>
+              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={!pushStatus.subscribed}>
+                Send Due Now
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </FadeIn>
+      <FadeIn delay={0.2}>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-primary" />
               Telegram Bot
             </CardTitle>
@@ -961,7 +1097,7 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
-      <FadeIn delay={0.22}>
+      <FadeIn delay={0.24}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

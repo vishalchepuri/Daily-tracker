@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,47 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+
+interface YoutubeLearningItem {
+  videoId: string;
+  title: string;
+  channelTitle: string;
+  category?: string | null;
+  status?: string | null;
+  nextAction?: string | null;
+  savedAt?: string | null;
+  updatedAt?: string | null;
+}
+
+function learningLabel(value?: string | null) {
+  switch (value) {
+    case "fitness":
+      return "Fitness";
+    case "nutrition":
+      return "Nutrition";
+    case "finance":
+      return "Finance";
+    case "productivity":
+      return "Productivity";
+    default:
+      return "Other";
+  }
+}
+
+function learningStatusLabel(value?: string | null) {
+  switch (value) {
+    case "watched":
+      return "Watched";
+    case "summarized":
+      return "Summarized";
+    case "acted_on":
+      return "Action planned";
+    case "completed":
+      return "Completed";
+    default:
+      return "Saved";
+  }
+}
 
 
 interface DashboardData {
@@ -45,6 +86,8 @@ export default function DashboardPage() {
   const [youtubeVideos, setYoutubeVideos] = useState<any[]>([]);
   const [youtubeLoading, setYoutubeLoading] = useState(true);
   const [youtubeNeedsConnection, setYoutubeNeedsConnection] = useState(false);
+  const [learningItems, setLearningItems] = useState<YoutubeLearningItem[]>([]);
+  const [learningLoading, setLearningLoading] = useState(true);
   const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [reviewLoading, setReviewLoading] = useState(true);
 
@@ -135,6 +178,20 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchLearningItems = async () => {
+    try {
+      const res = await fetch("/api/youtube/learning");
+      if (res.ok) {
+        const d = await res.json();
+        setLearningItems(Array.isArray(d.items) ? d.items : []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLearningLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => r.json())
@@ -145,8 +202,14 @@ export default function DashboardPage() {
     fetchReminders();
     fetchWaterLogs();
     fetchYoutubeVideos();
+    fetchLearningItems();
     fetchReviewItems();
   }, []);
+
+  const activeLearningItem = useMemo(() => {
+    const openItem = learningItems.find((item) => item.status !== "completed");
+    return openItem ?? learningItems[0] ?? null;
+  }, [learningItems]);
 
   const toggleReminder = async (id: string, completed: boolean) => {
     try {
@@ -818,6 +881,56 @@ export default function DashboardPage() {
                       </div>
                     </button>
                   ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      <FadeIn delay={0.53}>
+        <Card className="mt-6">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Inbox className="w-5 h-5 text-primary" />
+                Learning Queue
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">Pick up one saved video insight and turn it into action.</p>
+            </div>
+            <Link href="/yt-summary" className="text-xs text-primary hover:underline flex items-center gap-1">
+              Open YT Summary <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </CardHeader>
+          <CardContent>
+            {learningLoading ? (
+              <div className="h-28 animate-pulse rounded-lg bg-muted/40" />
+            ) : !activeLearningItem ? (
+              <div className="rounded-lg border border-dashed border-border bg-muted/10 p-5 text-sm text-muted-foreground">
+                Save a useful video summary and it will show up here for follow-up.
+              </div>
+            ) : (
+              <div className="rounded-xl border border-primary/15 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="line-clamp-2 text-sm font-semibold text-foreground">{activeLearningItem.title}</p>
+                    <p className="mt-1 truncate text-xs text-muted-foreground">{activeLearningItem.channelTitle}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary">{learningLabel(activeLearningItem.category)}</Badge>
+                    <Badge variant="outline">{learningStatusLabel(activeLearningItem.status)}</Badge>
+                  </div>
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">Next action</p>
+                    <p className="mt-1 text-sm text-foreground">
+                      {activeLearningItem.nextAction?.trim() || "Open the saved note, review the takeaways, and decide the next step."}
+                    </p>
+                  </div>
+                  <Link href="/yt-summary" className="sm:justify-self-end">
+                    <Button size="sm" className="w-full sm:w-auto">Continue learning</Button>
+                  </Link>
+                </div>
               </div>
             )}
           </CardContent>
