@@ -8,6 +8,7 @@ import { listRecentIssueReports } from "@/lib/firestore-app-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ExerciseReviewActions } from "./exercise-review-actions";
+import { AdminRecentSpends, AdminRecentWorkouts, AdminReviewQueue } from "./admin-lazy-panels";
 import {
   Table,
   TableBody,
@@ -52,7 +53,7 @@ export default async function AdminPage() {
   const admin = await requireAdminUser();
   if (!admin) redirect("/dashboard");
 
-  const [users, totals, spendTotals, moneyLinkTotals, issueReports, recentSpends, recentWorkoutLogs, pendingExercises] = await Promise.all([
+  const [users, totals, spendTotals, moneyLinkTotals, issueReports, pendingExercises] = await Promise.all([
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -99,16 +100,6 @@ export default async function AdminPage() {
       _sum: { amount: true },
     }),
     listRecentIssueReports(8),
-    prisma.spend.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      select: { id: true, merchant: true, amount: true, currency: true, source: true, createdAt: true, user: { select: { name: true, email: true } } },
-    }),
-    prisma.workoutLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 6,
-      select: { id: true, templateName: true, duration: true, date: true, user: { select: { name: true, email: true } } },
-    }),
     prisma.exercise.findMany({
       where: { status: "pending" },
       orderBy: { createdAt: "asc" },
@@ -130,31 +121,6 @@ export default async function AdminPage() {
     user._count.medications +
     user._count.progressEntries
   ), 0);
-  const reviewQueue = [
-    ...pendingExercises.map((exercise) => ({
-      id: exercise.id,
-      type: "Exercise",
-      title: exercise.name,
-      detail: `${exercise.muscleGroup}${exercise.equipment ? ` - ${exercise.equipment}` : ""}`,
-      user: exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user",
-      createdAt: exercise.createdAt,
-      kind: "exercise" as const,
-    })),
-    ...issueReports
-      .filter((issue) => issue.status === "open")
-      .map((issue) => ({
-        id: issue.id,
-        type: "Issue",
-        title: issue.category,
-        detail: issue.message,
-        user: issue.name || issue.email || "Anonymous",
-        createdAt: new Date(issue.createdAt ?? Date.now()),
-        kind: "issue" as const,
-      })),
-  ]
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, 12);
-
   return (
     <div className="space-y-5">
       <div className="hidden sm:block">
@@ -183,36 +149,7 @@ export default async function AdminPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />Smart Review Queue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {reviewQueue.length === 0 ? (
-              <EmptyState label="Nothing needs review right now." />
-            ) : (
-              <div className="grid gap-2">
-                {reviewQueue.map((item) => (
-                  <div key={`${item.kind}-${item.id}`} className="grid gap-3 rounded-lg bg-muted/40 p-3 md:grid-cols-[1fr_auto] md:items-center">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={item.kind === "exercise" ? "default" : "secondary"}>{item.type}</Badge>
-                        <p className="truncate font-semibold">{item.title}</p>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{item.user} - {formatDate(item.createdAt)}</p>
-                    </div>
-                    {item.kind === "exercise" ? (
-                      <ExerciseReviewActions id={item.id} name={item.title} />
-                    ) : (
-                      <Badge variant="outline">Open</Badge>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <AdminReviewQueue />
 
         <Card>
           <CardHeader>
@@ -275,37 +212,9 @@ export default async function AdminPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="h-5 w-5 text-primary" />Recent Spends</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {recentSpends.length === 0 ? (
-              <EmptyState label="No spends recorded yet." />
-            ) : recentSpends.map((spend) => (
-              <AdminListRow
-                key={spend.id}
-                title={spend.merchant}
-                detail={`${spend.user.name || spend.user.email} - ${spend.source}`}
-                value={`${spend.currency} ${Number(spend.amount ?? 0).toFixed(0)}`}
-              />
-            ))}
-          </CardContent>
-        </Card>
+        <AdminRecentSpends />
 
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" />Recent Workouts</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {recentWorkoutLogs.length === 0 ? (
-              <EmptyState label="No workout logs yet." />
-            ) : recentWorkoutLogs.map((log) => (
-              <AdminListRow
-                key={log.id}
-                title={log.templateName || "Workout"}
-                detail={`${log.user.name || log.user.email} - ${formatDate(log.date)}`}
-                value={log.duration ? `${log.duration} min` : "Logged"}
-              />
-            ))}
-          </CardContent>
-        </Card>
+        <AdminRecentWorkouts />
       </div>
 
       <Card>
@@ -422,18 +331,6 @@ function AdminMetric({ title, value, detail, icon: Icon, compact }: any) {
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function AdminListRow({ title, detail, value }: { title: string; detail: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/40 px-3 py-2">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{title}</p>
-        <p className="truncate text-xs text-muted-foreground">{detail}</p>
-      </div>
-      <span className="whitespace-nowrap font-mono text-sm">{value}</span>
-    </div>
   );
 }
 
