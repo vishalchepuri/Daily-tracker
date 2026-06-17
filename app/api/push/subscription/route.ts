@@ -4,23 +4,31 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { isWebPushConfigured } from "@/lib/web-push";
+import { normalizeTimeZone } from "@/lib/local-dates";
 
 export async function GET() {
   try {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const subscription = await prisma.webPushSubscription.findFirst({
-      where: { userId: user.id },
-      orderBy: { updatedAt: "desc" },
-      select: { id: true, endpoint: true, updatedAt: true },
-    });
+    const [subscription, profile] = await Promise.all([
+      prisma.webPushSubscription.findFirst({
+        where: { userId: user.id },
+        orderBy: { updatedAt: "desc" },
+        select: { id: true, endpoint: true, updatedAt: true },
+      }),
+      prisma.userProfile.findUnique({
+        where: { userId: user.id },
+        select: { timeZone: true },
+      }),
+    ]);
 
     return NextResponse.json({
       configured: isWebPushConfigured(),
       publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null,
       subscribed: Boolean(subscription),
       subscription,
+      timeZone: profile?.timeZone ?? null,
     });
   } catch (error: any) {
     return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
@@ -42,25 +50,33 @@ export async function POST(req: Request) {
     if (!endpoint || !p256dh || !auth) {
       return NextResponse.json({ error: "Invalid push subscription payload" }, { status: 400 });
     }
+    const timeZone = normalizeTimeZone(data?.timeZone);
 
-    const subscription = await prisma.webPushSubscription.upsert({
-      where: { endpoint },
-      update: {
-        userId: user.id,
-        p256dh,
-        auth,
-        expirationTime: data?.expirationTime ? new Date(data.expirationTime) : null,
-        userAgent: req.headers.get("user-agent"),
-      },
-      create: {
-        userId: user.id,
-        endpoint,
-        p256dh,
-        auth,
-        expirationTime: data?.expirationTime ? new Date(data.expirationTime) : null,
-        userAgent: req.headers.get("user-agent"),
-      },
-    });
+    const [subscription] = await Promise.all([
+      prisma.webPushSubscription.upsert({
+        where: { endpoint },
+        update: {
+          userId: user.id,
+          p256dh,
+          auth,
+          expirationTime: data?.expirationTime ? new Date(data.expirationTime) : null,
+          userAgent: req.headers.get("user-agent"),
+        },
+        create: {
+          userId: user.id,
+          endpoint,
+          p256dh,
+          auth,
+          expirationTime: data?.expirationTime ? new Date(data.expirationTime) : null,
+          userAgent: req.headers.get("user-agent"),
+        },
+      }),
+      prisma.userProfile.upsert({
+        where: { userId: user.id },
+        update: { timeZone },
+        create: { userId: user.id, timeZone },
+      }),
+    ]);
 
     return NextResponse.json({ ok: true, subscription });
   } catch (error: any) {

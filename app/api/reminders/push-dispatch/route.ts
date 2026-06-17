@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendPushToUser } from "@/lib/web-push";
-import { atDateTime, isMedicationDueOn } from "@/lib/medication-schedule";
+import { isMedicationDueOn, isMedicationTimeDueNow } from "@/lib/medication-schedule";
+import { DEFAULT_TIME_ZONE, getZonedDateParts, normalizeTimeZone } from "@/lib/local-dates";
 
 function isCronAuthorized(req: Request) {
   const secret = process.env.CRON_SECRET;
@@ -53,17 +54,25 @@ async function dispatchPush(req: Request) {
         ...(cronMode ? {} : { userId: authedUser!.id }),
       },
       include: {
-        user: { select: { id: true, name: true } },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            profile: { select: { timeZone: true } },
+          },
+        },
       },
       orderBy: [{ timeOfDay: "asc" }, { createdAt: "desc" }],
     });
 
+    const logWindowStart = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+    const logWindowEnd = new Date(now.getTime() + 6 * 60 * 60 * 1000);
     const medicationLogs = await prisma.medicationLog.findMany({
       where: {
         userId: cronMode ? undefined : authedUser!.id,
         scheduledFor: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          lte: new Date(new Date().setHours(23, 59, 59, 999)),
+          gte: logWindowStart,
+          lte: logWindowEnd,
         },
       },
       select: {
@@ -112,30 +121,25 @@ async function dispatchPush(req: Request) {
       }
     }
 
-    const logsByMedication = new Map<string, { status: string; scheduledFor: Date }>();
-    for (const log of medicationLogs) {
-      if (!logsByMedication.has(log.medicationId)) {
-        logsByMedication.set(log.medicationId, { status: log.status, scheduledFor: log.scheduledFor });
-      }
-    }
-
     for (const medication of medications) {
-      if (!isMedicationDueOn(medication, now)) continue;
+      const timeZone = normalizeTimeZone(medication.user?.profile?.timeZone ?? DEFAULT_TIME_ZONE);
+      const nowZoned = getZonedDateParts(now, timeZone);
+      if (!isMedicationDueOn(medication, now, timeZone)) continue;
+      if (!isMedicationTimeDueNow(medication, now, timeZone)) continue;
 
-      const scheduled = atDateTime(medication.timeOfDay, now);
-      const isDue = scheduled.getTime() <= now.getTime();
-      if (!isDue) continue;
-
-      const alreadyLogged = logsByMedication.has(medication.id);
+      const alreadyLogged = medicationLogs.some((log) => (
+        log.medicationId === medication.id
+        && getZonedDateParts(log.scheduledFor, timeZone).dateKey === nowZoned.dateKey
+      ));
       if (!alreadyLogged) {
         const lastPushAt = medication.lastPushSentAt ? new Date(medication.lastPushSentAt) : null;
-        const sameScheduleWindow = lastPushAt && Math.abs(lastPushAt.getTime() - scheduled.getTime()) < 12 * 60 * 60 * 1000;
-        if (!sameScheduleWindow) {
+        const alreadyPushedToday = lastPushAt && getZonedDateParts(lastPushAt, timeZone).dateKey === nowZoned.dateKey;
+        if (!alreadyPushedToday) {
           const result = await sendPushToUser(medication.userId, {
             title: "Dayza medication reminder",
             body: `Take ${medication.name}${medication.dosage ? ` (${medication.dosage})` : ""} at ${medication.timeOfDay}${medication.instructions ? `\n${medication.instructions}` : ""}`,
             url: "/medications",
-            tag: `medication-${medication.id}-${scheduled.toISOString().slice(0, 10)}`,
+            tag: `medication-${medication.id}-${nowZoned.dateKey}`,
             requireInteraction: true,
             data: { medicationId: medication.id, kind: "medication" },
           });

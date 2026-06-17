@@ -53,6 +53,7 @@ import { signOutOfDayza } from "@/lib/firebase-session-client";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
 import { registerPushNotifications, supportsPushNotifications, unregisterPushNotifications } from "@/lib/push-notifications-client";
+import { getClientTimeZone } from "@/lib/local-dates";
 
 const RESET_FEATURE_OPTIONS = [
   { id: "profile", label: "Profile", detail: "Body stats, goals, targets, safety notes, Telegram link settings" },
@@ -93,7 +94,7 @@ export default function ProfilePage() {
   const [resetFeatures, setResetFeatures] = useState<string[]>([]);
   const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
-  const [pushStatus, setPushStatus] = useState({ supported: false, configured: false, subscribed: false, permission: "default" });
+  const [pushStatus, setPushStatus] = useState({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "" });
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
@@ -152,6 +153,7 @@ export default function ProfilePage() {
             configured: Boolean(d?.configured),
             subscribed: Boolean(d?.subscribed),
             permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+            timeZone: d?.timeZone ?? getClientTimeZone(),
           });
         })
         .catch(() => {
@@ -160,10 +162,11 @@ export default function ProfilePage() {
             configured: false,
             subscribed: false,
             permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+            timeZone: getClientTimeZone(),
           });
         });
     } else {
-      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default" });
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "" });
     }
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
@@ -399,6 +402,7 @@ export default function ProfilePage() {
         configured: true,
         subscribed: true,
         permission: typeof Notification !== "undefined" ? Notification.permission : "granted",
+        timeZone: getClientTimeZone(),
       });
       toast.success("Push notifications enabled");
     } catch (error: any) {
@@ -531,7 +535,7 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-5 sm:space-y-6">
-      <FadeIn>
+      <FadeIn className="hidden sm:block">
         <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Profile & Goals</h2>
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
       </FadeIn>
@@ -1007,6 +1011,12 @@ export default function ProfilePage() {
               <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
               <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Enabled" : "Disabled"}</Badge>
               <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
+              {pushStatus.timeZone && <Badge variant="outline">Timezone: {pushStatus.timeZone}</Badge>}
+            </div>
+            <div className="grid gap-2 rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground sm:grid-cols-3">
+              <div><span className="font-medium text-foreground">Reminders</span><br />Due date and time alerts</div>
+              <div><span className="font-medium text-foreground">Medications</span><br />Dose time alerts</div>
+              <div><span className="font-medium text-foreground">Refills</span><br />Low stock alerts</div>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>

@@ -58,7 +58,7 @@ export function WeeklyReportPanel() {
   if (empty) {
     return (
       <div className="space-y-5">
-        <FadeIn>
+        <FadeIn className="hidden sm:block">
           <h2 className="font-display text-2xl font-bold tracking-tight">Weekly Report</h2>
         </FadeIn>
         <Card><CardContent className="flex flex-col items-center py-16 text-center text-muted-foreground">
@@ -73,7 +73,7 @@ export function WeeklyReportPanel() {
   if (error) {
     return (
       <div className="space-y-5">
-        <h2 className="font-display text-2xl font-bold tracking-tight">Weekly Report</h2>
+        <h2 className="hidden font-display text-2xl font-bold tracking-tight sm:block">Weekly Report</h2>
         <Card><CardContent className="p-6 text-center text-destructive">{error}</CardContent></Card>
       </div>
     );
@@ -82,8 +82,8 @@ export function WeeklyReportPanel() {
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div>
+        <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+          <div className="hidden sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Weekly Report</h2>
             <p className="mt-1 text-sm text-muted-foreground">AI-powered analysis of your last 7 days</p>
           </div>
