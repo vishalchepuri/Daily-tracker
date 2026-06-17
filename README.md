@@ -128,6 +128,7 @@ Recommended hosting:
 - Fly.io
 
 Set environment variables in the hosting provider's dashboard. Do not put secrets in source code or commit them to GitHub.
+For Hobby Vercel projects, use an external scheduler such as cron-job.org for frequent reminder push dispatches.
 
 ## Features
 
