@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
@@ -38,9 +38,16 @@ export default function ChatPage() {
   const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
   const [listening, setListening] = useState(false);
   const [interactionMode, setInteractionMode] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [voiceReplies, setVoiceReplies] = useState(true);
+  const [speaking, setSpeaking] = useState(false);
+  const [cameraError, setCameraError] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const lastSpokenMessageRef = useRef<string>("");
   const skipNextMessageLoadRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -115,6 +122,31 @@ export default function ChatPage() {
   useEffect(() => {
     scrollRef.current?.scrollTo?.({ top: scrollRef.current?.scrollHeight ?? 0, behavior: "smooth" });
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop?.();
+      window.speechSynthesis?.cancel?.();
+      cameraStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!interactionMode || !voiceReplies || streaming) return;
+    const lastAssistant = [...(messages ?? [])].reverse().find((message) => message?.role === "assistant" && message?.content?.trim());
+    const content = lastAssistant?.content?.trim();
+    if (!content || content === lastSpokenMessageRef.current || !("speechSynthesis" in window)) return;
+    lastSpokenMessageRef.current = content;
+    const plainText = content.replace(/\s+/g, " ").slice(0, 1200);
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    utterance.rate = 0.96;
+    utterance.pitch = 1;
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [interactionMode, messages, streaming, voiceReplies]);
 
   const createChatSession = useCallback(async (title = "New chat", options: { clearMessages?: boolean; skipAutoLoad?: boolean } = {}) => {
     const res = await dayzaFetch("/api/chat/sessions", {
@@ -255,6 +287,66 @@ export default function ChatPage() {
   const stopAgentResponse = useCallback(() => {
     abortControllerRef.current?.abort();
   }, []);
+
+  const stopCamera = useCallback(() => {
+    cameraStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOn(false);
+  }, []);
+
+  const toggleCamera = useCallback(async () => {
+    if (cameraOn) {
+      stopCamera();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera is not supported in this browser.");
+      toast.error("Camera is not supported in this browser");
+      return;
+    }
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => null);
+      }
+      setCameraOn(true);
+    } catch {
+      setCameraError("Camera permission was blocked.");
+      toast.error("Camera permission was blocked");
+    }
+  }, [cameraOn, stopCamera]);
+
+  const captureCameraFrame = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !cameraOn || !video.videoWidth || !video.videoHeight) {
+      toast.error("Camera is not ready yet");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setImageDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+    toast.success("Frame attached. Ask Dayza what to check.");
+  }, [cameraOn]);
+
+  const endLiveAgent = useCallback(() => {
+    recognitionRef.current?.stop?.();
+    window.speechSynthesis?.cancel?.();
+    setListening(false);
+    setSpeaking(false);
+    stopCamera();
+    setInteractionMode(false);
+  }, [stopCamera]);
 
   const handleSend = useCallback(async () => {
     await sendMessage();
@@ -409,8 +501,10 @@ export default function ChatPage() {
   }, [listening, sendMessage, streaming]);
 
   const closeChat = useCallback(() => {
+    stopCamera();
+    window.speechSynthesis?.cancel?.();
     router.push(returnTo);
-  }, [returnTo, router]);
+  }, [returnTo, router, stopCamera]);
 
   const quickActions = [
     { label: "Daily check-in", detail: "Workout, meals, water, meds" },
@@ -521,6 +615,99 @@ export default function ChatPage() {
           </div>
         </div>
       </FadeIn>
+
+      {interactionMode && (
+        <div className="mb-3 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-sm">
+          <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] sm:p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl border border-primary/25 bg-primary/10 text-primary shadow-inner">
+                <Bot className="h-8 w-8" />
+                <span className={`absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-card ${streaming || speaking ? "animate-pulse bg-emerald-400" : "bg-muted"}`} />
+              </div>
+              <div className="min-w-0">
+                <p className="font-display text-lg font-bold tracking-tight">Dayza Live Agent</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {listening
+                    ? "Listening now. Speak naturally."
+                    : speaking
+                      ? "Dayza is speaking."
+                      : streaming
+                        ? "Dayza is thinking through your request."
+                        : "Tap Talk for voice, or turn on camera and capture what Dayza should inspect."}
+                </p>
+                {input && listening && (
+                  <p className="mt-2 line-clamp-2 rounded-lg border border-primary/20 bg-background/60 px-3 py-2 text-xs text-primary">
+                    {input}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <div className="relative aspect-video overflow-hidden rounded-xl border border-border bg-background/70">
+                {cameraOn ? (
+                  <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+                    <Video className="h-6 w-6" />
+                    <span className="text-xs">{cameraError || "Camera off"}</span>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                <Button
+                  type="button"
+                  variant={listening ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => toggleVoiceInput({ autoSend: true })}
+                  disabled={streaming}
+                  title={listening ? "Stop listening" : "Talk to Dayza"}
+                >
+                  {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant={cameraOn ? "default" : "outline"}
+                  size="icon"
+                  onClick={toggleCamera}
+                  disabled={streaming}
+                  title={cameraOn ? "Turn camera off" : "Turn camera on"}
+                >
+                  {cameraOn ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={captureCameraFrame}
+                  disabled={!cameraOn || streaming}
+                  title="Capture camera frame"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={voiceReplies ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => {
+                    if (voiceReplies) {
+                      window.speechSynthesis?.cancel?.();
+                      setSpeaking(false);
+                    }
+                    setVoiceReplies((value) => !value);
+                  }}
+                  title={voiceReplies ? "Mute Dayza voice" : "Unmute Dayza voice"}
+                >
+                  {voiceReplies ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </Button>
+                <Button type="button" variant="destructive" size="icon" onClick={endLiveAgent} title="End live mode">
+                  <PhoneOff className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
