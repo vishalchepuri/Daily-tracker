@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { completeGoogleFeatureRedirect, connectGoogleFeature } from "@/lib/google-feature-client";
+import { formatAppDate } from "@/lib/local-dates";
 
 function formatDuration(seconds?: number) {
   if (!seconds) return "";
@@ -575,7 +576,7 @@ export default function YtSummaryPage() {
                           </div>
                         )}
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline">{new Date(video.publishedAt).toLocaleDateString()}</Badge>
+                          <Badge variant="outline">{formatAppDate(video.publishedAt, { day: "2-digit", month: "short", year: "numeric" })}</Badge>
                           {video.durationSeconds > 0 && <Badge variant="outline">{formatDuration(video.durationSeconds)}</Badge>}
                           {video.viewCount > 0 && <Badge variant="outline">{formatViews(video.viewCount)}</Badge>}
                           <Badge variant={video.kind === "video" ? "default" : "outline"}>{video.kind === "video" ? "Video" : "Short"}</Badge>
@@ -721,7 +722,7 @@ export default function YtSummaryPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="line-clamp-2 text-sm font-semibold">{saved.title}</p>
-                  <p className="text-xs text-muted-foreground">{saved.channelTitle} · Saved {new Date(saved.savedAt).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">{saved.channelTitle} · Saved {formatAppDate(saved.savedAt, { day: "2-digit", month: "short", year: "numeric" })}</p>
                 </div>
                 <button type="button" onClick={() => removeSaved(saved.videoId)} className="shrink-0 text-muted-foreground transition-colors hover:text-destructive">
                   <Trash2 className="h-4 w-4" />

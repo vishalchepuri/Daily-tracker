@@ -68,6 +68,18 @@ const RESET_FEATURE_OPTIONS = [
   { id: "integrations", label: "Integrations", detail: "Connected OAuth accounts and Telegram link settings" },
 ] as const;
 
+const PROFILE_TAB_OPTIONS = [
+  { value: "profile", label: "Profile" },
+  { value: "memory", label: "Memory" },
+  { value: "review", label: "Review" },
+  { value: "report", label: "Report" },
+  { value: "progress", label: "Progress" },
+  { value: "activity", label: "Activity" },
+  { value: "notifications", label: "Notifications" },
+  { value: "integrations", label: "Integrations" },
+  { value: "danger", label: "Danger" },
+] as const;
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [activityItems, setActivityItems] = useState<any[]>([]);
@@ -573,16 +585,28 @@ export default function ProfilePage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex h-auto w-full gap-2 overflow-x-auto bg-transparent p-0">
-          <TabsTrigger value="profile" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Profile</TabsTrigger>
-          <TabsTrigger value="memory" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Memory</TabsTrigger>
-          <TabsTrigger value="review" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Review</TabsTrigger>
-          <TabsTrigger value="report" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Report</TabsTrigger>
-          <TabsTrigger value="progress" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Progress</TabsTrigger>
-          <TabsTrigger value="activity" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Activity</TabsTrigger>
-          <TabsTrigger value="notifications" className="min-w-32 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Notifications</TabsTrigger>
-          <TabsTrigger value="integrations" className="min-w-28 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Integrations</TabsTrigger>
-          <TabsTrigger value="danger" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Danger</TabsTrigger>
+        <div className="rounded-xl border border-border/70 bg-card/85 p-2 shadow-sm shadow-black/10 sm:hidden">
+          <Select value={activeTab} onValueChange={setActiveTab}>
+            <SelectTrigger className="h-11 border-border/70 bg-background/70">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROFILE_TAB_OPTIONS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <TabsList className="hidden h-auto w-full gap-2 overflow-x-auto bg-transparent p-0 sm:flex">
+          {PROFILE_TAB_OPTIONS.map((item) => (
+            <TabsTrigger
+              key={item.value}
+              value={item.value}
+              className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15"
+            >
+              {item.label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="profile" className="space-y-6">
@@ -599,7 +623,7 @@ export default function ProfilePage() {
               <div><Label>First Name</Label><Input value={form.firstName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, firstName: e.target.value})} className="mt-1" /></div>
               <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, lastName: e.target.value})} className="mt-1" /></div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div><Label>Age</Label><Input type="number" value={form.age} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, age: e.target.value})} className="mt-1" /></div>
               <div><Label>Weight (kg)</Label><Input type="number" value={form.weight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, weight: e.target.value})} className="mt-1" /></div>
               <div><Label>Height (cm)</Label><Input type="number" value={form.height} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, height: e.target.value})} className="mt-1" /></div>
@@ -615,7 +639,7 @@ export default function ProfilePage() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <Label>Activity Level</Label>
                 <Select value={form.activityLevel} onValueChange={(v: string) => setForm({...form, activityLevel: v})}>
@@ -701,7 +725,7 @@ export default function ProfilePage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className="p-4 rounded-lg bg-muted">
                   <p className="text-xs text-muted-foreground">TDEE</p>
                   <p className="text-2xl font-bold font-mono">{Math.round(profile?.tdee ?? 0)}</p>
@@ -782,7 +806,7 @@ export default function ProfilePage() {
                   onClear={() => clearMemoryFields(["goalOutcome", "goalTimelineDays", "goalTargetWeight"])}
                 >
                   <div><Label>Goal outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." /></div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <div><Label>Timeline days</Label><Input type="number" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" /></div>
                     <div><Label>Target weight</Label><Input type="number" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" /></div>
                   </div>
@@ -854,7 +878,7 @@ export default function ProfilePage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <ReviewFilterButton active={reviewFilter === "open"} label="Open" count={reviewCount(reviewCounts, "open")} onClick={() => setReviewFilter("open")} />
               <ReviewFilterButton active={reviewFilter === "confirmed"} label="Confirmed" count={reviewCount(reviewCounts, "confirmed")} onClick={() => setReviewFilter("confirmed")} />
               <ReviewFilterButton active={reviewFilter === "ignored"} label="Ignored" count={reviewCount(reviewCounts, "ignored")} onClick={() => setReviewFilter("ignored")} />
@@ -887,7 +911,7 @@ export default function ProfilePage() {
                       </p>
                     </div>
                     {item.status === "open" && (
-                      <div className="grid grid-cols-2 gap-2 sm:flex">
+                      <div className="grid grid-cols-1 gap-2 sm:flex">
                         <Button type="button" size="sm" onClick={() => resolveReviewItem(item, "confirmed")}>
                           <CheckCircle2 className="h-4 w-4" />
                           Confirm

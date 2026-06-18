@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
-import { dateTimeInputToIso, formatLocalDateInput } from "@/lib/local-dates";
+import { dateTimeInputToIso, formatAppDate, formatAppDateTime, formatAppTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankReminder = {
   id: "",
@@ -46,9 +46,10 @@ function splitDateTime(value?: string | null) {
   if (!value) return { dueDate: "", dueTime: "" };
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { dueDate: "", dueTime: "" };
+  const zoned = getZonedDateParts(date);
   return {
     dueDate: formatLocalDateInput(date),
-    dueTime: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
+    dueTime: `${zoned.hour}:${zoned.minute}`,
   };
 }
 
@@ -64,6 +65,21 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function appDayRange(dateKey = formatLocalDateInput(new Date())) {
+  return {
+    dateKey,
+    start: new Date(dateTimeInputToIso(dateKey, "00:00")),
+    evening: new Date(dateTimeInputToIso(dateKey, "18:00")),
+    end: new Date(dateTimeInputToIso(dateKey, "23:59")),
+  };
 }
 
 function contextLabel(value?: string | null) {
@@ -162,21 +178,15 @@ export default function RemindersPage() {
   };
 
   const smartCounts = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
+    const tomorrow = appDayRange(addDaysToDateKey(today.dateKey, 1));
     const now = new Date();
     return {
       all: reminders.filter((item) => !item.completed).length,
       overdue: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) < now).length,
-      today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd).length,
-      tonight: reminders.filter((item) => !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= new Date(`${dateInputValue(todayStart)}T18:00:00`) && new Date(item.dueDate) <= todayEnd))).length,
-      tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd).length,
+      today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end).length,
+      tonight: reminders.filter((item) => !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= today.evening && new Date(item.dueDate) <= today.end))).length,
+      tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrow.start && new Date(item.dueDate) <= tomorrow.end).length,
       office: reminders.filter((item) => !item.completed && item.contextTag === "office").length,
       leaving_home: reminders.filter((item) => !item.completed && item.contextTag === "leaving_home").length,
       scheduled: reminders.filter((item) => !item.completed && item.dueDate).length,
@@ -186,21 +196,15 @@ export default function RemindersPage() {
   }, [reminders]);
 
   const filteredReminders = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
+    const tomorrow = appDayRange(addDaysToDateKey(today.dateKey, 1));
     const now = new Date();
     const nextItems = reminders.filter((item) => {
       if (filter === "all") return !item.completed;
       if (filter === "overdue") return !item.completed && item.dueDate && new Date(item.dueDate) < now;
-      if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd;
-      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd;
-      if (filter === "tonight") return !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= new Date(`${dateInputValue(todayStart)}T18:00:00`) && new Date(item.dueDate) <= todayEnd));
+      if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end;
+      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrow.start && new Date(item.dueDate) <= tomorrow.end;
+      if (filter === "tonight") return !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= today.evening && new Date(item.dueDate) <= today.end));
       if (filter === "office") return !item.completed && item.contextTag === "office";
       if (filter === "leaving_home") return !item.completed && item.contextTag === "leaving_home";
       if (filter === "scheduled") return !item.completed && item.dueDate;
@@ -391,12 +395,9 @@ export default function RemindersPage() {
   }, [reminders]);
 
   const topPriorityToday = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
     return sortRemindersByImportance(
-      reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd)
+      reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end)
     ).slice(0, 3);
   }, [reminders]);
 
@@ -508,7 +509,7 @@ export default function RemindersPage() {
             ) : upcomingReminders.map((item) => (
               <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatAppDate(item.dueDate)}</span>
               </button>
             ))}
             </div>
@@ -538,7 +539,7 @@ export default function RemindersPage() {
             ) : leavingHomeTasks.map((item) => (
               <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? new Date(item.dueDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "No time"}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? formatAppTime(item.dueDate) : "No time"}</span>
               </button>
             ))}
           </CardContent>
@@ -607,7 +608,7 @@ export default function RemindersPage() {
                         {item.sourceLabel && <Badge variant="outline">from {item.sourceLabel}</Badge>}
                       </div>
                       {item.notes && <p className="mt-1 text-sm text-muted-foreground">{item.notes}</p>}
-                      {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleString()}</p>}
+                      {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{formatAppDateTime(item.dueDate)}</p>}
                     </div>
                     {!item.completed && (
                       <div className="col-span-2 flex shrink-0 flex-wrap gap-1 sm:col-auto">

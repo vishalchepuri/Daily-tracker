@@ -2,14 +2,19 @@ import { prisma } from "@/lib/db";
 import { safeService } from "./service-utils";
 import { listFoodMicronutrientLogsForFoodLogs } from "@/lib/firestore-app-data";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, sumMicronutrients } from "@/lib/micronutrients";
+import { dateTimeInputToIso, formatAppDate, formatLocalDateInput } from "@/lib/local-dates";
 
 function todayRange() {
-  const today = new Date();
-  const startOfDay = new Date(today);
-  startOfDay.setHours(0, 0, 0, 0);
-  const endOfDay = new Date(today);
-  endOfDay.setHours(23, 59, 59, 999);
+  const todayKey = formatLocalDateInput(new Date());
+  const startOfDay = new Date(dateTimeInputToIso(todayKey, "00:00"));
+  const endOfDay = new Date(dateTimeInputToIso(todayKey, "23:59"));
   return { startOfDay, endOfDay };
+}
+
+function addDaysToDateKey(key: string, days: number) {
+  const date = new Date(`${key}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
 }
 
 async function getWorkoutStreak(userId: string) {
@@ -21,20 +26,14 @@ async function getWorkoutStreak(userId: string) {
   });
 
   let streak = 0;
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const todayKey = formatLocalDateInput(new Date());
   const workoutDates = new Set(
-    (recentWorkouts ?? []).map((workout) => {
-      const date = new Date(workout.date);
-      date.setHours(0, 0, 0, 0);
-      return date.toISOString();
-    })
+    (recentWorkouts ?? []).map((workout) => formatLocalDateInput(new Date(workout.date)))
   );
 
   for (let i = 0; i < 365; i += 1) {
-    const checkDate = new Date(now);
-    checkDate.setDate(checkDate.getDate() - i);
-    if (workoutDates.has(checkDate.toISOString())) streak += 1;
+    const checkDateKey = addDaysToDateKey(todayKey, -i);
+    if (workoutDates.has(checkDateKey)) streak += 1;
     else if (i > 0) break;
   }
   return streak;
@@ -43,9 +42,9 @@ async function getWorkoutStreak(userId: string) {
 export async function getDashboardData(userId: string) {
   const { startOfDay, endOfDay } = todayRange();
 
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-  sevenDaysAgo.setHours(0, 0, 0, 0);
+  const todayKey = formatLocalDateInput(new Date());
+  const sevenDaysAgoKey = addDaysToDateKey(todayKey, -6);
+  const sevenDaysAgo = new Date(dateTimeInputToIso(sevenDaysAgoKey, "00:00"));
 
   const [profile, todayFoodLogs, todayWorkout, recentProgress, workoutCount, streak, weekFoodLogs, weekWaterLogs, todayReminders, todayMedicationLogs] = await Promise.all([
     safeService(null, () => prisma.userProfile.findUnique({ where: { userId } })),
@@ -125,27 +124,25 @@ export async function getDashboardData(userId: string) {
   // Build weekly trends
   const dayMap: Record<string, { calories: number; protein: number; water: number }> = {};
   for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
+    const key = addDaysToDateKey(todayKey, -i);
     dayMap[key] = { calories: 0, protein: 0, water: 0 };
   }
   for (const log of (weekFoodLogs.data ?? []) as any[]) {
-    const key = new Date(log.date).toISOString().slice(0, 10);
+    const key = formatLocalDateInput(new Date(log.date));
     if (dayMap[key]) {
       dayMap[key].calories += log.calories ?? 0;
       dayMap[key].protein += log.protein ?? 0;
     }
   }
   for (const log of (weekWaterLogs.data ?? []) as any[]) {
-    const key = new Date(log.date).toISOString().slice(0, 10);
+    const key = formatLocalDateInput(new Date(log.date));
     if (dayMap[key]) {
       dayMap[key].water += log.amountMl ?? 0;
     }
   }
   const weeklyTrends = Object.entries(dayMap).map(([date, v]) => {
-    const d = new Date(date + "T00:00:00");
-    return { date: d.toLocaleDateString(undefined, { weekday: "short" }), fullDate: date, calories: Math.round(v.calories), protein: Math.round(v.protein), water: Math.round(v.water) };
+    const d = new Date(dateTimeInputToIso(date, "00:00"));
+    return { date: formatAppDate(d, { weekday: "short" }), fullDate: date, calories: Math.round(v.calories), protein: Math.round(v.protein), water: Math.round(v.water) };
   });
 
   return {

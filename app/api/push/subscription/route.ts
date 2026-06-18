@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getWebPushConfigStatus, isWebPushConfigured } from "@/lib/web-push";
-import { normalizeTimeZone } from "@/lib/local-dates";
+import { DEFAULT_TIME_ZONE, normalizeTimeZone } from "@/lib/local-dates";
 
 export async function GET() {
   try {
@@ -31,7 +31,7 @@ export async function GET() {
       missing: webPushConfig.missing,
       subscribed: Boolean(subscription),
       subscription,
-      timeZone: profile?.timeZone ?? null,
+      timeZone: profile?.timeZone ?? DEFAULT_TIME_ZONE,
     });
   } catch (error: any) {
     return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });

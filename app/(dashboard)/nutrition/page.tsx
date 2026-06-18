@@ -14,6 +14,7 @@ import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wh
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
+import { dateTimeInputToIso, formatAppDate, formatLocalDateInput } from "@/lib/local-dates";
 
 const mealSuggestions = [
   { name: "Grilled Chicken Breast", calories: 165, protein: 31, carbs: 0, fat: 3.6, serving: "100g" },
@@ -52,7 +53,7 @@ export default function NutritionPage() {
   const [dietDialogOpen, setDietDialogOpen] = useState(false);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [editingDietId, setEditingDietId] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(() => formatLocalDateInput(new Date()));
   const [waterAmount, setWaterAmount] = useState("250");
   const [form, setForm] = useState({
     foodName: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "", fiber: "", servingSize: "",
@@ -491,9 +492,9 @@ export default function NutritionPage() {
     const protein = meals.reduce((sum: number, meal: any) => sum + (meal?.protein ?? 0), 0);
     return { mealType, count: meals.length, calories, protein };
   });
-  const targetDateLabel = selectedDate === new Date().toISOString().slice(0, 10)
+  const targetDateLabel = selectedDate === formatLocalDateInput(new Date())
     ? "Today"
-    : new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    : formatAppDate(new Date(dateTimeInputToIso(selectedDate, "00:00")), { month: "short", day: "numeric", year: "numeric" });
 
   const filteredSuggestions = (allMealSuggestions ?? []).filter((s: any) =>
     s?.name?.toLowerCase?.()?.includes?.(searchTerm?.toLowerCase?.() ?? "") ?? false

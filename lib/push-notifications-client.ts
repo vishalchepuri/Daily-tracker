@@ -1,5 +1,7 @@
 "use client";
 
+import { getClientTimeZone } from "@/lib/local-dates";
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -43,7 +45,7 @@ export async function registerPushNotifications() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       ...subscription.toJSON(),
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZone: getClientTimeZone(),
     }),
   });
   const saveData = await saveRes.json().catch(() => ({}));

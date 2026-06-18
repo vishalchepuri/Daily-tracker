@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FadeIn } from "@/components/ui/animate";
-import { formatLocalDateInput } from "@/lib/local-dates";
+import { dateTimeInputToIso, formatAppDate, formatAppDateTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankForm = {
   id: "",
@@ -36,10 +36,7 @@ const blankForm = {
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function atDateTime(timeOfDay: string, baseDate = new Date()) {
-  const [hours, minutes] = timeOfDay.split(":").map(Number);
-  const date = new Date(baseDate);
-  date.setHours(hours || 0, minutes || 0, 0, 0);
-  return date;
+  return new Date(dateTimeInputToIso(formatLocalDateInput(baseDate), timeOfDay));
 }
 
 function todayAt(timeOfDay: string) {
@@ -51,7 +48,7 @@ function dateInputValue(date: Date) {
 }
 
 function dateLabel(date: Date) {
-  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return formatAppDate(date, { weekday: "short", month: "short", day: "numeric" });
 }
 
 function formatRepeat(med: any) {
@@ -62,30 +59,33 @@ function formatRepeat(med: any) {
 }
 
 function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return formatLocalDateInput(a) === formatLocalDateInput(b);
 }
 
 function isMedicationDueOn(med: any, date = new Date()) {
   if (!med.active) return false;
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
+  const zoned = getZonedDateParts(date);
+  const dayStart = new Date(dateTimeInputToIso(zoned.dateKey, "00:00"));
+  const dayEnd = new Date(dateTimeInputToIso(zoned.dateKey, "23:59"));
   const startDate = med.startDate ? new Date(med.startDate) : null;
   const endDate = med.endDate ? new Date(med.endDate) : null;
   if (startDate) {
-    startDate.setHours(0, 0, 0, 0);
+    const startKey = formatLocalDateInput(startDate);
+    startDate.setTime(new Date(dateTimeInputToIso(startKey, "00:00")).getTime());
     if (dayStart < startDate) return false;
   }
   if (endDate) {
-    endDate.setHours(23, 59, 59, 999);
-    if (date > endDate) return false;
+    const endKey = formatLocalDateInput(endDate);
+    endDate.setTime(new Date(dateTimeInputToIso(endKey, "23:59")).getTime());
+    if (dayEnd > endDate) return false;
   }
 
   if (med.recurrence === "weekly") {
     const selectedDays = String(med.daysOfWeek ?? "").split(",").filter(Boolean);
-    return selectedDays.length === 0 || selectedDays.includes(weekDays[date.getDay()]);
+    return selectedDays.length === 0 || selectedDays.includes(zoned.weekday);
   }
   if (med.recurrence === "monthly") {
-    return !med.dayOfMonth || Number(med.dayOfMonth) === date.getDate();
+    return !med.dayOfMonth || Number(med.dayOfMonth) === Number(zoned.day);
   }
   return true;
 }
@@ -122,7 +122,7 @@ export default function MedicationsPage() {
 
   const activeMeds = medications.filter((med) => med.active);
   const scheduleDate = useMemo(() => {
-    const date = new Date(`${selectedDate}T00:00:00`);
+    const date = new Date(dateTimeInputToIso(selectedDate, "00:00"));
     return Number.isNaN(date.getTime()) ? new Date() : date;
   }, [selectedDate]);
   const dueTodayMeds = activeMeds
@@ -132,10 +132,9 @@ export default function MedicationsPage() {
     .filter((med) => isMedicationDueOn(med, scheduleDate))
     .sort((a, b) => atDateTime(a.timeOfDay, scheduleDate).getTime() - atDateTime(b.timeOfDay, scheduleDate).getTime());
   const todayLogs = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
+    const todayKey = dateInputValue(new Date());
+    const start = new Date(dateTimeInputToIso(todayKey, "00:00"));
+    const end = new Date(dateTimeInputToIso(todayKey, "23:59"));
     return logs.filter((log) => {
       const date = new Date(log.scheduledFor);
       return date >= start && date <= end;
@@ -715,7 +714,7 @@ export default function MedicationsPage() {
                 <div key={log.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-border/60 bg-card/80 px-3 py-3 text-sm shadow-sm shadow-black/5">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{log.medication?.name}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(log.scheduledFor).toLocaleString()}{log.notes ? ` - ${log.notes}` : ""}</p>
+                    <p className="text-xs text-muted-foreground">{formatAppDateTime(log.scheduledFor)}{log.notes ? ` - ${log.notes}` : ""}</p>
                   </div>
                   <Badge variant={log.status === "taken" ? "secondary" : "outline"}>{log.status}</Badge>
                   <Button variant="ghost" size="icon" onClick={() => deleteLog(log)} title="Delete log">
