@@ -386,11 +386,12 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         <div className="grid grid-cols-5 gap-1">
           {mobileNavItems.map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
+            const targetHref = item.agent ? `${chatHref}&mode=voice` : item.href;
             return (
               <button
                 key={item.href}
                 type="button"
-                onClick={() => goToFeature(item.href)}
+                onClick={() => goToFeature(targetHref)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
                   isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
