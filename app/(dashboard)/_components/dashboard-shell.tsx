@@ -6,6 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
+  Mic, Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,7 +33,7 @@ const adminNavItem = { label: "Admin", href: "/admin", icon: Shield };
 
 const mobileNavItems = [
   { label: "Today", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Agent", href: "/chat", icon: MessageSquare },
+  { label: "Agent", href: "/chat", icon: Bot, agent: true },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "Profile", href: "/profile", icon: UserCircle },
@@ -385,17 +386,37 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         <div className="grid grid-cols-5 gap-1">
           {mobileNavItems.map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
+            const targetHref = item.agent ? `${chatHref}&mode=voice` : item.href;
             return (
               <button
                 key={item.href}
                 type="button"
-                onClick={() => goToFeature(item.href)}
+                onClick={() => goToFeature(targetHref)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
                   isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
                 )}
               >
-                <item.icon className="h-5 w-5 shrink-0" />
+                {item.agent ? (
+                  <span
+                    className={cn(
+                      "relative flex h-7 w-9 items-center justify-center rounded-full border transition-colors",
+                      isActive
+                        ? "border-primary/40 bg-primary/15 text-primary"
+                        : "border-border/80 bg-background/70 text-muted-foreground"
+                    )}
+                  >
+                    <Bot className="h-4 w-4" />
+                    <span className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-card bg-emerald-500 text-white shadow-sm">
+                      <Mic className="h-2.5 w-2.5" />
+                    </span>
+                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-card bg-sky-500 text-white shadow-sm">
+                      <Video className="h-2.5 w-2.5" />
+                    </span>
+                  </span>
+                ) : (
+                  <item.icon className="h-5 w-5 shrink-0" />
+                )}
                 <span className="max-w-full truncate">{item.label}</span>
               </button>
             );

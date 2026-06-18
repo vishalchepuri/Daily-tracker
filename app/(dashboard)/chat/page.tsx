@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
@@ -37,6 +37,7 @@ export default function ChatPage() {
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
   const [listening, setListening] = useState(false);
+  const [interactionMode, setInteractionMode] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -108,6 +109,7 @@ export default function ChatPage() {
       setReturnTo(from);
     }
     if (prompt) setInput(prompt);
+    if (new URLSearchParams(window.location.search).get("mode") === "voice") setInteractionMode(true);
   }, []);
 
   useEffect(() => {
@@ -359,7 +361,7 @@ export default function ChatPage() {
     }
   }, [activeSessionId]);
 
-  const toggleVoiceInput = useCallback(() => {
+  const toggleVoiceInput = useCallback((options: { autoSend?: boolean } = {}) => {
     if (streaming) return;
 
     if (listening) {
@@ -395,12 +397,16 @@ export default function ChatPage() {
     };
     recognition.onend = () => {
       setListening(false);
+      const spoken = finalTranscript.trim();
+      if (options.autoSend && spoken) {
+        void sendMessage(spoken, null);
+      }
     };
 
     recognitionRef.current = recognition;
     recognition.start();
     setListening(true);
-  }, [listening, streaming]);
+  }, [listening, sendMessage, streaming]);
 
   const closeChat = useCallback(() => {
     router.push(returnTo);
@@ -549,10 +555,40 @@ export default function ChatPage() {
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                 <Bot className="h-7 w-7" />
               </div>
-              <h3 className="font-display text-lg font-bold tracking-tight">How can Dayza help?</h3>
+              <h3 className="font-display text-lg font-bold tracking-tight">{interactionMode ? "Talk to Dayza" : "How can Dayza help?"}</h3>
               <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Pick a quick action or type naturally. Dayza can log, plan, review, and explain.
+                {interactionMode
+                  ? "Use voice for a hands-free chat, or show Dayza a meal, receipt, medicine, or workout screen."
+                  : "Pick a quick action or type naturally. Dayza can log, plan, review, and explain."}
               </p>
+              {interactionMode && (
+                <div className="mx-auto mt-5 grid w-full max-w-sm grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleVoiceInput({ autoSend: true })}
+                    disabled={streaming}
+                    className={`rounded-2xl border px-4 py-5 text-center transition active:scale-95 ${listening ? "border-primary bg-primary/15 text-primary" : "border-border bg-background/70 hover:border-primary/40 hover:bg-muted/40"}`}
+                  >
+                    <span className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                      {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+                    </span>
+                    <span className="block text-sm font-semibold">{listening ? "Listening..." : "Talk"}</span>
+                    <span className="mt-1 block text-[0.7rem] text-muted-foreground">Auto-send voice</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={streaming}
+                    className="rounded-2xl border border-border bg-background/70 px-4 py-5 text-center transition hover:border-primary/40 hover:bg-muted/40 active:scale-95"
+                  >
+                    <span className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-sky-500/15 text-sky-400">
+                      <Video className="h-5 w-5" />
+                    </span>
+                    <span className="block text-sm font-semibold">Show</span>
+                    <span className="mt-1 block text-[0.7rem] text-muted-foreground">Camera/photo</span>
+                  </button>
+                </div>
+              )}
               <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
                 {quickActions.map((action) => (
                   <button
@@ -650,6 +686,7 @@ export default function ChatPage() {
               ref={fileInputRef}
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              capture="environment"
               className="hidden"
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                 handleImageSelect(e.target.files?.[0]);
@@ -671,7 +708,7 @@ export default function ChatPage() {
               type="button"
               variant={listening ? "default" : "outline"}
               size="icon"
-              onClick={toggleVoiceInput}
+              onClick={() => toggleVoiceInput()}
               disabled={streaming}
               title={listening ? "Stop listening" : "Speak message"}
               className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
