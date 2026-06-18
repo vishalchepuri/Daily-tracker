@@ -1,5 +1,18 @@
 const DAYZA_CACHE = "dayza-shell-v2";
 const STATIC_ASSETS = ["/offline.html", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png"];
+const DAYZA_HOSTS = new Set(["dayza.site", "www.dayza.site"]);
+
+function sameAppPath(value) {
+  try {
+    const url = new URL(value || "/dashboard", self.location.origin);
+    if (url.origin === self.location.origin || DAYZA_HOSTS.has(url.hostname)) {
+      return `${url.pathname}${url.search}${url.hash}`;
+    }
+  } catch {
+    // Fall through to the dashboard.
+  }
+  return "/dashboard";
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(DAYZA_CACHE).then((cache) => cache.addAll(STATIC_ASSETS)));
@@ -49,7 +62,7 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data?.url || "/dashboard";
+  const targetUrl = sameAppPath(event.notification.data?.url);
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {

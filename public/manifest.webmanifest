@@ -2,6 +2,7 @@
   "name": "Dayza",
   "short_name": "Dayza",
   "description": "Fitness, nutrition, spends, reminders, progress, and AI coaching.",
+  "id": "/",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
