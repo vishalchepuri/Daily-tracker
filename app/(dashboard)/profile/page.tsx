@@ -94,7 +94,14 @@ export default function ProfilePage() {
   const [resetFeatures, setResetFeatures] = useState<string[]>([]);
   const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
-  const [pushStatus, setPushStatus] = useState({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "" });
+  const [pushStatus, setPushStatus] = useState({
+    supported: false,
+    configured: false,
+    subscribed: false,
+    permission: "default",
+    timeZone: "",
+    missing: [] as string[],
+  });
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
@@ -154,6 +161,7 @@ export default function ProfilePage() {
             subscribed: Boolean(d?.subscribed),
             permission: typeof Notification !== "undefined" ? Notification.permission : "default",
             timeZone: d?.timeZone ?? getClientTimeZone(),
+            missing: Array.isArray(d?.missing) ? d.missing : [],
           });
         })
         .catch(() => {
@@ -163,10 +171,11 @@ export default function ProfilePage() {
             subscribed: false,
             permission: typeof Notification !== "undefined" ? Notification.permission : "default",
             timeZone: getClientTimeZone(),
+            missing: [],
           });
         });
     } else {
-      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "" });
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "", missing: [] });
     }
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
@@ -403,6 +412,7 @@ export default function ProfilePage() {
         subscribed: true,
         permission: typeof Notification !== "undefined" ? Notification.permission : "granted",
         timeZone: getClientTimeZone(),
+        missing: [],
       });
       toast.success("Push notifications enabled");
     } catch (error: any) {
@@ -999,7 +1009,8 @@ export default function ProfilePage() {
             )}
             {pushStatus.supported && !pushStatus.configured && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
-                Push notifications are not configured on the server yet. Add VAPID keys first.
+                Push notifications are not configured on the server yet.
+                {pushStatus.missing.length > 0 ? ` Missing: ${pushStatus.missing.join(", ")}.` : " Redeploy after adding VAPID keys."}
               </div>
             )}
             {pushStatus.supported && pushStatus.permission === "denied" && (

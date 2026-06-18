@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { isWebPushConfigured } from "@/lib/web-push";
+import { getWebPushConfigStatus, isWebPushConfigured } from "@/lib/web-push";
 import { normalizeTimeZone } from "@/lib/local-dates";
 
 export async function GET() {
@@ -23,9 +23,12 @@ export async function GET() {
       }),
     ]);
 
+    const webPushConfig = getWebPushConfigStatus();
+
     return NextResponse.json({
-      configured: isWebPushConfigured(),
-      publicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null,
+      configured: webPushConfig.configured,
+      publicKey: webPushConfig.publicKey,
+      missing: webPushConfig.missing,
       subscribed: Boolean(subscription),
       subscription,
       timeZone: profile?.timeZone ?? null,

@@ -16,16 +16,33 @@ function getBaseUrl() {
   return process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || "https://dayza.site";
 }
 
+function env(name: string) {
+  return process.env[name]?.trim();
+}
+
+function readPublicVapidKey() {
+  return env("VAPID_PUBLIC_KEY") || env("NEXT_PUBLIC_VAPID_PUBLIC_KEY");
+}
+
+export function getWebPushConfigStatus() {
+  const missing: string[] = [];
+  if (!readPublicVapidKey()) missing.push("publicKey");
+  if (!env("VAPID_PRIVATE_KEY")) missing.push("privateKey");
+  if (!env("VAPID_SUBJECT")) missing.push("subject");
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    publicKey: readPublicVapidKey() ?? null,
+  };
+}
+
 export function isWebPushConfigured() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY &&
-    process.env.VAPID_PRIVATE_KEY &&
-    process.env.VAPID_SUBJECT
-  );
+  return getWebPushConfigStatus().configured;
 }
 
 export function getPublicVapidKey() {
-  const key = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+  const key = readPublicVapidKey();
   if (!key) throw new Error("NEXT_PUBLIC_VAPID_PUBLIC_KEY is missing");
   return key;
 }
@@ -36,9 +53,9 @@ function configureWebPush() {
   }
 
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT!,
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
+    env("VAPID_SUBJECT")!,
+    getPublicVapidKey(),
+    env("VAPID_PRIVATE_KEY")!
   );
 }
 
