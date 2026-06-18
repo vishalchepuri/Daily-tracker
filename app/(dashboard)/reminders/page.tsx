@@ -417,10 +417,10 @@ export default function RemindersPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Reminders</h2>
             <p className="mt-1 max-w-[20rem] text-sm text-muted-foreground sm:max-w-none">Local lists, smart views, due dates, flags, and priorities</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/70 bg-card/80 p-2 shadow-sm shadow-black/10 min-[390px]:grid-cols-3 sm:flex sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+          <div className="grid gap-2 rounded-xl border border-border/70 bg-card/80 p-2 shadow-sm shadow-black/10 sm:flex sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
             <Dialog open={listOpen} onOpenChange={setListOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="h-11 w-full rounded-lg px-3 sm:h-10 sm:w-auto sm:px-4"><ListPlus className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">New </span>List</Button>
+                <Button variant="outline" className="hidden h-11 w-full rounded-lg px-3 sm:inline-flex sm:h-10 sm:w-auto sm:px-4"><ListPlus className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">New </span>List</Button>
               </DialogTrigger>
               <DialogContent className="max-w-sm sm:max-w-sm">
                 <DialogHeader><DialogTitle>New List</DialogTitle></DialogHeader>
@@ -439,7 +439,7 @@ export default function RemindersPage() {
             </Dialog>
             <Dialog open={telegramOpen} onOpenChange={setTelegramOpen}>
               <DialogTrigger asChild>
-                <Button variant="outline" className="h-11 w-full rounded-lg px-3 sm:h-10 sm:w-auto sm:px-4"><Send className="w-4 h-4 sm:mr-2" />Telegram</Button>
+                <Button variant="outline" className="hidden h-11 w-full rounded-lg px-3 sm:inline-flex sm:h-10 sm:w-auto sm:px-4"><Send className="w-4 h-4 sm:mr-2" />Telegram</Button>
               </DialogTrigger>
               <DialogContent className="max-w-md">
                 <DialogHeader><DialogTitle>Telegram Reminders</DialogTitle></DialogHeader>
@@ -477,12 +477,12 @@ export default function RemindersPage() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button onClick={openAddReminder} className="col-span-2 h-11 w-full rounded-lg px-3 min-[390px]:col-span-1 sm:h-10 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" /><span className="sm:hidden">New</span><span className="hidden sm:inline">New Reminder</span></Button>
+            <Button onClick={openAddReminder} className="h-11 w-full rounded-lg px-3 sm:h-10 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" /><span className="sm:hidden">New Reminder</span><span className="hidden sm:inline">New Reminder</span></Button>
           </div>
         </div>
       </FadeIn>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_22rem]">
+      <div className="hidden gap-3 md:grid md:grid-cols-[1fr_22rem]">
         <Card>
           <CardContent className="space-y-3 p-3 sm:p-4">
             <div className="flex items-center gap-2 text-sm font-semibold">
@@ -517,7 +517,7 @@ export default function RemindersPage() {
         </Card>
       </div>
 
-      <div className="grid gap-3 lg:grid-cols-3">
+      <div className="hidden gap-3 lg:grid lg:grid-cols-3">
         <Card>
           <CardContent className="space-y-3 p-3 sm:p-4">
             <div className="flex items-center gap-2 text-sm font-semibold"><Flag className="h-4 w-4 text-primary" />Top Priorities Today</div>
@@ -573,7 +573,7 @@ export default function RemindersPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        <Card>
+        <Card className="hidden lg:block">
           <CardHeader className="p-4 pb-2"><CardTitle className="flex items-center gap-2 text-base"><ListTodo className="w-4 h-4 text-primary" />Lists</CardTitle></CardHeader>
           <CardContent className="max-h-56 space-y-2 overflow-y-auto p-4 pt-2 lg:max-h-none lg:overflow-visible">
             {lists.map((list) => (
@@ -585,15 +585,20 @@ export default function RemindersPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3"><CardTitle>{viewTitle(filter, lists)}</CardTitle></CardHeader>
+        <Card className="border-border/70 bg-card/85 shadow-sm shadow-black/10">
+          <CardHeader className="p-4 pb-2 sm:p-6 sm:pb-3">
+            <div className="flex items-center justify-between gap-3">
+              <CardTitle className="text-lg sm:text-xl">{viewTitle(filter, lists)}</CardTitle>
+              <Badge variant="secondary">{filteredReminders.length}</Badge>
+            </div>
+          </CardHeader>
           <CardContent className="p-4 pt-2 sm:p-6 sm:pt-0">
             {filteredReminders.length === 0 ? (
               <div className="text-center py-12 text-sm text-muted-foreground">No reminders here.</div>
             ) : (
               <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
                 {filteredReminders.map((item) => (
-                  <div key={item.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-xl border border-border/60 bg-card/80 p-3 shadow-sm shadow-black/5 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
+                  <div key={item.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm shadow-black/5 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
                     <button onClick={() => toggleComplete(item)} className="mt-0 justify-self-start sm:mt-1">
                       {item.completed ? <CheckCircle2 className="w-5 h-5 text-primary" /> : <Circle className="w-5 h-5 text-muted-foreground" />}
                     </button>
@@ -638,14 +643,14 @@ export default function RemindersPage() {
       </div>
 
       <Dialog open={reminderOpen} onOpenChange={(open) => { if (!savingReminder) setReminderOpen(open); }}>
-        <DialogContent className="max-w-lg gap-3 border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
+        <DialogContent className="max-h-[calc(100svh-1rem)] w-[calc(100vw-1rem)] max-w-lg gap-3 overflow-y-auto rounded-2xl border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
           <DialogHeader className="pr-8 text-left">
             <DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div><Label>Title</Label><Input value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} className="mt-1" /></div>
             <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1 min-h-20" /></div>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3">
               <div>
                 <Label>Date</Label>
                 <Input
@@ -664,7 +669,7 @@ export default function RemindersPage() {
                   className="mt-1"
                 />
               </div>
-              <div className="col-span-2 sm:col-span-1">
+              <div className="min-[420px]:col-span-2 sm:col-span-1">
                 <Label>Priority</Label>
                 <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>

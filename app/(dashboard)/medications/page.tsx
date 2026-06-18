@@ -97,6 +97,7 @@ export default function MedicationsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [savingMedication, setSavingMedication] = useState(false);
   const [showRefillFields, setShowRefillFields] = useState(false);
+  const [showMedicationExtras, setShowMedicationExtras] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [doseNotes, setDoseNotes] = useState<Record<string, string>>({});
@@ -357,12 +358,12 @@ export default function MedicationsPage() {
                 Add Medication
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-lg gap-3 border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
+            <DialogContent className="max-h-[calc(100svh-1rem)] w-[calc(100vw-1rem)] max-w-lg gap-3 overflow-y-auto rounded-2xl border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
               <DialogHeader className="pr-8 text-left">
                 <DialogTitle>{form.id ? "Edit Medication" : "Add Medication"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-3">
-                <div className="grid gap-3 min-[420px]:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <Label>Name</Label>
                     <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" placeholder="Vitamin D" />
@@ -430,7 +431,7 @@ export default function MedicationsPage() {
                   </div>
                 )}
 
-                <div className="grid gap-3 min-[420px]:grid-cols-2">
+                <div className="grid gap-3 sm:grid-cols-2">
                   <div>
                     <Label>Start Date</Label>
                     <Input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} className="mt-1" />
@@ -496,11 +497,11 @@ export default function MedicationsPage() {
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-2 gap-2 rounded-xl border border-border/80 bg-muted/10 p-2 text-sm sm:grid-cols-4 sm:gap-3 sm:p-3">
-        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Active</span><p className="font-mono font-semibold">{activeMeds.length}</p></div>
-        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Due today</span><p className="font-mono font-semibold">{dueTodayMeds.length}</p></div>
-        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Missed</span><p className="font-mono font-semibold">{missedToday}</p></div>
-        <div className="rounded-lg bg-card/70 p-3"><span className="text-muted-foreground">Adherence</span><p className="font-mono font-semibold">{logs.length ? `${adherenceRate}%` : "0%"}</p></div>
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 text-sm ios-scroll sm:mx-0 sm:grid sm:grid-cols-4 sm:overflow-visible sm:px-0">
+        <div className="min-w-[7.5rem] rounded-xl border border-border/70 bg-card/75 p-3 shadow-sm shadow-black/5"><span className="text-muted-foreground">Active</span><p className="font-mono text-lg font-semibold">{activeMeds.length}</p></div>
+        <div className="min-w-[7.5rem] rounded-xl border border-border/70 bg-card/75 p-3 shadow-sm shadow-black/5"><span className="text-muted-foreground">Due today</span><p className="font-mono text-lg font-semibold">{dueTodayMeds.length}</p></div>
+        <div className="min-w-[7.5rem] rounded-xl border border-border/70 bg-card/75 p-3 shadow-sm shadow-black/5"><span className="text-muted-foreground">Missed</span><p className="font-mono text-lg font-semibold">{missedToday}</p></div>
+        <div className="min-w-[7.5rem] rounded-xl border border-border/70 bg-card/75 p-3 shadow-sm shadow-black/5"><span className="text-muted-foreground">Adherence</span><p className="font-mono text-lg font-semibold">{logs.length ? `${adherenceRate}%` : "0%"}</p></div>
       </div>
 
       {refillAlerts.length > 0 && (
@@ -549,9 +550,9 @@ export default function MedicationsPage() {
         </Card>
       )}
 
-      <Card>
+      <Card className="border-border/70 bg-card/85 shadow-sm shadow-black/10">
         <CardHeader>
-          <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
+            <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Bell className="h-5 w-5 text-primary" />
@@ -559,16 +560,18 @@ export default function MedicationsPage() {
               </CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">{dateLabel(scheduleDate)} - {dueSelectedMeds.length} dose{dueSelectedMeds.length === 1 ? "" : "s"} planned</p>
             </div>
-            <Input
-              type="date"
-              value={selectedDate}
-              onChange={(event) => setSelectedDate(event.target.value)}
-              className="w-full lg:w-44"
-            />
-            <Button type="button" variant="outline" onClick={markSelectedScheduleTaken} className="w-full lg:w-auto">
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Mark all taken
-            </Button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto] lg:contents">
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                className="w-full lg:w-44"
+              />
+              <Button type="button" variant="outline" onClick={markSelectedScheduleTaken} className="w-full lg:w-auto">
+                <CheckCircle2 className="mr-2 h-4 w-4" />
+                Mark all taken
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -581,7 +584,7 @@ export default function MedicationsPage() {
                 const scheduled = atDateTime(med.timeOfDay, scheduleDate);
                 const isOverdue = isSameDay(scheduleDate, new Date()) && !todaysLog && scheduled.getTime() < Date.now();
                 return (
-                <div key={med.id} className={`rounded-xl border p-4 shadow-sm shadow-black/5 ${isOverdue ? "border-destructive/40 bg-destructive/5" : "border-border/60 bg-card/80"}`}>
+                <div key={med.id} className={`rounded-xl border p-3 shadow-sm shadow-black/5 sm:p-4 ${isOverdue ? "border-destructive/40 bg-destructive/5" : "border-border/60 bg-background/50"}`}>
                   <div className="space-y-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -621,7 +624,14 @@ export default function MedicationsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <div className="rounded-xl border border-border/70 bg-card/75 p-2 shadow-sm shadow-black/10 sm:hidden">
+        <Button type="button" variant="ghost" className="h-11 w-full justify-between" onClick={() => setShowMedicationExtras((current) => !current)}>
+          {showMedicationExtras ? "Hide weekly view and history" : "Show weekly view and history"}
+          <span className="text-xs text-muted-foreground">{showMedicationExtras ? "Close" : "Open"}</span>
+        </Button>
+      </div>
+
+      <Card className={showMedicationExtras ? "" : "hidden sm:block"}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-primary" />
@@ -647,7 +657,7 @@ export default function MedicationsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="border-border/70 bg-card/85 shadow-sm shadow-black/10">
         <CardHeader>
           <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-center">
             <CardTitle className="flex items-center gap-2">
@@ -674,7 +684,7 @@ export default function MedicationsPage() {
           ) : (
             <div className="space-y-2">
               {filteredMedications.map((med) => (
-                <div key={med.id} className="grid gap-3 rounded-xl border border-border/60 bg-card/80 px-3 py-3 shadow-sm shadow-black/5 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div key={med.id} className="grid gap-3 rounded-xl border border-border/60 bg-background/50 px-3 py-3 shadow-sm shadow-black/5 sm:grid-cols-[1fr_auto] sm:items-center">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{med.name}</p>
                     <p className="text-xs text-muted-foreground">{med.timeOfDay} - {formatRepeat(med)} {med.dosage ? `- ${med.dosage}` : ""}</p>
@@ -703,7 +713,7 @@ export default function MedicationsPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className={showMedicationExtras ? "" : "hidden sm:block"}>
         <CardHeader><CardTitle>Recent Dose History</CardTitle></CardHeader>
         <CardContent>
           {logs.length === 0 ? (
