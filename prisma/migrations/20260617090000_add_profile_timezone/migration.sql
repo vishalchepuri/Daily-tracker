@@ -1,1 +1,1 @@
-ALTER TABLE "UserProfile" ADD COLUMN "timeZone" TEXT;
+ALTER TABLE "UserProfile" ADD COLUMN IF NOT EXISTS "timeZone" TEXT;
