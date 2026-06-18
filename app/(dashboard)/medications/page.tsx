@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bell, CalendarDays, CheckCircle2, Clock, Edit, Package, PauseCircle, Pill, PlayCircle, Plus, Search, SkipForward, Trash2, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -95,11 +95,14 @@ export default function MedicationsPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [savingMedication, setSavingMedication] = useState(false);
+  const [showRefillFields, setShowRefillFields] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [doseNotes, setDoseNotes] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState(dateInputValue(new Date()));
   const [form, setForm] = useState(blankForm);
+  const saveMedicationLock = useRef(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -185,6 +188,7 @@ export default function MedicationsPage() {
 
   const openAdd = () => {
     setForm(blankForm);
+    setShowRefillFields(false);
     setDialogOpen(true);
   };
 
@@ -207,14 +211,18 @@ export default function MedicationsPage() {
       refillNotes: med.refillNotes ?? "",
       active: Boolean(med.active),
     });
+    setShowRefillFields(med.stockCount != null || med.refillAt != null || Boolean(med.refillNotes));
     setDialogOpen(true);
   };
 
   const saveMedication = async () => {
+    if (savingMedication || saveMedicationLock.current) return;
     if (!form.name || !form.timeOfDay) {
       toast.error("Medication name and time are required");
       return;
     }
+    saveMedicationLock.current = true;
+    setSavingMedication(true);
     try {
       const res = await fetch("/api/medications", {
         method: form.id ? "PATCH" : "POST",
@@ -231,6 +239,9 @@ export default function MedicationsPage() {
       loadData();
     } catch {
       toast.error("Failed to save medication");
+    } finally {
+      saveMedicationLock.current = false;
+      setSavingMedication(false);
     }
   };
 
@@ -340,18 +351,18 @@ export default function MedicationsPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Medications</h2>
             <p className="mt-1 text-sm text-muted-foreground">Track medicine timings, repeats, and daily dose status</p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { if (!savingMedication) setDialogOpen(open); }}>
             <DialogTrigger asChild>
               <Button onClick={openAdd} className="h-11 w-full rounded-xl sm:h-10 sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Medication
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl sm:max-w-2xl">
-              <DialogHeader>
+            <DialogContent className="max-w-lg gap-3 border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
+              <DialogHeader className="pr-8 text-left">
                 <DialogTitle>{form.id ? "Edit Medication" : "Add Medication"}</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="grid gap-3 min-[420px]:grid-cols-2">
                   <div>
                     <Label>Name</Label>
@@ -431,10 +442,21 @@ export default function MedicationsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/20 p-3">
-                  <div className="mb-3 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between bg-background/50"
+                  onClick={() => setShowRefillFields((current) => !current)}
+                >
+                  Refill tracking
+                  <span className="text-xs text-muted-foreground">{showRefillFields ? "Hide" : "Optional"}</span>
+                </Button>
+
+                {showRefillFields && (
+                <div className="rounded-lg border border-border/60 bg-background/45 p-3">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
                     <Package className="h-4 w-4 text-primary" />
-                    <Label>Refill Tracking</Label>
+                    <span>Refill Tracking</span>
                   </div>
                   <div className="grid gap-3 min-[420px]:grid-cols-3">
                     <div>
@@ -452,13 +474,23 @@ export default function MedicationsPage() {
                   </div>
                   <Input value={form.refillNotes} onChange={(e) => setForm({ ...form, refillNotes: e.target.value })} className="mt-3" placeholder="Refill note, pharmacy, prescription..." />
                 </div>
+                )}
 
                 <div>
                   <Label>Instructions</Label>
-                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1" placeholder="After food, before bed, avoid with milk..." />
+                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1 min-h-20" placeholder="After food, before bed, avoid with milk..." />
                 </div>
 
-                <Button onClick={saveMedication} className="w-full">{form.id ? "Update Medication" : "Save Medication"}</Button>
+                <div className="sticky bottom-0 -mx-3 -mb-3 border-t border-border/70 bg-card/95 p-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-4">
+                  <Button
+                    onClick={saveMedication}
+                    loading={savingMedication}
+                    disabled={savingMedication || !form.name.trim() || !form.timeOfDay}
+                    className="w-full"
+                  >
+                    {savingMedication ? "Saving..." : form.id ? "Update Medication" : "Save Medication"}
+                  </Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>

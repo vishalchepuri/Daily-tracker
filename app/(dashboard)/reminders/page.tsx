@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -101,9 +101,14 @@ export default function RemindersPage() {
   const [reminderOpen, setReminderOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [savingReminder, setSavingReminder] = useState(false);
+  const [savingList, setSavingList] = useState(false);
+  const [showReminderAdvanced, setShowReminderAdvanced] = useState(false);
   const [reminderForm, setReminderForm] = useState(blankReminder);
   const [listForm, setListForm] = useState({ name: "", color: "#22c55e" });
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const saveReminderLock = useRef(false);
+  const saveListLock = useRef(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -208,6 +213,7 @@ export default function RemindersPage() {
 
   const openAddReminder = () => {
     setReminderForm({ ...blankReminder, listId: lists[0]?.id ?? "" });
+    setShowReminderAdvanced(false);
     setReminderOpen(true);
   };
 
@@ -221,6 +227,7 @@ export default function RemindersPage() {
       meal: { title: "Meal prep", notes: "Prepare next planned meal", contextTag: "home", dueDate: dateInputValue(today), dueTime: "20:00", recurrence: "none", priority: "low" },
     } as const;
     setReminderForm({ ...blankReminder, ...presets[preset], listId: lists[0]?.id ?? "" });
+    setShowReminderAdvanced(false);
     setReminderOpen(true);
   };
 
@@ -240,14 +247,18 @@ export default function RemindersPage() {
       flagged: Boolean(item.flagged),
       listId: item.listId ?? "",
     });
+    setShowReminderAdvanced(true);
     setReminderOpen(true);
   };
 
   const saveReminder = async () => {
+    if (savingReminder || saveReminderLock.current) return;
     if (!reminderForm.title.trim()) {
       toast.error("Reminder title is required");
       return;
     }
+    saveReminderLock.current = true;
+    setSavingReminder(true);
     try {
       const res = await fetch("/api/reminders", {
         method: reminderForm.id ? "PATCH" : "POST",
@@ -264,6 +275,9 @@ export default function RemindersPage() {
       loadData();
     } catch {
       toast.error("Failed to save reminder");
+    } finally {
+      saveReminderLock.current = false;
+      setSavingReminder(false);
     }
   };
 
@@ -295,20 +309,33 @@ export default function RemindersPage() {
   };
 
   const saveList = async () => {
+    if (savingList || saveListLock.current) return;
     if (!listForm.name.trim()) {
       toast.error("List name is required");
       return;
     }
-    const res = await fetch("/api/reminder-lists", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(listForm),
-    });
-    if (res.ok) {
-      toast.success("List added");
-      setListOpen(false);
-      setListForm({ name: "", color: "#22c55e" });
-      loadData();
+    saveListLock.current = true;
+    setSavingList(true);
+    try {
+      const res = await fetch("/api/reminder-lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listForm),
+      });
+      if (res.ok) {
+        toast.success("List added");
+        setListOpen(false);
+        setListForm({ name: "", color: "#22c55e" });
+        loadData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data?.error ?? "Failed to add list");
+      }
+    } catch {
+      toast.error("Failed to add list");
+    } finally {
+      saveListLock.current = false;
+      setSavingList(false);
     }
   };
 
@@ -403,7 +430,9 @@ export default function RemindersPage() {
                       <button key={color} type="button" onClick={() => setListForm({ ...listForm, color })} className="h-8 w-8 rounded-full border-2" style={{ backgroundColor: color, borderColor: listForm.color === color ? "white" : "transparent" }} />
                     ))}
                   </div>
-                  <Button onClick={saveList} className="w-full">Create List</Button>
+                  <Button onClick={saveList} loading={savingList} disabled={savingList || !listForm.name.trim()} className="w-full">
+                    {savingList ? "Creating..." : "Create List"}
+                  </Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -607,13 +636,15 @@ export default function RemindersPage() {
         </Card>
       </div>
 
-      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
-        <DialogContent className="max-w-md sm:max-w-md">
-          <DialogHeader><DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
+      <Dialog open={reminderOpen} onOpenChange={(open) => { if (!savingReminder) setReminderOpen(open); }}>
+        <DialogContent className="max-w-lg gap-3 border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
             <div><Label>Title</Label><Input value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} className="mt-1" /></div>
-            <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1" /></div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+            <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1 min-h-20" /></div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div>
                 <Label>Date</Label>
                 <Input
@@ -632,75 +663,100 @@ export default function RemindersPage() {
                   className="mt-1"
                 />
               </div>
-            </div>
-            <div>
-              <Label>Priority</Label>
-              <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-              <div>
-                <Label>Repeat</Label>
-                <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
+              <div className="col-span-2 sm:col-span-1">
+                <Label>Priority</Label>
+                <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Never</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              {reminderForm.recurrence === "custom" && (
-                <div>
-                  <Label>Custom Repeat</Label>
-                  <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="mt-1" placeholder="Every 2 weeks" />
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between bg-background/50"
+              onClick={() => setShowReminderAdvanced((current) => !current)}
+            >
+              More options
+              <span className="text-xs text-muted-foreground">{showReminderAdvanced ? "Hide" : "Show"}</span>
+            </Button>
+
+            {showReminderAdvanced && (
+              <div className="space-y-3 rounded-lg border border-border/60 bg-background/45 p-3">
+                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                  <div>
+                    <Label>Repeat</Label>
+                    <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Never</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {reminderForm.recurrence === "custom" && (
+                    <div>
+                      <Label>Custom Repeat</Label>
+                      <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="mt-1" placeholder="Every 2 weeks" />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-              <div>
-                <Label>Context</Label>
-                <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Context" /></SelectTrigger>
-                  <SelectContent>
-                    {contextOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                  <div>
+                    <Label>Context</Label>
+                    <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Context" /></SelectTrigger>
+                      <SelectContent>
+                        {contextOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Asked By / Source</Label>
+                    <Input
+                      value={reminderForm.sourceLabel}
+                      onChange={(e) => setReminderForm({ ...reminderForm, sourceLabel: e.target.value })}
+                      className="mt-1"
+                      placeholder="Dad, friend, self"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                  <div>
+                    <Label>List</Label>
+                    <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="List" /></SelectTrigger>
+                      <SelectContent>{lists.map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="self-end" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
+                    <Flag className="w-4 h-4 mr-2" />Flag
+                  </Button>
+                </div>
               </div>
-              <div>
-                <Label>Asked By / Source</Label>
-                <Input
-                  value={reminderForm.sourceLabel}
-                  onChange={(e) => setReminderForm({ ...reminderForm, sourceLabel: e.target.value })}
-                  className="mt-1"
-                  placeholder="Dad, friend, self"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-              <div>
-                <Label>List</Label>
-                <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="List" /></SelectTrigger>
-                  <SelectContent>{lists.map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="self-end" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
-                <Flag className="w-4 h-4 mr-2" />Flag
+            )}
+
+            <div className="sticky bottom-0 -mx-3 -mb-3 border-t border-border/70 bg-card/95 p-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-4">
+              <Button
+                onClick={saveReminder}
+                loading={savingReminder}
+                disabled={savingReminder || !reminderForm.title.trim()}
+                className="w-full"
+              >
+                {savingReminder ? "Saving..." : reminderForm.id ? "Update Reminder" : "Add Reminder"}
               </Button>
             </div>
-            <Button onClick={saveReminder} className="w-full">{reminderForm.id ? "Update Reminder" : "Add Reminder"}</Button>
           </div>
         </DialogContent>
       </Dialog>
