@@ -5,6 +5,7 @@ import {
   createFirestoreChatSession,
   listFirestoreChatSessions,
 } from "@/lib/firestore-chat";
+import { formatAppDate } from "@/lib/local-dates";
 
 export async function sendTelegramMessage(chatId: string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -418,7 +419,7 @@ function weekdayFromText(text: string) {
   const found = weekdays.find((day) => lower.includes(day));
   if (found) return found[0].toUpperCase() + found.slice(1);
   if (lower.includes("today")) {
-    return new Date().toLocaleDateString("en-US", { weekday: "long" });
+    return formatAppDate(new Date(), { weekday: "long" });
   }
   return null;
 }

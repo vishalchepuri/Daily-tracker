@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Trophy, Dumbbell } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
+import { formatAppDate } from "@/lib/local-dates";
 
 export function PersonalRecordsTab() {
   const [records, setRecords] = useState<any[]>([]);
@@ -66,7 +67,7 @@ export function PersonalRecordsTab() {
                   <span className="text-xs text-muted-foreground ml-1">× {pr.maxReps} reps</span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{new Date(pr.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+                  <span>{formatAppDate(pr.date, { month: "short", day: "numeric", year: "numeric" })}</span>
                   <span>{pr.totalSets} total sets</span>
                 </div>
               </CardContent>

@@ -11,6 +11,7 @@ import { Bot, TrendingUp, Plus, Scale, Ruler, Camera, Dumbbell } from "lucide-re
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
+import { formatAppDate } from "@/lib/local-dates";
 
 const ProgressCharts = dynamic(() => import("../progress/_components/progress-charts"), { ssr: false, loading: () => <div className="h-64 bg-muted animate-pulse rounded-lg" /> });
 
@@ -231,7 +232,7 @@ export function ProgressPanel() {
                         />
                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
                           <p className="text-white text-xs">
-                            {new Date(photo?.date ?? Date.now()).toLocaleDateString()}
+                            {formatAppDate(photo?.date ?? Date.now(), { day: "2-digit", month: "short", year: "numeric" })}
                           </p>
                         </div>
                       </div>

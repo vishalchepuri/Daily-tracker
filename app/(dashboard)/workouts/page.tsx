@@ -22,6 +22,7 @@ import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
 import { dayzaFetch } from "@/lib/firebase-session-client";
+import { formatAppDate } from "@/lib/local-dates";
 
 const PersonalRecordsTab = dynamic(() => import('./_components/personal-records').then(m => ({ default: m.PersonalRecordsTab })), { ssr: false, loading: () => <div className="h-48 bg-muted animate-pulse rounded-lg" /> });
 const ACTIVE_WORKOUT_STORAGE_KEY = "dayza.activeWorkout.v1";
@@ -270,7 +271,7 @@ export default function WorkoutsPage() {
   const elapsedMinutes = Math.max(1, Math.round(elapsedSeconds / 60));
   const elapsedLabel = `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
   const lastExerciseLogDate = lastExerciseLog?.date
-    ? new Date(lastExerciseLog.date).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    ? formatAppDate(lastExerciseLog.date, { month: "short", day: "numeric" })
     : null;
 
   const startWorkout = (template: any) => {
@@ -1238,7 +1239,7 @@ export default function WorkoutsPage() {
                   </div>
                   <p className="mt-1 font-mono text-lg font-bold">{record.weight}kg x {record.reps}</p>
                   <p className="text-xs text-muted-foreground">
-                    {new Date(record.date ?? Date.now()).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    {formatAppDate(record.date ?? Date.now(), { month: "short", day: "numeric" })}
                   </p>
                 </div>
               ))}
@@ -1433,7 +1434,7 @@ export default function WorkoutsPage() {
                       <div className="min-w-0">
                         <h4 className="break-words font-semibold">{log?.templateName ?? "Workout"}</h4>
                         <p className="mt-1 text-xs text-muted-foreground">
-                          {new Date(log?.date ?? Date.now()).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                          {formatAppDate(log?.date ?? Date.now(), { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
                         </p>
                       </div>
                       {log?.duration && (
@@ -1505,7 +1506,7 @@ export default function WorkoutsPage() {
             <div className="space-y-4">
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">
-                  {new Date(selectedHistoryLog?.date ?? Date.now()).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
+                  {formatAppDate(selectedHistoryLog?.date ?? Date.now(), { weekday: "long", month: "short", day: "numeric", year: "numeric" })}
                 </Badge>
                 {selectedHistoryLog?.duration && (
                   <Badge variant="secondary"><Clock className="mr-1 h-3 w-3" />{selectedHistoryLog.duration} min</Badge>

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { prisma } from "@/lib/db";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { formatAppDateTime } from "@/lib/local-dates";
 
 const intervalMs = Number(process.env.TELEGRAM_REMINDER_INTERVAL_MS ?? 60_000);
 
@@ -30,7 +31,7 @@ async function dispatchDueReminders() {
     const chatId = reminder.user.profile?.telegramChatId;
     if (!chatId) continue;
 
-    const due = reminder.dueDate ? reminder.dueDate.toLocaleString() : "No due time";
+    const due = reminder.dueDate ? formatAppDateTime(reminder.dueDate) : "No due time";
     const list = reminder.list?.name ? `\nList: ${reminder.list.name}` : "";
     const notes = reminder.notes ? `\nNotes: ${reminder.notes}` : "";
 

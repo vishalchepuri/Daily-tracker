@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bell, CalendarDays, CheckCircle2, Clock, Edit, Package, PauseCircle, Pill, PlayCircle, Plus, Search, SkipForward, Trash2, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FadeIn } from "@/components/ui/animate";
-import { formatLocalDateInput } from "@/lib/local-dates";
+import { dateTimeInputToIso, formatAppDate, formatAppDateTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankForm = {
   id: "",
@@ -36,10 +36,7 @@ const blankForm = {
 const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function atDateTime(timeOfDay: string, baseDate = new Date()) {
-  const [hours, minutes] = timeOfDay.split(":").map(Number);
-  const date = new Date(baseDate);
-  date.setHours(hours || 0, minutes || 0, 0, 0);
-  return date;
+  return new Date(dateTimeInputToIso(formatLocalDateInput(baseDate), timeOfDay));
 }
 
 function todayAt(timeOfDay: string) {
@@ -51,7 +48,7 @@ function dateInputValue(date: Date) {
 }
 
 function dateLabel(date: Date) {
-  return date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return formatAppDate(date, { weekday: "short", month: "short", day: "numeric" });
 }
 
 function formatRepeat(med: any) {
@@ -62,30 +59,33 @@ function formatRepeat(med: any) {
 }
 
 function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return formatLocalDateInput(a) === formatLocalDateInput(b);
 }
 
 function isMedicationDueOn(med: any, date = new Date()) {
   if (!med.active) return false;
-  const dayStart = new Date(date);
-  dayStart.setHours(0, 0, 0, 0);
+  const zoned = getZonedDateParts(date);
+  const dayStart = new Date(dateTimeInputToIso(zoned.dateKey, "00:00"));
+  const dayEnd = new Date(dateTimeInputToIso(zoned.dateKey, "23:59"));
   const startDate = med.startDate ? new Date(med.startDate) : null;
   const endDate = med.endDate ? new Date(med.endDate) : null;
   if (startDate) {
-    startDate.setHours(0, 0, 0, 0);
+    const startKey = formatLocalDateInput(startDate);
+    startDate.setTime(new Date(dateTimeInputToIso(startKey, "00:00")).getTime());
     if (dayStart < startDate) return false;
   }
   if (endDate) {
-    endDate.setHours(23, 59, 59, 999);
-    if (date > endDate) return false;
+    const endKey = formatLocalDateInput(endDate);
+    endDate.setTime(new Date(dateTimeInputToIso(endKey, "23:59")).getTime());
+    if (dayEnd > endDate) return false;
   }
 
   if (med.recurrence === "weekly") {
     const selectedDays = String(med.daysOfWeek ?? "").split(",").filter(Boolean);
-    return selectedDays.length === 0 || selectedDays.includes(weekDays[date.getDay()]);
+    return selectedDays.length === 0 || selectedDays.includes(zoned.weekday);
   }
   if (med.recurrence === "monthly") {
-    return !med.dayOfMonth || Number(med.dayOfMonth) === date.getDate();
+    return !med.dayOfMonth || Number(med.dayOfMonth) === Number(zoned.day);
   }
   return true;
 }
@@ -95,11 +95,14 @@ export default function MedicationsPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [savingMedication, setSavingMedication] = useState(false);
+  const [showRefillFields, setShowRefillFields] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("active");
   const [doseNotes, setDoseNotes] = useState<Record<string, string>>({});
   const [selectedDate, setSelectedDate] = useState(dateInputValue(new Date()));
   const [form, setForm] = useState(blankForm);
+  const saveMedicationLock = useRef(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -119,7 +122,7 @@ export default function MedicationsPage() {
 
   const activeMeds = medications.filter((med) => med.active);
   const scheduleDate = useMemo(() => {
-    const date = new Date(`${selectedDate}T00:00:00`);
+    const date = new Date(dateTimeInputToIso(selectedDate, "00:00"));
     return Number.isNaN(date.getTime()) ? new Date() : date;
   }, [selectedDate]);
   const dueTodayMeds = activeMeds
@@ -129,10 +132,9 @@ export default function MedicationsPage() {
     .filter((med) => isMedicationDueOn(med, scheduleDate))
     .sort((a, b) => atDateTime(a.timeOfDay, scheduleDate).getTime() - atDateTime(b.timeOfDay, scheduleDate).getTime());
   const todayLogs = useMemo(() => {
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
+    const todayKey = dateInputValue(new Date());
+    const start = new Date(dateTimeInputToIso(todayKey, "00:00"));
+    const end = new Date(dateTimeInputToIso(todayKey, "23:59"));
     return logs.filter((log) => {
       const date = new Date(log.scheduledFor);
       return date >= start && date <= end;
@@ -185,6 +187,7 @@ export default function MedicationsPage() {
 
   const openAdd = () => {
     setForm(blankForm);
+    setShowRefillFields(false);
     setDialogOpen(true);
   };
 
@@ -207,14 +210,18 @@ export default function MedicationsPage() {
       refillNotes: med.refillNotes ?? "",
       active: Boolean(med.active),
     });
+    setShowRefillFields(med.stockCount != null || med.refillAt != null || Boolean(med.refillNotes));
     setDialogOpen(true);
   };
 
   const saveMedication = async () => {
+    if (savingMedication || saveMedicationLock.current) return;
     if (!form.name || !form.timeOfDay) {
       toast.error("Medication name and time are required");
       return;
     }
+    saveMedicationLock.current = true;
+    setSavingMedication(true);
     try {
       const res = await fetch("/api/medications", {
         method: form.id ? "PATCH" : "POST",
@@ -231,6 +238,9 @@ export default function MedicationsPage() {
       loadData();
     } catch {
       toast.error("Failed to save medication");
+    } finally {
+      saveMedicationLock.current = false;
+      setSavingMedication(false);
     }
   };
 
@@ -340,18 +350,18 @@ export default function MedicationsPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Medications</h2>
             <p className="mt-1 text-sm text-muted-foreground">Track medicine timings, repeats, and daily dose status</p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => { if (!savingMedication) setDialogOpen(open); }}>
             <DialogTrigger asChild>
               <Button onClick={openAdd} className="h-11 w-full rounded-xl sm:h-10 sm:w-auto">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Medication
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl sm:max-w-2xl">
-              <DialogHeader>
+            <DialogContent className="max-w-lg gap-3 border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
+              <DialogHeader className="pr-8 text-left">
                 <DialogTitle>{form.id ? "Edit Medication" : "Add Medication"}</DialogTitle>
               </DialogHeader>
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="grid gap-3 min-[420px]:grid-cols-2">
                   <div>
                     <Label>Name</Label>
@@ -431,10 +441,21 @@ export default function MedicationsPage() {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-muted/20 p-3">
-                  <div className="mb-3 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between bg-background/50"
+                  onClick={() => setShowRefillFields((current) => !current)}
+                >
+                  Refill tracking
+                  <span className="text-xs text-muted-foreground">{showRefillFields ? "Hide" : "Optional"}</span>
+                </Button>
+
+                {showRefillFields && (
+                <div className="rounded-lg border border-border/60 bg-background/45 p-3">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
                     <Package className="h-4 w-4 text-primary" />
-                    <Label>Refill Tracking</Label>
+                    <span>Refill Tracking</span>
                   </div>
                   <div className="grid gap-3 min-[420px]:grid-cols-3">
                     <div>
@@ -452,13 +473,23 @@ export default function MedicationsPage() {
                   </div>
                   <Input value={form.refillNotes} onChange={(e) => setForm({ ...form, refillNotes: e.target.value })} className="mt-3" placeholder="Refill note, pharmacy, prescription..." />
                 </div>
+                )}
 
                 <div>
                   <Label>Instructions</Label>
-                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1" placeholder="After food, before bed, avoid with milk..." />
+                  <Textarea value={form.instructions} onChange={(e) => setForm({ ...form, instructions: e.target.value })} className="mt-1 min-h-20" placeholder="After food, before bed, avoid with milk..." />
                 </div>
 
-                <Button onClick={saveMedication} className="w-full">{form.id ? "Update Medication" : "Save Medication"}</Button>
+                <div className="sticky bottom-0 -mx-3 -mb-3 border-t border-border/70 bg-card/95 p-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-4">
+                  <Button
+                    onClick={saveMedication}
+                    loading={savingMedication}
+                    disabled={savingMedication || !form.name.trim() || !form.timeOfDay}
+                    className="w-full"
+                  >
+                    {savingMedication ? "Saving..." : form.id ? "Update Medication" : "Save Medication"}
+                  </Button>
+                </div>
               </div>
             </DialogContent>
           </Dialog>
@@ -683,7 +714,7 @@ export default function MedicationsPage() {
                 <div key={log.id} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 rounded-xl border border-border/60 bg-card/80 px-3 py-3 text-sm shadow-sm shadow-black/5">
                   <div className="min-w-0">
                     <p className="truncate font-medium">{log.medication?.name}</p>
-                    <p className="text-xs text-muted-foreground">{new Date(log.scheduledFor).toLocaleString()}{log.notes ? ` - ${log.notes}` : ""}</p>
+                    <p className="text-xs text-muted-foreground">{formatAppDateTime(log.scheduledFor)}{log.notes ? ` - ${log.notes}` : ""}</p>
                   </div>
                   <Badge variant={log.status === "taken" ? "secondary" : "outline"}>{log.status}</Badge>
                   <Button variant="ghost" size="icon" onClick={() => deleteLog(log)} title="Delete log">

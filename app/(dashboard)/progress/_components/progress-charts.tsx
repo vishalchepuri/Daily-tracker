@@ -2,6 +2,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Scale, Ruler, TrendingUp } from "lucide-react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, Legend } from "recharts";
+import { formatAppDate } from "@/lib/local-dates";
 
 interface Props {
   entries: any[];
@@ -17,7 +18,7 @@ export default function ProgressCharts({ entries, type, workoutLogs }: Props) {
     const data = safeEntries
       .filter((e: any) => e?.weight != null)
       .map((e: any) => ({
-        date: new Date(e?.date ?? Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        date: formatAppDate(e?.date ?? Date.now(), { month: "short", day: "numeric" }),
         weight: e?.weight ?? 0,
       }));
 
@@ -63,7 +64,7 @@ export default function ProgressCharts({ entries, type, workoutLogs }: Props) {
     const data = safeEntries
       .filter((e: any) => e?.chest != null || e?.arms != null || e?.waist != null)
       .map((e: any) => ({
-        date: new Date(e?.date ?? Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        date: formatAppDate(e?.date ?? Date.now(), { month: "short", day: "numeric" }),
         chest: e?.chest ?? null,
         arms: e?.arms ?? null,
         waist: e?.waist ?? null,
@@ -105,7 +106,7 @@ export default function ProgressCharts({ entries, type, workoutLogs }: Props) {
   if (type === "strength") {
     const exercisePRs: Record<string, { date: string; weight: number }[]> = {};
     (safeWorkoutLogs ?? []).forEach((log: any) => {
-      const dateStr = new Date(log?.date ?? Date.now()).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const dateStr = formatAppDate(log?.date ?? Date.now(), { month: "short", day: "numeric" });
       (log?.exerciseLogs ?? []).forEach((el: any) => {
         const name = el?.exercise?.name ?? "Unknown";
         if (!exercisePRs[name]) exercisePRs[name] = [];

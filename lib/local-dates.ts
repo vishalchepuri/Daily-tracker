@@ -1,39 +1,64 @@
 const configuredDefaultTimeZone =
-  typeof process !== "undefined" && process.env?.APP_TIME_ZONE
-    ? process.env.APP_TIME_ZONE
+  typeof process !== "undefined"
+    ? process.env?.NEXT_PUBLIC_APP_TIME_ZONE || process.env?.APP_TIME_ZONE || null
     : null;
 
 export const DEFAULT_TIME_ZONE = configuredDefaultTimeZone || "Asia/Kolkata";
 
-export function formatLocalDateInput(date: Date) {
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+function getTimeZoneOffsetMs(date: Date, timeZone?: string | null) {
+  const zone = normalizeTimeZone(timeZone);
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  });
+  const parts = formatter.formatToParts(date).reduce<Record<string, string>>((acc, part) => {
+    if (part.type !== "literal") acc[part.type] = part.value;
+    return acc;
+  }, {});
+  const zonedAsUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+  return zonedAsUtc - date.getTime();
 }
 
-export function dateInputToLocalDate(value?: string | null) {
-  if (!value) return null;
-  const [year, month, day] = value.split("-").map(Number);
+function zonedDateTimeToDate(dateValue: string, timeValue?: string | null, timeZone?: string | null) {
+  const [year, month, day] = dateValue.split("-").map(Number);
   if (!year || !month || !day) return null;
-  return new Date(year, month - 1, day);
+  const [hours = 9, minutes = 0] = String(timeValue || "09:00").split(":").map(Number);
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hours || 0, minutes || 0, 0, 0));
+  return new Date(utcGuess.getTime() - getTimeZoneOffsetMs(utcGuess, timeZone));
 }
 
-export function dateTimeInputToIso(dateValue: string, timeValue?: string | null) {
-  const date = dateInputToLocalDate(dateValue);
+export function formatLocalDateInput(date: Date, timeZone: string | null = DEFAULT_TIME_ZONE) {
+  if (Number.isNaN(date.getTime())) return "";
+  return getZonedDateParts(date, timeZone).dateKey;
+}
+
+export function dateInputToLocalDate(value?: string | null, timeZone: string | null = DEFAULT_TIME_ZONE) {
+  if (!value) return null;
+  return zonedDateTimeToDate(value, "00:00", timeZone);
+}
+
+export function dateTimeInputToIso(dateValue: string, timeValue?: string | null, timeZone: string | null = DEFAULT_TIME_ZONE) {
+  const date = zonedDateTimeToDate(dateValue, timeValue, timeZone);
   if (!date) return "";
-  const [hours = 9, minutes = 0] = String(timeValue || "09:00").split(":").map(Number);
-  date.setHours(hours || 0, minutes || 0, 0, 0);
   return date.toISOString();
 }
 
 export function getClientTimeZone() {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || DEFAULT_TIME_ZONE;
-  } catch {
-    return DEFAULT_TIME_ZONE;
-  }
+  return DEFAULT_TIME_ZONE;
 }
 
 export function normalizeTimeZone(value?: string | null) {
@@ -85,5 +110,30 @@ export function dateOnlyKey(value?: Date | string | null) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
+  return formatLocalDateInput(date);
+}
+
+export function formatAppDate(value?: Date | string | null, options: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" }) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-IN", { timeZone: DEFAULT_TIME_ZONE, ...options }).format(date);
+}
+
+export function formatAppTime(value?: Date | string | null, options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" }) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-IN", { timeZone: DEFAULT_TIME_ZONE, ...options }).format(date);
+}
+
+export function formatAppDateTime(value?: Date | string | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    timeZone: DEFAULT_TIME_ZONE,
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
 }

@@ -5,7 +5,7 @@ import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendPushToUser } from "@/lib/web-push";
 import { isMedicationDueOn, isMedicationTimeDueNow } from "@/lib/medication-schedule";
-import { DEFAULT_TIME_ZONE, getZonedDateParts, normalizeTimeZone } from "@/lib/local-dates";
+import { DEFAULT_TIME_ZONE, formatAppTime, getZonedDateParts, normalizeTimeZone } from "@/lib/local-dates";
 
 function isCronAuthorized(req: Request) {
   const secret = process.env.CRON_SECRET;
@@ -96,7 +96,7 @@ async function dispatchPush(req: Request) {
       if (!shouldSend) continue;
 
       const due = reminder.dueDate
-        ? reminder.dueDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        ? formatAppTime(reminder.dueDate)
         : "now";
       const listLabel = reminder.list?.name ? ` · ${reminder.list.name}` : "";
       const prefix = isOverdue ? "Overdue: " : "";

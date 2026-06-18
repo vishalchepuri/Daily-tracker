@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
-import { dateTimeInputToIso, formatLocalDateInput } from "@/lib/local-dates";
+import { dateTimeInputToIso, formatAppDate, formatAppDateTime, formatAppTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankReminder = {
   id: "",
@@ -46,9 +46,10 @@ function splitDateTime(value?: string | null) {
   if (!value) return { dueDate: "", dueTime: "" };
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { dueDate: "", dueTime: "" };
+  const zoned = getZonedDateParts(date);
   return {
     dueDate: formatLocalDateInput(date),
-    dueTime: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
+    dueTime: `${zoned.hour}:${zoned.minute}`,
   };
 }
 
@@ -64,6 +65,21 @@ function addDays(date: Date, days: number) {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function appDayRange(dateKey = formatLocalDateInput(new Date())) {
+  return {
+    dateKey,
+    start: new Date(dateTimeInputToIso(dateKey, "00:00")),
+    evening: new Date(dateTimeInputToIso(dateKey, "18:00")),
+    end: new Date(dateTimeInputToIso(dateKey, "23:59")),
+  };
 }
 
 function contextLabel(value?: string | null) {
@@ -101,9 +117,14 @@ export default function RemindersPage() {
   const [reminderOpen, setReminderOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [telegramOpen, setTelegramOpen] = useState(false);
+  const [savingReminder, setSavingReminder] = useState(false);
+  const [savingList, setSavingList] = useState(false);
+  const [showReminderAdvanced, setShowReminderAdvanced] = useState(false);
   const [reminderForm, setReminderForm] = useState(blankReminder);
   const [listForm, setListForm] = useState({ name: "", color: "#22c55e" });
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const saveReminderLock = useRef(false);
+  const saveListLock = useRef(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -157,21 +178,15 @@ export default function RemindersPage() {
   };
 
   const smartCounts = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
+    const tomorrow = appDayRange(addDaysToDateKey(today.dateKey, 1));
     const now = new Date();
     return {
       all: reminders.filter((item) => !item.completed).length,
       overdue: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) < now).length,
-      today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd).length,
-      tonight: reminders.filter((item) => !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= new Date(`${dateInputValue(todayStart)}T18:00:00`) && new Date(item.dueDate) <= todayEnd))).length,
-      tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd).length,
+      today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end).length,
+      tonight: reminders.filter((item) => !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= today.evening && new Date(item.dueDate) <= today.end))).length,
+      tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrow.start && new Date(item.dueDate) <= tomorrow.end).length,
       office: reminders.filter((item) => !item.completed && item.contextTag === "office").length,
       leaving_home: reminders.filter((item) => !item.completed && item.contextTag === "leaving_home").length,
       scheduled: reminders.filter((item) => !item.completed && item.dueDate).length,
@@ -181,21 +196,15 @@ export default function RemindersPage() {
   }, [reminders]);
 
   const filteredReminders = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
+    const tomorrow = appDayRange(addDaysToDateKey(today.dateKey, 1));
     const now = new Date();
     const nextItems = reminders.filter((item) => {
       if (filter === "all") return !item.completed;
       if (filter === "overdue") return !item.completed && item.dueDate && new Date(item.dueDate) < now;
-      if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd;
-      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd;
-      if (filter === "tonight") return !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= new Date(`${dateInputValue(todayStart)}T18:00:00`) && new Date(item.dueDate) <= todayEnd));
+      if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end;
+      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrow.start && new Date(item.dueDate) <= tomorrow.end;
+      if (filter === "tonight") return !item.completed && (item.contextTag === "tonight" || (item.dueDate && new Date(item.dueDate) >= today.evening && new Date(item.dueDate) <= today.end));
       if (filter === "office") return !item.completed && item.contextTag === "office";
       if (filter === "leaving_home") return !item.completed && item.contextTag === "leaving_home";
       if (filter === "scheduled") return !item.completed && item.dueDate;
@@ -208,6 +217,7 @@ export default function RemindersPage() {
 
   const openAddReminder = () => {
     setReminderForm({ ...blankReminder, listId: lists[0]?.id ?? "" });
+    setShowReminderAdvanced(false);
     setReminderOpen(true);
   };
 
@@ -221,6 +231,7 @@ export default function RemindersPage() {
       meal: { title: "Meal prep", notes: "Prepare next planned meal", contextTag: "home", dueDate: dateInputValue(today), dueTime: "20:00", recurrence: "none", priority: "low" },
     } as const;
     setReminderForm({ ...blankReminder, ...presets[preset], listId: lists[0]?.id ?? "" });
+    setShowReminderAdvanced(false);
     setReminderOpen(true);
   };
 
@@ -240,14 +251,18 @@ export default function RemindersPage() {
       flagged: Boolean(item.flagged),
       listId: item.listId ?? "",
     });
+    setShowReminderAdvanced(true);
     setReminderOpen(true);
   };
 
   const saveReminder = async () => {
+    if (savingReminder || saveReminderLock.current) return;
     if (!reminderForm.title.trim()) {
       toast.error("Reminder title is required");
       return;
     }
+    saveReminderLock.current = true;
+    setSavingReminder(true);
     try {
       const res = await fetch("/api/reminders", {
         method: reminderForm.id ? "PATCH" : "POST",
@@ -264,6 +279,9 @@ export default function RemindersPage() {
       loadData();
     } catch {
       toast.error("Failed to save reminder");
+    } finally {
+      saveReminderLock.current = false;
+      setSavingReminder(false);
     }
   };
 
@@ -295,20 +313,33 @@ export default function RemindersPage() {
   };
 
   const saveList = async () => {
+    if (savingList || saveListLock.current) return;
     if (!listForm.name.trim()) {
       toast.error("List name is required");
       return;
     }
-    const res = await fetch("/api/reminder-lists", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(listForm),
-    });
-    if (res.ok) {
-      toast.success("List added");
-      setListOpen(false);
-      setListForm({ name: "", color: "#22c55e" });
-      loadData();
+    saveListLock.current = true;
+    setSavingList(true);
+    try {
+      const res = await fetch("/api/reminder-lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listForm),
+      });
+      if (res.ok) {
+        toast.success("List added");
+        setListOpen(false);
+        setListForm({ name: "", color: "#22c55e" });
+        loadData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data?.error ?? "Failed to add list");
+      }
+    } catch {
+      toast.error("Failed to add list");
+    } finally {
+      saveListLock.current = false;
+      setSavingList(false);
     }
   };
 
@@ -364,12 +395,9 @@ export default function RemindersPage() {
   }, [reminders]);
 
   const topPriorityToday = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
     return sortRemindersByImportance(
-      reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd)
+      reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end)
     ).slice(0, 3);
   }, [reminders]);
 
@@ -403,7 +431,9 @@ export default function RemindersPage() {
                       <button key={color} type="button" onClick={() => setListForm({ ...listForm, color })} className="h-8 w-8 rounded-full border-2" style={{ backgroundColor: color, borderColor: listForm.color === color ? "white" : "transparent" }} />
                     ))}
                   </div>
-                  <Button onClick={saveList} className="w-full">Create List</Button>
+                  <Button onClick={saveList} loading={savingList} disabled={savingList || !listForm.name.trim()} className="w-full">
+                    {savingList ? "Creating..." : "Create List"}
+                  </Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -479,7 +509,7 @@ export default function RemindersPage() {
             ) : upcomingReminders.map((item) => (
               <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{formatAppDate(item.dueDate)}</span>
               </button>
             ))}
             </div>
@@ -509,7 +539,7 @@ export default function RemindersPage() {
             ) : leavingHomeTasks.map((item) => (
               <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
                 <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? new Date(item.dueDate).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "No time"}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? formatAppTime(item.dueDate) : "No time"}</span>
               </button>
             ))}
           </CardContent>
@@ -578,7 +608,7 @@ export default function RemindersPage() {
                         {item.sourceLabel && <Badge variant="outline">from {item.sourceLabel}</Badge>}
                       </div>
                       {item.notes && <p className="mt-1 text-sm text-muted-foreground">{item.notes}</p>}
-                      {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleString()}</p>}
+                      {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{formatAppDateTime(item.dueDate)}</p>}
                     </div>
                     {!item.completed && (
                       <div className="col-span-2 flex shrink-0 flex-wrap gap-1 sm:col-auto">
@@ -607,13 +637,15 @@ export default function RemindersPage() {
         </Card>
       </div>
 
-      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
-        <DialogContent className="max-w-md sm:max-w-md">
-          <DialogHeader><DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
+      <Dialog open={reminderOpen} onOpenChange={(open) => { if (!savingReminder) setReminderOpen(open); }}>
+        <DialogContent className="max-w-lg gap-3 border-border/80 bg-card/95 p-3 sm:max-w-lg sm:p-5">
+          <DialogHeader className="pr-8 text-left">
+            <DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
             <div><Label>Title</Label><Input value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} className="mt-1" /></div>
-            <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1" /></div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+            <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1 min-h-20" /></div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div>
                 <Label>Date</Label>
                 <Input
@@ -632,75 +664,100 @@ export default function RemindersPage() {
                   className="mt-1"
                 />
               </div>
-            </div>
-            <div>
-              <Label>Priority</Label>
-              <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
-                <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-              <div>
-                <Label>Repeat</Label>
-                <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
+              <div className="col-span-2 sm:col-span-1">
+                <Label>Priority</Label>
+                <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
                   <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Never</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
+                    <SelectItem value="none">None</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              {reminderForm.recurrence === "custom" && (
-                <div>
-                  <Label>Custom Repeat</Label>
-                  <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="mt-1" placeholder="Every 2 weeks" />
+            </div>
+
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full justify-between bg-background/50"
+              onClick={() => setShowReminderAdvanced((current) => !current)}
+            >
+              More options
+              <span className="text-xs text-muted-foreground">{showReminderAdvanced ? "Hide" : "Show"}</span>
+            </Button>
+
+            {showReminderAdvanced && (
+              <div className="space-y-3 rounded-lg border border-border/60 bg-background/45 p-3">
+                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                  <div>
+                    <Label>Repeat</Label>
+                    <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Never</SelectItem>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="monthly">Monthly</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {reminderForm.recurrence === "custom" && (
+                    <div>
+                      <Label>Custom Repeat</Label>
+                      <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="mt-1" placeholder="Every 2 weeks" />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-              <div>
-                <Label>Context</Label>
-                <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Context" /></SelectTrigger>
-                  <SelectContent>
-                    {contextOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                  <div>
+                    <Label>Context</Label>
+                    <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="Context" /></SelectTrigger>
+                      <SelectContent>
+                        {contextOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Asked By / Source</Label>
+                    <Input
+                      value={reminderForm.sourceLabel}
+                      onChange={(e) => setReminderForm({ ...reminderForm, sourceLabel: e.target.value })}
+                      className="mt-1"
+                      placeholder="Dad, friend, self"
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
+                  <div>
+                    <Label>List</Label>
+                    <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue placeholder="List" /></SelectTrigger>
+                      <SelectContent>{lists.map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="self-end" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
+                    <Flag className="w-4 h-4 mr-2" />Flag
+                  </Button>
+                </div>
               </div>
-              <div>
-                <Label>Asked By / Source</Label>
-                <Input
-                  value={reminderForm.sourceLabel}
-                  onChange={(e) => setReminderForm({ ...reminderForm, sourceLabel: e.target.value })}
-                  className="mt-1"
-                  placeholder="Dad, friend, self"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-              <div>
-                <Label>List</Label>
-                <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="List" /></SelectTrigger>
-                  <SelectContent>{lists.map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="self-end" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
-                <Flag className="w-4 h-4 mr-2" />Flag
+            )}
+
+            <div className="sticky bottom-0 -mx-3 -mb-3 border-t border-border/70 bg-card/95 p-3 backdrop-blur sm:-mx-5 sm:-mb-5 sm:p-4">
+              <Button
+                onClick={saveReminder}
+                loading={savingReminder}
+                disabled={savingReminder || !reminderForm.title.trim()}
+                className="w-full"
+              >
+                {savingReminder ? "Saving..." : reminderForm.id ? "Update Reminder" : "Add Reminder"}
               </Button>
             </div>
-            <Button onClick={saveReminder} className="w-full">{reminderForm.id ? "Update Reminder" : "Add Reminder"}</Button>
           </div>
         </DialogContent>
       </Dialog>

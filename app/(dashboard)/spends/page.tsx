@@ -15,6 +15,7 @@ import { FadeIn } from "@/components/ui/animate";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { completeGoogleFeatureRedirect, connectGoogleFeature } from "@/lib/google-feature-client";
 import { getBankThemeStyle } from "@/lib/bank-colors";
+import { dateTimeInputToIso, formatAppDate, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankForm = {
   id: "",
@@ -22,7 +23,7 @@ const blankForm = {
   amount: "",
   currency: "INR",
   category: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: formatLocalDateInput(new Date()),
   notes: "",
   bankAccountId: "none",
   creditCardId: "none",
@@ -54,7 +55,7 @@ const blankMoneyLinkForm = {
   currency: "INR",
   bankAccountId: "none",
   toBankAccountId: "none",
-  date: new Date().toISOString().slice(0, 10),
+  date: formatLocalDateInput(new Date()),
   purpose: "",
   notes: "",
 };
@@ -79,28 +80,43 @@ function normalizePersonName(value: unknown) {
 }
 
 function dateKey(date: Date) {
+  return formatLocalDateInput(date);
+}
+
+function dateFromKey(key: string, time = "00:00") {
+  return new Date(dateTimeInputToIso(key, time));
+}
+
+function addDaysToDateKey(key: string, days: number) {
+  const date = new Date(`${key}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
+function currentMonthStartKey() {
+  const zoned = getZonedDateParts(new Date());
+  return `${zoned.year}-${zoned.month}-01`;
+}
+
 function weekKey(date: Date) {
-  const start = new Date(date);
-  start.setDate(date.getDate() - date.getDay());
-  start.setHours(0, 0, 0, 0);
-  return dateKey(start);
+  const zoned = getZonedDateParts(date);
+  const weekdayIndex = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(zoned.weekday);
+  return addDaysToDateKey(zoned.dateKey, -Math.max(0, weekdayIndex));
 }
 
 function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const zoned = getZonedDateParts(date);
+  return `${zoned.year}-${zoned.month}`;
 }
 
 function formatPeriodLabel(key: string, mode: "daily" | "weekly" | "monthly") {
   if (mode === "monthly") {
     const [year, month] = key.split("-").map(Number);
-    return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    return formatAppDate(dateFromKey(`${year}-${String(month).padStart(2, "0")}-01`), { month: "short", year: "numeric" });
   }
-  const date = new Date(`${key}T00:00:00`);
-  if (mode === "weekly") return `Week of ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = dateFromKey(key);
+  if (mode === "weekly") return `Week of ${formatAppDate(date, { month: "short", day: "numeric" })}`;
+  return formatAppDate(date, { month: "short", day: "numeric" });
 }
 
 export default function SpendsPage() {
@@ -118,8 +134,8 @@ export default function SpendsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
-  const [customStart, setCustomStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
-  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [customStart, setCustomStart] = useState(() => currentMonthStartKey());
+  const [customEnd, setCustomEnd] = useState(() => formatLocalDateInput(new Date()));
   const [form, setForm] = useState(blankForm);
   const [financeProfile, setFinanceProfile] = useState<any>(null);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
@@ -278,7 +294,8 @@ export default function SpendsPage() {
 
   const totals = useMemo(() => {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const zonedNow = getZonedDateParts(now);
+    const monthStart = dateFromKey(`${zonedNow.year}-${zonedNow.month}-01`);
     const monthSpends = spends.filter((spend) => new Date(spend.date) >= monthStart);
     const total = monthSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0);
     const gmail = monthSpends.filter((spend) => spend.source === "gmail").length;
@@ -287,9 +304,9 @@ export default function SpendsPage() {
     const target = Number(targetMonthlySpend) || 0;
     const remaining = target > 0 ? Math.max(0, target - total) : 0;
     const progress = target > 0 ? Math.min(100, Math.round((total / target) * 100)) : 0;
-    const daysPassed = Math.max(1, now.getDate());
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const daysRemaining = Math.max(1, daysInMonth - now.getDate() + 1);
+    const daysPassed = Math.max(1, Number(zonedNow.day));
+    const daysInMonth = new Date(Date.UTC(Number(zonedNow.year), Number(zonedNow.month), 0)).getUTCDate();
+    const daysRemaining = Math.max(1, daysInMonth - Number(zonedNow.day) + 1);
     const dailyAverage = total / daysPassed;
     const projected = dailyAverage * daysInMonth;
     const safeDailySpend = target > 0 ? remaining / daysRemaining : 0;
@@ -315,14 +332,15 @@ export default function SpendsPage() {
   }, [bankAccounts, creditCards, financeProfile, moneyLinks]);
 
   const cardDueAlerts = useMemo(() => {
-    const today = new Date();
-    const todayDay = today.getDate();
+    const zonedToday = getZonedDateParts(new Date());
+    const todayDay = Number(zonedToday.day);
+    const daysInMonth = new Date(Date.UTC(Number(zonedToday.year), Number(zonedToday.month), 0)).getUTCDate();
     return creditCards
       .filter((card) => card.dueDay && (card.currentDue ?? 0) > 0)
       .map((card) => {
         const daysUntilDue = card.dueDay >= todayDay
           ? card.dueDay - todayDay
-          : new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - todayDay + card.dueDay;
+          : daysInMonth - todayDay + card.dueDay;
         return { ...card, daysUntilDue };
       })
       .sort((a, b) => a.daysUntilDue - b.daysUntilDue)
@@ -331,7 +349,8 @@ export default function SpendsPage() {
 
   const categoryTotals = useMemo(() => {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const zonedNow = getZonedDateParts(now);
+    const monthStart = dateFromKey(`${zonedNow.year}-${zonedNow.month}-01`);
     const grouped = spends
       .filter((spend) => new Date(spend.date) >= monthStart)
       .reduce((acc: Record<string, number>, spend) => {
@@ -347,21 +366,19 @@ export default function SpendsPage() {
 
   const filterStartDate = useMemo(() => {
     const now = new Date();
+    const zonedNow = getZonedDateParts(now);
     if (periodFilter === "week") {
-      const start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      start.setHours(0, 0, 0, 0);
-      return start;
+      return dateFromKey(weekKey(now));
     }
-    if (periodFilter === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
-    if (periodFilter === "year") return new Date(now.getFullYear(), 0, 1);
-    if (periodFilter === "custom") return customStart ? new Date(`${customStart}T00:00:00`) : null;
+    if (periodFilter === "month") return dateFromKey(`${zonedNow.year}-${zonedNow.month}-01`);
+    if (periodFilter === "year") return dateFromKey(`${zonedNow.year}-01-01`);
+    if (periodFilter === "custom") return customStart ? dateFromKey(customStart) : null;
     return null;
   }, [customStart, periodFilter]);
 
   const filterEndDate = useMemo(() => {
     if (periodFilter !== "custom" || !customEnd) return null;
-    const end = new Date(`${customEnd}T23:59:59`);
+    const end = dateFromKey(customEnd, "23:59");
     return Number.isNaN(end.getTime()) ? null : end;
   }, [customEnd, periodFilter]);
 
@@ -589,7 +606,7 @@ export default function SpendsPage() {
       amount: String(spend.amount ?? ""),
       currency: spend.currency ?? "INR",
       category: spend.category ?? "",
-      date: new Date(spend.date ?? Date.now()).toISOString().slice(0, 10),
+      date: formatLocalDateInput(new Date(spend.date ?? Date.now())),
       notes: spend.notes ?? "",
       bankAccountId: spend.bankAccountId ?? "none",
       creditCardId: spend.creditCardId ?? "none",
@@ -652,7 +669,7 @@ export default function SpendsPage() {
           type: "lend",
           amount: pendingFriendSpend.amount,
           currency: pendingFriendSpend.currency || "INR",
-          date: new Date(pendingFriendSpend.date ?? Date.now()).toISOString().slice(0, 10),
+          date: formatLocalDateInput(new Date(pendingFriendSpend.date ?? Date.now())),
           notes,
         }),
       });
@@ -733,7 +750,7 @@ export default function SpendsPage() {
     }
     const headers = ["Date", "Merchant", "Amount", "Currency", "Category", "Source", "Credit Card", "Notes"];
     const rows = filteredSpends.map((spend) => [
-      new Date(spend.date).toISOString().slice(0, 10),
+      formatLocalDateInput(new Date(spend.date)),
       spend.merchant ?? "",
       Number(spend.amount ?? 0).toFixed(2),
       spend.currency ?? "INR",
@@ -749,7 +766,7 @@ export default function SpendsPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `dayza-spends-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `dayza-spends-${formatLocalDateInput(new Date())}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
     toast.success("Spend CSV exported");
@@ -761,8 +778,8 @@ export default function SpendsPage() {
     setCategoryFilter("all");
     setSourceFilter("all");
     setPaymentFilter("all");
-    setCustomStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
-    setCustomEnd(new Date().toISOString().slice(0, 10));
+    setCustomStart(currentMonthStartKey());
+    setCustomEnd(formatLocalDateInput(new Date()));
   };
 
   const saveFinance = async () => {
@@ -1527,7 +1544,7 @@ export default function SpendsPage() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate font-medium">{transfer.fromAccount?.name ?? "From account"} to {transfer.toAccount?.name ?? "To account"}</p>
-                                <p className="text-xs text-muted-foreground">{new Date(transfer.date).toLocaleDateString()} {transfer.notes ? `- ${transfer.notes}` : ""}</p>
+                                <p className="text-xs text-muted-foreground">{formatAppDate(transfer.date, { day: "2-digit", month: "short", year: "numeric" })} {transfer.notes ? `- ${transfer.notes}` : ""}</p>
                               </div>
                               <p className="shrink-0 font-mono text-sm">{formatInr(transfer.amount ?? 0)}</p>
                             </div>
@@ -1722,7 +1739,7 @@ export default function SpendsPage() {
                                 <Badge variant={link.type === "lend" ? "secondary" : "outline"}>{link.type === "lend" ? "Lent" : "Borrowed"}</Badge>
                                 {link.settled && <Badge variant="outline">Settled</Badge>}
                               </div>
-                              <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
+                              <p className="text-xs text-muted-foreground">{formatAppDate(link.date, { day: "2-digit", month: "short", year: "numeric" })} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
                               {(link.settledAmount ?? 0) > 0 && <p className="text-xs text-muted-foreground">Settled {formatInr(link.settledAmount)} / {formatInr(link.amount ?? 0)}</p>}
                             </div>
                             <div className="flex items-center justify-between gap-1 sm:justify-end">
@@ -2122,7 +2139,7 @@ export default function SpendsPage() {
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {new Date(spend.date).toLocaleDateString()} {spend.emailSubject ? `- ${spend.emailSubject}` : ""}
+                      {formatAppDate(spend.date, { day: "2-digit", month: "short", year: "numeric" })} {spend.emailSubject ? `- ${spend.emailSubject}` : ""}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>

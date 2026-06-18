@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { sendTelegramMessage } from "@/lib/telegram";
+import { formatAppDateTime } from "@/lib/local-dates";
 
 export async function POST() {
   try {
@@ -29,7 +30,7 @@ export async function POST() {
     });
 
     for (const reminder of reminders) {
-      const due = reminder.dueDate ? reminder.dueDate.toLocaleString() : "No due time";
+      const due = reminder.dueDate ? formatAppDateTime(reminder.dueDate) : "No due time";
       const list = reminder.list?.name ? `\nList: ${reminder.list.name}` : "";
       const notes = reminder.notes ? `\nNotes: ${reminder.notes}` : "";
       await sendTelegramMessage(
