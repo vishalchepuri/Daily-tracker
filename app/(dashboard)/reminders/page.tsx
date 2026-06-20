@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Loader2, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Loader2, Mic, MicOff, Pencil, Plus, Repeat, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
 import { dateTimeInputToIso, formatAppDate, formatAppDateTime, formatAppTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
+
+declare global {
+  interface Window {
+    SpeechRecognition?: any;
+    webkitSpeechRecognition?: any;
+  }
+}
 
 const blankReminder = {
   id: "",
@@ -40,6 +48,16 @@ const contextOptions = [
   { value: "billing", label: "Bills" },
   { value: "bring", label: "Bring" },
   { value: "follow_up", label: "Follow Up" },
+];
+
+const leavingHomeChecklist = [
+  { title: "Take lunch box", priority: "high", notes: "Check before leaving home" },
+  { title: "Switch off lights", priority: "medium", notes: "Check rooms and kitchen" },
+  { title: "Take wallet", priority: "high", notes: "Before locking the door" },
+  { title: "Take keys", priority: "high", notes: "House and vehicle keys" },
+  { title: "Take charger", priority: "medium", notes: "Phone or laptop charger" },
+  { title: "Take water bottle", priority: "medium", notes: "Fill and carry" },
+  { title: "Take ID card", priority: "medium", notes: "Office access card" },
 ];
 
 function splitDateTime(value?: string | null) {
@@ -106,6 +124,23 @@ function sortRemindersByImportance(items: any[]) {
   return [...items].sort((a, b) => reminderImportanceScore(b) - reminderImportanceScore(a));
 }
 
+function inferContextFromVoice(value: string) {
+  const text = value.toLowerCase();
+  if (/(office|work|meeting|desk|manager|friend|colleague)/.test(text)) return "office";
+  if (/(home|house|room|light|lights|door|gas|stove|lock|keys|lunch|box|charger|wallet|leave|leaving)/.test(text)) return "leaving_home";
+  if (/(bill|payment|current|electricity|rent|emi|due)/.test(text)) return "billing";
+  if (/(buy|bring|take|carry|mango|fruit|shop|shopping)/.test(text)) return "bring";
+  if (/(night|tonight|evening)/.test(text)) return "tonight";
+  return "general";
+}
+
+function inferPriorityFromVoice(value: string) {
+  const text = value.toLowerCase();
+  if (/(urgent|important|must|today|bill|payment|lunch|keys|wallet|medicine)/.test(text)) return "high";
+  if (/(tomorrow|office|bring|take|remember)/.test(text)) return "medium";
+  return "none";
+}
+
 export default function RemindersPage() {
   const [reminders, setReminders] = useState<any[]>([]);
   const [lists, setLists] = useState<any[]>([]);
@@ -121,11 +156,16 @@ export default function RemindersPage() {
   const [savingList, setSavingList] = useState(false);
   const [showReminderAdvanced, setShowReminderAdvanced] = useState(false);
   const [pendingReminderActions, setPendingReminderActions] = useState<Record<string, "complete" | "snooze" | "delete">>({});
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [voiceDraft, setVoiceDraft] = useState("");
+  const [savingVoiceTask, setSavingVoiceTask] = useState(false);
+  const [creatingChecklist, setCreatingChecklist] = useState(false);
   const [reminderForm, setReminderForm] = useState(blankReminder);
   const [listForm, setListForm] = useState({ name: "", color: "#22c55e" });
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
   const saveReminderLock = useRef(false);
   const saveListLock = useRef(false);
+  const voiceRecognitionRef = useRef<any>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -157,6 +197,10 @@ export default function RemindersPage() {
   };
 
   useEffect(() => { loadData(); }, []);
+
+  useEffect(() => {
+    return () => voiceRecognitionRef.current?.stop?.();
+  }, []);
 
   const loadMoreReminders = async () => {
     if (loadingMoreReminders || !remindersHasMore) return;
@@ -234,6 +278,138 @@ export default function RemindersPage() {
     setReminderForm({ ...blankReminder, ...presets[preset], listId: lists[0]?.id ?? "" });
     setShowReminderAdvanced(false);
     setReminderOpen(true);
+  };
+
+  const openContextReminder = (contextTag: string, title = "") => {
+    const today = new Date();
+    setReminderForm({
+      ...blankReminder,
+      title,
+      contextTag,
+      dueDate: dateInputValue(today),
+      dueTime: contextTag === "leaving_home" ? "08:30" : contextTag === "tonight" ? "20:00" : "09:00",
+      priority: contextTag === "leaving_home" || contextTag === "billing" ? "high" : "medium",
+      flagged: contextTag === "leaving_home" || contextTag === "billing",
+      listId: lists[0]?.id ?? "",
+    });
+    setShowReminderAdvanced(false);
+    setReminderOpen(true);
+  };
+
+  const startVoiceCapture = () => {
+    if (voiceListening) {
+      voiceRecognitionRef.current?.stop?.();
+      setVoiceListening(false);
+      return;
+    }
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast.error("Voice capture is not supported in this browser");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-IN";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    let finalTranscript = "";
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0]?.transcript ?? "";
+        if (event.results[i].isFinal) finalTranscript += transcript;
+        else interim += transcript;
+      }
+      setVoiceDraft((finalTranscript + interim).trim());
+    };
+    recognition.onerror = () => {
+      setVoiceListening(false);
+      toast.error("Could not hear that clearly");
+    };
+    recognition.onend = () => {
+      setVoiceListening(false);
+      const spoken = finalTranscript.trim();
+      if (spoken) setVoiceDraft(spoken);
+    };
+    voiceRecognitionRef.current = recognition;
+    recognition.start();
+    setVoiceListening(true);
+  };
+
+  const saveVoiceTask = async () => {
+    const title = voiceDraft.trim();
+    if (!title || savingVoiceTask) return;
+    setSavingVoiceTask(true);
+    const contextTag = inferContextFromVoice(title);
+    const priority = inferPriorityFromVoice(title);
+    const today = new Date();
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title,
+          contextTag,
+          priority,
+          flagged: priority === "high",
+          dueDate: buildDueDate(dateInputValue(today), contextTag === "tonight" ? "20:00" : contextTag === "leaving_home" ? "08:30" : "09:00"),
+          sourceLabel: "voice",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save voice task");
+        return;
+      }
+      toast.success("Voice task saved");
+      setVoiceDraft("");
+      loadData();
+    } catch {
+      toast.error("Failed to save voice task");
+    } finally {
+      setSavingVoiceTask(false);
+    }
+  };
+
+  const createLeavingChecklist = async () => {
+    if (creatingChecklist) return;
+    setCreatingChecklist(true);
+    const today = new Date();
+    const existingTitles = new Set(
+      reminders
+        .filter((item) => !item.completed && item.contextTag === "leaving_home")
+        .map((item) => String(item.title ?? "").trim().toLowerCase())
+    );
+    const missing = leavingHomeChecklist.filter((item) => !existingTitles.has(item.title.toLowerCase()));
+    if (missing.length === 0) {
+      toast.success("Leaving-home checklist is already ready");
+      setFilter("leaving_home");
+      setCreatingChecklist(false);
+      return;
+    }
+    try {
+      const results = await Promise.all(missing.map((item) =>
+        fetch("/api/reminders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...item,
+            contextTag: "leaving_home",
+            dueDate: buildDueDate(dateInputValue(today), "08:30"),
+            flagged: item.priority === "high",
+            sourceLabel: "checklist",
+          }),
+        })
+      ));
+      const failed = results.filter((res) => !res.ok).length;
+      if (failed) toast.error(`Could not add ${failed} checklist item(s)`);
+      else toast.success(`Added ${missing.length} leaving-home item(s)`);
+      setFilter("leaving_home");
+      loadData();
+    } catch {
+      toast.error("Failed to create checklist");
+    } finally {
+      setCreatingChecklist(false);
+    }
   };
 
   const openEditReminder = (item: any) => {
@@ -551,6 +727,114 @@ export default function RemindersPage() {
           </div>
         </div>
       </FadeIn>
+
+      <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
+        <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                  {voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </div>
+                <div>
+                  <p className="font-display text-base font-bold">Voice Task Capture</p>
+                  <p className="text-xs text-muted-foreground">Say lunch box, bills, office tasks, or anything you may forget.</p>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm">
+                <Input
+                  value={voiceDraft}
+                  onChange={(event) => setVoiceDraft(event.target.value)}
+                  placeholder={voiceListening ? "Listening..." : "Tap Talk or type a quick task"}
+                  className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
+                />
+              </div>
+              {voiceDraft && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Dayza will save it as {contextLabel(inferContextFromVoice(voiceDraft))} with {inferPriorityFromVoice(voiceDraft)} priority.
+                </p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:w-44 sm:grid-cols-1">
+              <Button type="button" variant={voiceListening ? "default" : "outline"} onClick={startVoiceCapture} disabled={savingVoiceTask}>
+                {voiceListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />}
+                {voiceListening ? "Stop" : "Talk"}
+              </Button>
+              <Button type="button" onClick={saveVoiceTask} loading={savingVoiceTask} disabled={savingVoiceTask || !voiceDraft.trim()}>
+                Save Task
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-500/20 bg-emerald-500/5">
+          <CardContent className="space-y-3 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <Home className="h-5 w-5 text-emerald-400" />
+                  <p className="font-display text-base font-bold">Leaving Home Checklist</p>
+                </div>
+                <p className="mt-1 text-xs text-muted-foreground">Lunch box, lights, keys, wallet, charger, ID, water bottle.</p>
+              </div>
+              <Badge variant="secondary">{smartCounts.leaving_home}</Badge>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" onClick={createLeavingChecklist} loading={creatingChecklist} disabled={creatingChecklist}>
+                {creatingChecklist ? "Adding..." : "Prepare"}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => setFilter("leaving_home")}>
+                View
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {leavingHomeChecklist.slice(0, 5).map((item) => (
+                <button
+                  key={item.title}
+                  type="button"
+                  onClick={() => openContextReminder("leaving_home", item.title)}
+                  className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[0.7rem] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                >
+                  + {item.title.replace(/^Take /, "")}
+                </button>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {smartCounts.today + smartCounts.overdue >= 8 && (
+        <Card className="border-amber-500/25 bg-amber-500/10">
+          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+            <div className="flex min-w-0 gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold">You have many tasks today.</p>
+                <p className="text-sm text-muted-foreground">Ask Dayza to sort the urgent ones first and suggest a realistic order.</p>
+              </div>
+            </div>
+            <Button asChild>
+              <Link href={`/chat?from=/reminders&mode=voice&prompt=${encodeURIComponent("Review my reminders and tasks for today. Ask me priority questions if needed, then give me the best order to finish them.")}`}>
+                Ask Dayza
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-3 gap-2 md:hidden">
+        <Button type="button" variant="outline" onClick={() => openContextReminder("office")} className="h-11 rounded-xl">
+          <BriefcaseBusiness className="mr-1.5 h-4 w-4" />Office
+        </Button>
+        <Button type="button" variant="outline" onClick={() => openContextReminder("billing")} className="h-11 rounded-xl">
+          <Flag className="mr-1.5 h-4 w-4" />Bill
+        </Button>
+        <Button type="button" variant="outline" onClick={() => openContextReminder("bring")} className="h-11 rounded-xl">
+          <Plus className="mr-1.5 h-4 w-4" />Bring
+        </Button>
+      </div>
 
       <div className="hidden gap-3 md:grid md:grid-cols-[1fr_22rem]">
         <Card>
