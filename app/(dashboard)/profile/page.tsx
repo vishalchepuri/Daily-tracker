@@ -49,6 +49,7 @@ import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { WeeklyReportPanel } from "../_components/weekly-report-panel";
 import { ProgressPanel } from "../_components/progress-panel";
+import { IssueReportForm } from "@/components/issue-report-form";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
@@ -958,6 +959,9 @@ export default function ProfilePage() {
         </TabsContent>
 
         <TabsContent value="report" className="space-y-6">
+          <FadeIn delay={0.05}>
+            <IssueReportForm compact defaultPage="Profile" />
+          </FadeIn>
           <WeeklyReportPanel />
         </TabsContent>
 

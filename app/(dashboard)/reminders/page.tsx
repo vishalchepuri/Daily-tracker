@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Loader2, Mic, MicOff, Pencil, Plus, Repeat, Send, Sparkles, Trash2 } from "lucide-react";
+import { AlertTriangle, BriefcaseBusiness, CalendarDays, CheckCircle2, ChevronRight, Circle, Clock3, Flag, Home, Inbox, ListPlus, ListTodo, Loader2, Mic, MicOff, Pencil, Plus, Repeat, Send, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,9 +41,6 @@ const listColors = ["#22c55e", "#3b82f6", "#a855f7", "#f97316", "#ef4444", "#06b
 const contextOptions = [
   { value: "general", label: "General" },
   { value: "home", label: "Home" },
-  { value: "office", label: "Office" },
-  { value: "leaving_home", label: "Leaving Home" },
-  { value: "tonight", label: "Tonight" },
   { value: "shopping", label: "Shopping" },
   { value: "billing", label: "Bills" },
   { value: "bring", label: "Bring" },
@@ -156,6 +153,7 @@ export default function RemindersPage() {
   const [savingList, setSavingList] = useState(false);
   const [showReminderAdvanced, setShowReminderAdvanced] = useState(false);
   const [pendingReminderActions, setPendingReminderActions] = useState<Record<string, "complete" | "snooze" | "delete">>({});
+  const [expandedReminderIds, setExpandedReminderIds] = useState<Record<string, boolean>>({});
   const [voiceListening, setVoiceListening] = useState(false);
   const [voiceDraft, setVoiceDraft] = useState("");
   const [savingVoiceTask, setSavingVoiceTask] = useState(false);
@@ -728,198 +726,9 @@ export default function RemindersPage() {
         </div>
       </FadeIn>
 
-      <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
-        <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                  {voiceListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                </div>
-                <div>
-                  <p className="font-display text-base font-bold">Voice Task Capture</p>
-                  <p className="text-xs text-muted-foreground">Say lunch box, bills, office tasks, or anything you may forget.</p>
-                </div>
-              </div>
-              <div className="mt-3 rounded-xl border border-border/60 bg-background/60 px-3 py-2 text-sm">
-                <Input
-                  value={voiceDraft}
-                  onChange={(event) => setVoiceDraft(event.target.value)}
-                  placeholder={voiceListening ? "Listening..." : "Tap Talk or type a quick task"}
-                  className="border-0 bg-transparent px-0 shadow-none focus-visible:ring-0"
-                />
-              </div>
-              {voiceDraft && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Dayza will save it as {contextLabel(inferContextFromVoice(voiceDraft))} with {inferPriorityFromVoice(voiceDraft)} priority.
-                </p>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:w-44 sm:grid-cols-1">
-              <Button type="button" variant={voiceListening ? "default" : "outline"} onClick={startVoiceCapture} disabled={savingVoiceTask}>
-                {voiceListening ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />}
-                {voiceListening ? "Stop" : "Talk"}
-              </Button>
-              <Button type="button" onClick={saveVoiceTask} loading={savingVoiceTask} disabled={savingVoiceTask || !voiceDraft.trim()}>
-                Save Task
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-emerald-500/20 bg-emerald-500/5">
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <Home className="h-5 w-5 text-emerald-400" />
-                  <p className="font-display text-base font-bold">Leaving Home Checklist</p>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">Lunch box, lights, keys, wallet, charger, ID, water bottle.</p>
-              </div>
-              <Badge variant="secondary">{smartCounts.leaving_home}</Badge>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button type="button" onClick={createLeavingChecklist} loading={creatingChecklist} disabled={creatingChecklist}>
-                {creatingChecklist ? "Adding..." : "Prepare"}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => setFilter("leaving_home")}>
-                View
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {leavingHomeChecklist.slice(0, 5).map((item) => (
-                <button
-                  key={item.title}
-                  type="button"
-                  onClick={() => openContextReminder("leaving_home", item.title)}
-                  className="rounded-full border border-border/70 bg-background/70 px-2.5 py-1 text-[0.7rem] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                >
-                  + {item.title.replace(/^Take /, "")}
-                </button>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {smartCounts.today + smartCounts.overdue >= 8 && (
-        <Card className="border-amber-500/25 bg-amber-500/10">
-          <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-            <div className="flex min-w-0 gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/15 text-amber-300">
-                <Sparkles className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold">You have many tasks today.</p>
-                <p className="text-sm text-muted-foreground">Ask Dayza to sort the urgent ones first and suggest a realistic order.</p>
-              </div>
-            </div>
-            <Button asChild>
-              <Link href={`/chat?from=/reminders&mode=voice&prompt=${encodeURIComponent("Review my reminders and tasks for today. Ask me priority questions if needed, then give me the best order to finish them.")}`}>
-                Ask Dayza
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-3 gap-2 md:hidden">
-        <Button type="button" variant="outline" onClick={() => openContextReminder("office")} className="h-11 rounded-xl">
-          <BriefcaseBusiness className="mr-1.5 h-4 w-4" />Office
-        </Button>
-        <Button type="button" variant="outline" onClick={() => openContextReminder("billing")} className="h-11 rounded-xl">
-          <Flag className="mr-1.5 h-4 w-4" />Bill
-        </Button>
-        <Button type="button" variant="outline" onClick={() => openContextReminder("bring")} className="h-11 rounded-xl">
-          <Plus className="mr-1.5 h-4 w-4" />Bring
-        </Button>
-      </div>
-
-      <div className="hidden gap-3 md:grid md:grid-cols-[1fr_22rem]">
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Plus className="h-4 w-4 text-primary" />
-              Quick Add
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("water")} className="h-11 justify-start rounded-lg bg-background/50">Water</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("meds")} className="h-11 justify-start rounded-lg bg-background/50">Medication</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("workout")} className="h-11 justify-start rounded-lg bg-background/50">Workout</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("meal")} className="h-11 justify-start rounded-lg bg-background/50">Meal prep</Button>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Clock3 className="h-4 w-4 text-primary" />
-              Next 7 Days
-            </div>
-            <div className="max-h-48 space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
-            {upcomingReminders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No upcoming reminders.</p>
-            ) : upcomingReminders.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{formatAppDate(item.dueDate)}</span>
-              </button>
-            ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="hidden gap-3 lg:grid lg:grid-cols-3">
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold"><Flag className="h-4 w-4 text-primary" />Top Priorities Today</div>
-            {topPriorityToday.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No urgent tasks for today.</p>
-            ) : topPriorityToday.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 truncate">{item.title}</span>
-                <Badge variant="outline">{item.priority}</Badge>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold"><Home className="h-4 w-4 text-primary" />Leaving Home</div>
-            {leavingHomeTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No leaving-home tasks right now.</p>
-            ) : leavingHomeTasks.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{item.dueDate ? formatAppTime(item.dueDate) : "No time"}</span>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold"><BriefcaseBusiness className="h-4 w-4 text-primary" />Office Queue</div>
-            {officeTasks.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No office tasks lined up.</p>
-            ) : officeTasks.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-lg border border-border/50 bg-background/55 px-3 py-2.5 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 truncate">{item.title}</span>
-                <Badge variant="secondary">{item.priority === "none" ? "task" : item.priority}</Badge>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-2 ios-scroll">
         <SmartButton active={filter === "overdue"} icon={AlertTriangle} label="Overdue" count={smartCounts.overdue} onClick={() => setFilter("overdue")} />
         <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
-        <SmartButton active={filter === "tonight"} icon={Clock3} label="Tonight" count={smartCounts.tonight} onClick={() => setFilter("tonight")} />
-        <SmartButton active={filter === "tomorrow"} icon={CalendarDays} label="Tomorrow" count={smartCounts.tomorrow} onClick={() => setFilter("tomorrow")} />
-        <SmartButton active={filter === "office"} icon={BriefcaseBusiness} label="Office" count={smartCounts.office} onClick={() => setFilter("office")} />
-        <SmartButton active={filter === "leaving_home"} icon={Home} label="Leaving Home" count={smartCounts.leaving_home} onClick={() => setFilter("leaving_home")} />
         <SmartButton active={filter === "scheduled"} icon={CalendarDays} label="Scheduled" count={smartCounts.scheduled} onClick={() => setFilter("scheduled")} />
         <SmartButton active={filter === "all"} icon={Inbox} label="All" count={smartCounts.all} onClick={() => setFilter("all")} />
         <SmartButton active={filter === "flagged"} icon={Flag} label="Flagged" count={smartCounts.flagged} onClick={() => setFilter("flagged")} />
@@ -957,14 +766,17 @@ export default function RemindersPage() {
                   const isSnoozing = pendingAction === "snooze";
                   const isDeleting = pendingAction === "delete";
                   const isBusy = Boolean(pendingAction);
+                  const isExpanded = Boolean(expandedReminderIds[item.id]);
+                  const isOverdue = !item.completed && item.dueDate && new Date(item.dueDate).getTime() < Date.now();
                   return (
-                  <div key={item.id} className={`grid grid-cols-[auto_1fr] gap-3 rounded-xl border border-border/60 bg-background/50 p-3 shadow-sm shadow-black/5 transition-opacity sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""} ${isBusy ? "opacity-80" : ""}`}>
+                  <div key={item.id} className={`rounded-2xl border p-3 shadow-sm shadow-black/5 transition-opacity ${isOverdue ? "border-destructive/45 bg-destructive/10" : "border-border/60 bg-background/55"} ${item.completed ? "opacity-60" : ""} ${isBusy ? "opacity-80" : ""}`}>
+                    <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
                     <button
                       type="button"
                       onClick={() => toggleComplete(item)}
                       disabled={isBusy}
                       aria-label={item.completed ? "Reopen reminder" : "Complete reminder"}
-                      className="mt-0 flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-card/80 text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-70 sm:mt-1"
+                      className={`flex h-9 w-9 items-center justify-center rounded-full border bg-card/80 text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-70 ${isOverdue ? "border-destructive/45 text-destructive" : "border-border/70"}`}
                     >
                       {isCompleting ? (
                         <Loader2 className="h-4 w-4 animate-spin text-primary" />
@@ -975,32 +787,50 @@ export default function RemindersPage() {
                       )}
                     </button>
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className={`font-medium ${item.completed ? "line-through" : ""}`}>{item.title}</p>
-                        {item.flagged && <Flag className="w-4 h-4 text-orange-500" />}
-                        {item.priority !== "none" && <Badge variant="outline">{item.priority}</Badge>}
-                        {item.recurrence !== "none" && <Badge variant="outline"><Repeat className="mr-1 h-3 w-3" />{item.recurrence === "custom" ? item.recurrenceCustom || "custom" : item.recurrence}</Badge>}
-                        {item.list && <Badge variant="secondary">{item.list.name}</Badge>}
-                        {item.contextTag && <Badge variant="secondary">{contextLabel(item.contextTag)}</Badge>}
-                        {item.sourceLabel && <Badge variant="outline">from {item.sourceLabel}</Badge>}
-                      </div>
-                      {item.notes && <p className="mt-1 text-sm text-muted-foreground">{item.notes}</p>}
-                      {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{formatAppDateTime(item.dueDate)}</p>}
+                      <p className={`truncate font-medium ${isOverdue ? "text-destructive" : ""} ${item.completed ? "line-through" : ""}`}>{item.title}</p>
+                      {item.dueDate && (
+                        <p className={`mt-0.5 text-xs ${isOverdue ? "text-destructive/90" : "text-muted-foreground"}`}>
+                          {isOverdue ? "Overdue · " : ""}{formatAppDateTime(item.dueDate)}
+                        </p>
+                      )}
                     </div>
-                    {!item.completed && (
-                      <div className="col-span-2 flex shrink-0 flex-wrap gap-1 sm:col-auto">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedReminderIds((current) => ({ ...current, [item.id]: !current[item.id] }))}
+                      className="flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground"
+                      aria-label={isExpanded ? "Hide reminder details" : "Show reminder details"}
+                    >
+                      <ChevronRight className={`h-5 w-5 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                    </button>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="mt-3 space-y-3 border-t border-border/60 pt-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {item.flagged && <Badge variant="outline" className="border-orange-500/40 text-orange-400"><Flag className="mr-1 h-3 w-3" />Flagged</Badge>}
+                          {item.priority !== "none" && <Badge variant={isOverdue ? "destructive" : "outline"}>{item.priority}</Badge>}
+                          {item.recurrence !== "none" && <Badge variant="outline"><Repeat className="mr-1 h-3 w-3" />{item.recurrence === "custom" ? item.recurrenceCustom || "custom" : item.recurrence}</Badge>}
+                          {item.list && <Badge variant="secondary">{item.list.name}</Badge>}
+                          {item.contextTag && <Badge variant="secondary">{contextLabel(item.contextTag)}</Badge>}
+                          {item.sourceLabel && <Badge variant="outline">from {item.sourceLabel}</Badge>}
+                        </div>
+                        {item.notes && <p className="text-sm text-muted-foreground">{item.notes}</p>}
+                        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                          {!item.completed && (
+                            <>
                         <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 15)} loading={isSnoozing} disabled={isBusy}>
                           <Clock3 className="mr-1 h-3 w-3" />15m
                         </Button>
                         <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 60)} loading={isSnoozing} disabled={isBusy}>
                           <Clock3 className="mr-1 h-3 w-3" />1h
                         </Button>
+                            </>
+                          )}
+                          <Button variant="outline" size="sm" onClick={() => openEditReminder(item)} disabled={isBusy}><Pencil className="mr-1 h-3 w-3" />Edit</Button>
+                          <Button variant="outline" size="sm" onClick={() => deleteReminder(item.id)} loading={isDeleting} disabled={isBusy && !isDeleting} className="border-destructive/40 text-destructive hover:bg-destructive/10"><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
+                        </div>
                       </div>
                     )}
-                    <div className="col-span-2 grid grid-cols-2 gap-2 sm:contents">
-                      <Button variant="ghost" size="icon" onClick={() => openEditReminder(item)} disabled={isBusy}><Pencil className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteReminder(item.id)} loading={isDeleting} disabled={isBusy && !isDeleting}><Trash2 className="w-4 h-4 text-destructive" /></Button>
-                    </div>
                   </div>
                 )})}
                 {remindersHasMore && (
@@ -1022,36 +852,42 @@ export default function RemindersPage() {
           <div className="space-y-3">
             <div><Label>Title</Label><Input value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} className="mt-1" /></div>
             <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1 min-h-20" /></div>
-            <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 sm:grid-cols-3">
-              <div>
-                <Label>Date</Label>
+            <div className="rounded-2xl border border-border/70 bg-background/55 p-3">
+              <Label className="text-xs text-muted-foreground">Date & Time</Label>
+              <div className="mt-2 grid grid-cols-2 gap-2">
                 <Input
                   type="date"
                   value={reminderForm.dueDate}
                   onChange={(event) => setReminderForm({ ...reminderForm, dueDate: event.target.value })}
-                  className="mt-1"
+                  className="h-11 rounded-xl bg-card/70"
                 />
-              </div>
-              <div>
-                <Label>Time</Label>
                 <Input
                   type="time"
                   value={reminderForm.dueTime || "09:00"}
                   onChange={(event) => setReminderForm({ ...reminderForm, dueTime: event.target.value })}
-                  className="mt-1"
+                  className="h-11 rounded-xl bg-card/70"
                 />
               </div>
-              <div className="min-[420px]:col-span-2 sm:col-span-1">
-                <Label>Priority</Label>
-                <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-muted-foreground">Priority</Label>
+              <div className="mt-2 grid grid-cols-4 gap-2 rounded-2xl border border-border/70 bg-background/55 p-1.5">
+                {[
+                  { value: "none", label: "None", className: "data-[active=true]:bg-muted data-[active=true]:text-foreground" },
+                  { value: "low", label: "Low", className: "data-[active=true]:bg-blue-500/15 data-[active=true]:text-blue-300" },
+                  { value: "medium", label: "Med", className: "data-[active=true]:bg-amber-500/15 data-[active=true]:text-amber-300" },
+                  { value: "high", label: "High", className: "data-[active=true]:bg-destructive/15 data-[active=true]:text-destructive" },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    data-active={reminderForm.priority === item.value}
+                    onClick={() => setReminderForm({ ...reminderForm, priority: item.value })}
+                    className={`h-10 rounded-xl text-sm font-semibold text-muted-foreground transition ${item.className}`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1091,7 +927,7 @@ export default function RemindersPage() {
                 <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
                   <div>
                     <Label>Context</Label>
-                    <Select value={reminderForm.contextTag} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
+                    <Select value={contextOptions.some((option) => option.value === reminderForm.contextTag) ? reminderForm.contextTag : "general"} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
                       <SelectTrigger className="mt-1"><SelectValue placeholder="Context" /></SelectTrigger>
                       <SelectContent>
                         {contextOptions.map((option) => (
@@ -1158,10 +994,6 @@ function viewTitle(filter: string, lists: any[]) {
   const smart: Record<string, string> = {
     overdue: "Overdue",
     today: "Today",
-    tonight: "Tonight",
-    tomorrow: "Tomorrow",
-    office: "Office",
-    leaving_home: "Leaving Home",
     scheduled: "Scheduled",
     all: "All",
     flagged: "Flagged",
