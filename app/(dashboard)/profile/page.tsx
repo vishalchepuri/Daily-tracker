@@ -49,10 +49,11 @@ import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { WeeklyReportPanel } from "../_components/weekly-report-panel";
 import { ProgressPanel } from "../_components/progress-panel";
+import { IssueReportForm } from "@/components/issue-report-form";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
-import { registerPushNotifications, supportsPushNotifications, unregisterPushNotifications } from "@/lib/push-notifications-client";
+import { getPushDeviceDiagnostics, registerPushNotifications, supportsPushNotifications, unregisterPushNotifications } from "@/lib/push-notifications-client";
 import { getClientTimeZone } from "@/lib/local-dates";
 
 const RESET_FEATURE_OPTIONS = [
@@ -113,6 +114,8 @@ export default function ProfilePage() {
     permission: "default",
     timeZone: "",
     missing: [] as string[],
+    keyMatches: true,
+    controlled: false,
   });
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
@@ -174,6 +177,8 @@ export default function ProfilePage() {
             permission: typeof Notification !== "undefined" ? Notification.permission : "default",
             timeZone: d?.timeZone ?? getClientTimeZone(),
             missing: Array.isArray(d?.missing) ? d.missing : [],
+            keyMatches: true,
+            controlled: Boolean(navigator.serviceWorker?.controller),
           });
         })
         .catch(() => {
@@ -184,10 +189,12 @@ export default function ProfilePage() {
             permission: typeof Notification !== "undefined" ? Notification.permission : "default",
             timeZone: getClientTimeZone(),
             missing: [],
+            keyMatches: true,
+            controlled: Boolean(navigator.serviceWorker?.controller),
           });
         });
     } else {
-      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "", missing: [] });
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "", missing: [], keyMatches: true, controlled: false });
     }
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
@@ -425,6 +432,8 @@ export default function ProfilePage() {
         permission: typeof Notification !== "undefined" ? Notification.permission : "granted",
         timeZone: getClientTimeZone(),
         missing: [],
+        keyMatches: true,
+        controlled: Boolean(navigator.serviceWorker?.controller),
       });
       toast.success("Push notifications enabled");
     } catch (error: any) {
@@ -464,7 +473,25 @@ export default function ProfilePage() {
         toast.error(data?.error ?? "Failed to send test notification");
         return;
       }
-      toast.success(data?.sent ? "Test notification sent" : "No device subscription found");
+      const diagnostics = await getPushDeviceDiagnostics().catch(() => null);
+      if (diagnostics) {
+        setPushStatus((current) => ({
+          ...current,
+          subscribed: Boolean(diagnostics.subscribed && diagnostics.serverSubscribed),
+          permission: diagnostics.permission ?? current.permission,
+          keyMatches: Boolean(diagnostics.keyMatches),
+          controlled: Boolean(diagnostics.controlled),
+        }));
+      }
+      if (!data?.sent) {
+        toast.error("No active device subscription found. Tap Enable again on this device.");
+        return;
+      }
+      if (diagnostics && !diagnostics.keyMatches) {
+        toast.error("This device has an old push key. Tap Disable, then Enable again.");
+        return;
+      }
+      toast.success(`Test notification sent to ${data.sent} device${data.sent === 1 ? "" : "s"}`);
     } catch {
       toast.error("Failed to send test notification");
     } finally {
@@ -932,6 +959,9 @@ export default function ProfilePage() {
         </TabsContent>
 
         <TabsContent value="report" className="space-y-6">
+          <FadeIn delay={0.05}>
+            <IssueReportForm compact defaultPage="Profile" />
+          </FadeIn>
           <WeeklyReportPanel />
         </TabsContent>
 
@@ -1042,10 +1072,21 @@ export default function ProfilePage() {
                 Notifications are blocked in this browser. Enable them from browser or app settings, then return here.
               </div>
             )}
+            {pushStatus.supported && pushStatus.subscribed && !pushStatus.keyMatches && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                This device has an old push subscription key. Tap Disable, then Enable again to refresh notifications.
+              </div>
+            )}
+            {pushStatus.supported && pushStatus.subscribed && !pushStatus.controlled && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Notification service worker is installed but this page may need one reload before tests appear.
+              </div>
+            )}
             <div className="flex flex-wrap gap-2 text-xs">
               <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
               <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Enabled" : "Disabled"}</Badge>
               <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
+              {pushStatus.subscribed && <Badge variant={pushStatus.keyMatches ? "secondary" : "destructive"}>{pushStatus.keyMatches ? "Key current" : "Old key"}</Badge>}
               {pushStatus.timeZone && <Badge variant="outline">Timezone: {pushStatus.timeZone}</Badge>}
             </div>
             <div className="grid gap-2 rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground sm:grid-cols-3">

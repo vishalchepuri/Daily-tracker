@@ -9,6 +9,16 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
 }
 
+function arrayBufferToBase64Url(value?: ArrayBuffer | null) {
+  if (!value) return "";
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
 function validateVapidPublicKey(publicKey: string) {
   try {
     const decoded = urlBase64ToUint8Array(publicKey.trim());
@@ -46,10 +56,27 @@ export async function registerPushNotifications() {
   }
 
   const registration = await navigator.serviceWorker.register("/sw.js");
-  const existing = await registration.pushManager.getSubscription();
+  await navigator.serviceWorker.ready;
+  await registration.update().catch(() => null);
+
+  const applicationServerKey = validateVapidPublicKey(state.publicKey);
+  let existing = await registration.pushManager.getSubscription();
+  const existingKey = arrayBufferToBase64Url(existing?.options?.applicationServerKey);
+  const expectedKey = state.publicKey.trim();
+
+  if (existing && existingKey && existingKey !== expectedKey) {
+    await fetch("/api/push/subscription", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ endpoint: existing.endpoint }),
+    }).catch(() => null);
+    await existing.unsubscribe().catch(() => null);
+    existing = null;
+  }
+
   const subscription = existing ?? await registration.pushManager.subscribe({
     userVisibleOnly: true,
-    applicationServerKey: validateVapidPublicKey(state.publicKey),
+    applicationServerKey,
   });
 
   const saveRes = await fetch("/api/push/subscription", {
@@ -63,6 +90,36 @@ export async function registerPushNotifications() {
   const saveData = await saveRes.json().catch(() => ({}));
   if (!saveRes.ok) throw new Error(saveData?.error ?? "Could not save push subscription");
   return saveData;
+}
+
+export async function getPushDeviceDiagnostics() {
+  if (!supportsPushNotifications()) {
+    return {
+      supported: false,
+      permission: "unsupported",
+      controlled: false,
+      subscribed: false,
+      endpoint: null,
+      keyMatches: false,
+    };
+  }
+
+  const stateRes = await fetch("/api/push/subscription");
+  const state = await stateRes.json().catch(() => ({}));
+  const registration = await navigator.serviceWorker.getRegistration("/sw.js");
+  const subscription = await registration?.pushManager.getSubscription();
+  const key = arrayBufferToBase64Url(subscription?.options?.applicationServerKey);
+  return {
+    supported: true,
+    configured: Boolean(state?.configured),
+    permission: Notification.permission,
+    controlled: Boolean(navigator.serviceWorker.controller),
+    subscribed: Boolean(subscription),
+    endpoint: subscription?.endpoint ?? null,
+    keyMatches: Boolean(subscription && state?.publicKey && key === String(state.publicKey).trim()),
+    serverSubscribed: Boolean(state?.subscribed),
+    serverSubscriptionId: state?.subscription?.id ?? null,
+  };
 }
 
 export async function unregisterPushNotifications() {
