@@ -8,6 +8,7 @@ import {
   upsertFoodMicronutrientLog,
 } from "@/lib/firestore-app-data";
 import { parseMicronutrientMap } from "@/lib/micronutrients";
+import { estimateMicronutrientsForFood } from "@/lib/micronutrient-estimator";
 
 export async function GET(req: Request) {
   try {
@@ -16,8 +17,10 @@ export async function GET(req: Request) {
     const userId = user.id;
     const { searchParams } = new URL(req.url);
     const dateStr = searchParams.get("date");
+    const rangeDays = Math.min(31, Math.max(1, Number(searchParams.get("rangeDays") ?? 1) || 1));
     const date = dateStr ? new Date(dateStr) : new Date();
     const startOfDay = new Date(date);
+    startOfDay.setDate(startOfDay.getDate() - (rangeDays - 1));
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
@@ -59,7 +62,10 @@ export async function POST(req: Request) {
         date: data.date ? new Date(data.date) : new Date(),
       },
     });
-    const micronutrients = parseMicronutrientMap(data.micronutrients);
+    let micronutrients = parseMicronutrientMap(data.micronutrients);
+    if (Object.keys(micronutrients).length === 0) {
+      micronutrients = estimateMicronutrientsForFood(log.foodName, log.servingSize);
+    }
     if (Object.keys(micronutrients).length > 0) {
       await upsertFoodMicronutrientLog(userId, log.id, {
         foodName: log.foodName,
@@ -67,7 +73,7 @@ export async function POST(req: Request) {
         servingSize: log.servingSize,
         date: log.date,
         micronutrients,
-        source: data.micronutrientSource ?? "manual",
+        source: data.micronutrientSource ?? (data.micronutrients ? "manual" : "estimated"),
       });
     }
     return NextResponse.json({ log });
@@ -101,7 +107,10 @@ export async function PATCH(req: Request) {
         date: data.date ? new Date(data.date) : undefined,
       },
     });
-    const micronutrients = parseMicronutrientMap(data.micronutrients);
+    let micronutrients = parseMicronutrientMap(data.micronutrients);
+    if (Object.keys(micronutrients).length === 0) {
+      micronutrients = estimateMicronutrientsForFood(log.foodName, log.servingSize);
+    }
     if (Object.keys(micronutrients).length > 0) {
       await upsertFoodMicronutrientLog(userId, log.id, {
         foodName: log.foodName,
@@ -109,7 +118,7 @@ export async function PATCH(req: Request) {
         servingSize: log.servingSize,
         date: log.date,
         micronutrients,
-        source: data.micronutrientSource ?? "manual",
+        source: data.micronutrientSource ?? (data.micronutrients ? "manual" : "estimated"),
       });
     } else if ("micronutrients" in data) {
       await deleteFoodMicronutrientLog(userId, log.id);

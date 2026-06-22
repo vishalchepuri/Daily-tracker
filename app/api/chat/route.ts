@@ -18,6 +18,7 @@ import {
 } from "@/lib/firestore-app-data";
 import { BODY_PART_REFERENCE, GYM_TRAINING_SPLITS } from "@/lib/workout-split-library";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
+import { estimateMicronutrientsForFood } from "@/lib/micronutrient-estimator";
 
 const CHAT_IMAGE_RETENTION_DAYS = 5;
 const CHAT_SESSION_RETENTION_LIMIT = 7;
@@ -78,6 +79,17 @@ type AgentAction =
       fiber?: number;
       micronutrients?: Record<string, number>;
       date?: string;
+    }
+  | {
+      type: "update_nutrition_targets";
+      targetCalories?: number;
+      targetProtein?: number;
+      targetCarbs?: number;
+      targetFat?: number;
+      targetFiber?: number;
+      targetWaterMl?: number;
+      micronutrientTargets?: Record<string, number>;
+      reason?: string;
     }
   | {
       type: "create_progress_entry";
@@ -1159,7 +1171,10 @@ async function executeAgentAction(
         date: action.date ? new Date(action.date) : new Date(),
       },
     });
-    const micronutrients = parseMicronutrientMap(action.micronutrients);
+    let micronutrients = parseMicronutrientMap(action.micronutrients);
+    if (options.micronutrientTrackingEnabled && Object.keys(micronutrients).length === 0) {
+      micronutrients = estimateMicronutrientsForFood(action.foodName, action.servingSize);
+    }
     if (options.micronutrientTrackingEnabled && Object.keys(micronutrients).length > 0) {
       await upsertFoodMicronutrientLog(userId, log.id, {
         foodName: log.foodName,
@@ -1167,10 +1182,40 @@ async function executeAgentAction(
         servingSize: log.servingSize,
         date: log.date,
         micronutrients,
-        source: "agent_estimate",
+        source: action.micronutrients ? "agent_estimate" : "local_estimate",
       });
     }
     return withUndo(userId, { type: action.type, label: `Logged ${log.foodName}`, id: log.id }, { targetType: "foodLog", targetId: log.id });
+  }
+
+  if (action.type === "update_nutrition_targets") {
+    const currentProfile = await prisma.userProfile.findUnique({ where: { userId } });
+    const mergedMicros = "micronutrientTargets" in action
+      ? JSON.stringify(parseMicronutrientMap(mergeWithDefaultMicronutrientTargets(action.micronutrientTargets)))
+      : currentProfile?.micronutrientTargetsJson ?? undefined;
+    const profile = await prisma.userProfile.upsert({
+      where: { userId },
+      update: {
+        targetCalories: action.targetCalories == null ? currentProfile?.targetCalories : toNumber(action.targetCalories),
+        targetProtein: action.targetProtein == null ? currentProfile?.targetProtein : toNumber(action.targetProtein),
+        targetCarbs: action.targetCarbs == null ? currentProfile?.targetCarbs : toNumber(action.targetCarbs),
+        targetFat: action.targetFat == null ? currentProfile?.targetFat : toNumber(action.targetFat),
+        targetFiber: action.targetFiber == null ? currentProfile?.targetFiber : toNumber(action.targetFiber),
+        targetWaterMl: action.targetWaterMl == null ? currentProfile?.targetWaterMl : toNumber(action.targetWaterMl),
+        micronutrientTargetsJson: mergedMicros,
+      },
+      create: {
+        userId,
+        targetCalories: action.targetCalories == null ? null : toNumber(action.targetCalories),
+        targetProtein: action.targetProtein == null ? null : toNumber(action.targetProtein),
+        targetCarbs: action.targetCarbs == null ? null : toNumber(action.targetCarbs),
+        targetFat: action.targetFat == null ? null : toNumber(action.targetFat),
+        targetFiber: action.targetFiber == null ? null : toNumber(action.targetFiber),
+        targetWaterMl: action.targetWaterMl == null ? null : toNumber(action.targetWaterMl),
+        micronutrientTargetsJson: mergedMicros,
+      },
+    });
+    return { type: action.type, label: "Updated nutrition targets", id: profile.id };
   }
 
   if (action.type === "create_progress_entry") {
@@ -1786,13 +1831,19 @@ export async function POST(req: Request) {
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(today);
     endOfDay.setHours(23, 59, 59, 999);
+    const startOfWeek = new Date(startOfDay);
+    startOfWeek.setDate(startOfWeek.getDate() - 6);
 
-    const [profile, todayFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, financeProfile, bankAccounts, creditCards, moneyLinks, pendingReminders, reminderLists, recentChat] =
+    const [profile, todayFoodLogs, weekFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, financeProfile, bankAccounts, creditCards, moneyLinks, pendingReminders, reminderLists, recentChat] =
       await Promise.all([
         prisma.userProfile.findUnique({ where: { userId } }),
         prisma.foodLog.findMany({
           where: { userId, date: { gte: startOfDay, lte: endOfDay } },
           orderBy: { createdAt: "asc" },
+        }),
+        prisma.foodLog.findMany({
+          where: { userId, date: { gte: startOfWeek, lte: endOfDay } },
+          orderBy: { date: "asc" },
         }),
         prisma.workoutLog.findMany({
           where: { userId },
@@ -1946,18 +1997,26 @@ export async function POST(req: Request) {
       healthLimitationsOverride ??
       profile?.healthLimitations ??
       (conversationMentionsJointSensitive(recentChat) ? "joint pain mentioned in chat" : undefined);
-    const micronutrientLogsByFoodLogId = await listFoodMicronutrientLogsForFoodLogs(userId, todayFoodLogs.map((log) => log.id));
+    const uniqueFoodLogIds = Array.from(new Set([...todayFoodLogs, ...weekFoodLogs].map((log) => log.id)));
+    const micronutrientLogsByFoodLogId = await listFoodMicronutrientLogsForFoodLogs(userId, uniqueFoodLogIds);
     const todayFoodLogsWithMicronutrients = todayFoodLogs.map((log) => ({
+      ...log,
+      micronutrients: micronutrientLogsByFoodLogId[log.id]?.micronutrients ?? {},
+    }));
+    const weekFoodLogsWithMicronutrients = weekFoodLogs.map((log) => ({
       ...log,
       micronutrients: micronutrientLogsByFoodLogId[log.id]?.micronutrients ?? {},
     }));
     const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson);
     const micronutrientTotals = sumMicronutrients(todayFoodLogsWithMicronutrients.map((log: any) => log.micronutrients));
+    const weeklyMicronutrientTotals = sumMicronutrients(weekFoodLogsWithMicronutrients.map((log: any) => log.micronutrients));
     const micronutrientContext = {
       enabled: Boolean(profile?.micronutrientTrackingEnabled),
       nutrients: MICRONUTRIENTS,
       targets: micronutrientTargets,
       todayTotals: micronutrientTotals,
+      weeklyTotals: weeklyMicronutrientTotals,
+      weeklyTargets: Object.fromEntries(Object.entries(micronutrientTargets).map(([key, value]) => [key, Number(value ?? 0) * 7])),
     };
     if (
       workoutPlanningActive &&
@@ -1992,7 +2051,8 @@ export async function POST(req: Request) {
 
 You can answer questions and, when the user clearly asks you to do it, perform these actions:
 - create_exercise: add a new exercise to the exercise library.
-- create_food_log: log a meal or snack.
+- create_food_log: log a meal or snack. Use gram-based servingSize such as "150 g" whenever possible.
+- update_nutrition_targets: update macro, hydration, vitamin, or mineral targets when the user explicitly asks to adjust targets or confirms your suggested target changes.
 - create_progress_entry: save body weight, measurements, or progress notes.
 - create_spend_log: log a purchase, payment, receipt, or expense.
 - update_spend_target: update the user's monthly spend target.
@@ -2135,6 +2195,14 @@ ${JSON.stringify({
   - If the user asks to log/add/eat a meal from their saved diet, find the matching dietPlans meal by mealType/title and use create_food_log with that meal's calories/macros.
   - Examples: "log my diet breakfast", "add lunch from my diet", "I ate the evening snack from my diet". These should create food logs, not just explain the diet.
   - If multiple diet plans or meals could match, ask which diet/meal to use.
+- Nutrition logging rules:
+  - For food logs, servingSize should be grams by default, for example "80 g oats", "150 g cooked rice", "100 g paneer", "120 g orange", or "250 g meal estimate". Avoid vague serving sizes like "1 cup", "1 medium", or "1 scoop" unless the user only gave that information; when using them, also estimate grams in the servingSize.
+  - If the user says shorthand such as "I ate bf", "ate breakfast", "had lunch", or names a meal, treat it as a possible food log request. If the actual food is unclear, ask what foods and approximate grams they ate before logging.
+  - If profile.micronutrientTrackingEnabled is true and you create_food_log, always include a reasonable micronutrients object using only context.micronutrients.nutrients keys. Do this for text food logs, food photos, and diet-plan meals.
+  - If a food has meaningful vitamins or minerals, mention one useful highlight and remaining target, such as "orange adds about 60 mg Vitamin C; around 30 mg remains today."
+  - If micronutrient tracking is enabled, use context.micronutrients.todayTotals/context.micronutrients.targets for daily questions and context.micronutrients.weeklyTotals/context.micronutrients.weeklyTargets for weekly questions.
+  - If the user reports body heat, pimples, acne flare-ups, mouth ulcers, fatigue, cramps, or similar symptoms, do not diagnose. Suggest hydration and food-based support first, check recent micronutrient gaps, and consider Vitamin C, Vitamin A, Vitamin E, zinc, magnesium, potassium, fiber, and water depending on context. If they explicitly ask you to adjust targets, use update_nutrition_targets conservatively and explain it is not medical advice.
+  - For severe, persistent, painful, infected, or sudden symptoms, advise consulting a qualified clinician.
 - If the user asks to log multiple workouts or create multiple workout days, complete all requested tasks. If an exercise is missing, create it first and continue the log/template action.
 - If the user asks to remove an exercise from a plan and does not provide a replacement, remove it and ask what they want to add instead. If they provide a replacement, remove and add in the same response.
 - Destructive actions require confirmation. If the user asks to delete a workout plan, delete a diet plan, or remove an exercise from a saved plan, ask for confirmation first unless they explicitly say confirm/proceed/go ahead in the same message.
@@ -2145,7 +2213,7 @@ ${JSON.stringify({
 - A food image by itself counts as a request to identify and log the food if the food and approximate portion are clear.
 - If the image has multiple possible foods, unclear portion size, hidden ingredients, or low confidence, ask for quantity/serving details instead of logging.
 - If you log food from an image, mention that calories/macros are estimates from the photo.
-- If profile.micronutrientTrackingEnabled is true, include reasonable micronutrient estimates in create_food_log.micronutrients for visible foods. Use only keys from context.micronutrients.nutrients.
+- If profile.micronutrientTrackingEnabled is true, include reasonable micronutrient estimates in create_food_log.micronutrients for any food log or visible food. Use only keys from context.micronutrients.nutrients.
 - For micronutrient-enabled users, mention useful highlights in the response, such as "this orange gives about X mg vitamin C" and how much remains versus context.micronutrients.targets/context.micronutrients.todayTotals.
 - If micronutrient tracking is disabled and the user asks for vitamin/mineral tracking, tell them to enable "Track vitamins & minerals" in Profile first.
 - A payment, receipt, bank, UPI, card, or wallet screenshot counts as a request to log a spend only if merchant/payee and amount are clear.
@@ -2188,7 +2256,8 @@ ${JSON.stringify({
 
 Available action examples:
 {"type":"create_exercise","name":"Chest Press","muscleGroup":"chest","equipment":"machine","category":"compound","description":"Machine chest pressing movement for chest, shoulders, and triceps.","formTips":"Keep shoulder blades back, press smoothly, and avoid locking elbows hard."}
-{"type":"create_food_log","foodName":"Orange","mealType":"snack","servingSize":"1 medium","calories":62,"protein":1.2,"carbs":15.4,"fat":0.2,"fiber":3.1,"micronutrients":{"vitaminC":70,"potassium":237,"folate":40,"calcium":52}}
+{"type":"create_food_log","foodName":"Orange","mealType":"snack","servingSize":"130 g","calories":62,"protein":1.2,"carbs":15.4,"fat":0.2,"fiber":3.1,"micronutrients":{"vitaminC":70,"potassium":237,"folate":40,"calcium":52}}
+{"type":"update_nutrition_targets","targetWaterMl":3200,"micronutrientTargets":{"vitaminC":110,"vitaminA":900,"vitaminE":15,"zinc":12,"magnesium":400,"potassium":3400},"reason":"User asked for nutrition support for frequent body heat and pimples; conservative food-based target adjustment only."}
 {"type":"create_progress_entry","weight":80.5,"notes":"Felt strong today"}
 {"type":"create_spend_log","merchant":"Swiggy","amount":420,"currency":"INR","category":"Food","notes":"Logged from payment screenshot."}
 {"type":"create_spend_log","merchant":"Amazon","amount":1499,"currency":"INR","category":"Shopping","creditCardName":"HDFC Regalia","notes":"Logged on credit card."}
@@ -2212,7 +2281,7 @@ Available action examples:
 {"type":"remove_exercise_from_template","templateName":"Monday - Chest","exerciseName":"Skull Crushers"}
 {"type":"add_exercise_to_template","templateName":"Monday - Chest","exerciseName":"Rope Pushdown","muscleGroup":"arms","sets":3,"reps":"10-12"}
 {"type":"delete_workout_template","templateName":"Monday - Chest"}
-{"type":"create_diet_plan","name":"Muscle Gain Diet","goal":"muscle_gain","notes":"Avoids peanuts.","meals":[{"mealType":"Breakfast","title":"Oats and eggs","foods":["Oats","Eggs","Banana"],"calories":600,"protein":35,"carbs":75,"fat":18},{"mealType":"Snack","title":"Greek yogurt bowl","foods":["Greek yogurt","Berries"],"calories":250,"protein":22,"carbs":30,"fat":4},{"mealType":"Lunch","title":"Chicken rice bowl","foods":["Chicken breast","Rice","Vegetables"],"calories":700,"protein":50,"carbs":80,"fat":15},{"mealType":"Evening Snack","title":"Protein shake","foods":["Whey protein","Milk"],"calories":250,"protein":30,"carbs":15,"fat":6},{"mealType":"Dinner","title":"Salmon and potato","foods":["Salmon","Sweet potato","Salad"],"calories":650,"protein":42,"carbs":55,"fat":24}]}
+{"type":"create_diet_plan","name":"Muscle Gain Diet","goal":"muscle_gain","notes":"Avoids peanuts. All quantities are gram-based estimates.","meals":[{"mealType":"Breakfast","title":"Oats, eggs, banana","foods":["Oats 60 g","Eggs 100 g","Banana 100 g"],"calories":600,"protein":35,"carbs":75,"fat":18},{"mealType":"Snack","title":"Greek yogurt bowl","foods":["Greek yogurt 170 g","Berries 80 g"],"calories":250,"protein":22,"carbs":30,"fat":4},{"mealType":"Lunch","title":"Chicken rice bowl","foods":["Chicken breast 150 g","Cooked rice 180 g","Vegetables 120 g"],"calories":700,"protein":50,"carbs":80,"fat":15},{"mealType":"Evening Snack","title":"Protein shake","foods":["Whey protein 30 g","Milk 250 g"],"calories":250,"protein":30,"carbs":15,"fat":6},{"mealType":"Dinner","title":"Fish and sweet potato","foods":["Fish 150 g","Sweet potato 180 g","Salad 100 g"],"calories":650,"protein":42,"carbs":55,"fat":24}]}
 {"type":"update_diet_plan","planName":"Muscle Gain Diet","meals":[{"mealType":"Breakfast","title":"Oats and eggs","foods":["Oats","Eggs"],"calories":520,"protein":32,"carbs":55,"fat":18}]}
 {"type":"delete_diet_plan","planName":"Muscle Gain Diet"}`;
 
@@ -2222,6 +2291,7 @@ Available action examples:
     const context = {
       profile: profileContext,
       todayFoodLogs: todayFoodLogsWithMicronutrients,
+      weekFoodLogs: weekFoodLogsWithMicronutrients,
       micronutrients: micronutrientContext,
       recentWorkouts,
       recentProgress,
