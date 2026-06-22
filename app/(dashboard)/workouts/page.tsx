@@ -17,14 +17,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, Trophy, BarChart3, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal, Youtube, Pause, Play } from "lucide-react";
+import { Dumbbell, Plus, Clock, Info, ChevronDown, ChevronUp, Pencil, Trash2, CheckCircle2, X, Eye, RotateCcw, CalendarDays, Shuffle, SlidersHorizontal, Youtube, Pause, Play, Loader2 } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
-import dynamic from "next/dynamic";
 import { dayzaFetch } from "@/lib/firebase-session-client";
 import { formatAppDate } from "@/lib/local-dates";
 
-const PersonalRecordsTab = dynamic(() => import('./_components/personal-records').then(m => ({ default: m.PersonalRecordsTab })), { ssr: false, loading: () => <div className="h-48 bg-muted animate-pulse rounded-lg" /> });
 const ACTIVE_WORKOUT_STORAGE_KEY = "dayza.activeWorkout.v1";
 const RECENT_REPLACEMENTS_STORAGE_KEY = "dayza.recentWorkoutReplacements.v1";
 const ACTIVE_WORKOUT_INACTIVITY_LIMIT_MS = 60 * 60 * 1000;
@@ -114,6 +112,12 @@ export default function WorkoutsPage() {
   const autoSubmittingRef = useRef(false);
   const [replacingProgramExerciseId, setReplacingProgramExerciseId] = useState<string | null>(null);
   const [replacingActiveExercise, setReplacingActiveExercise] = useState(false);
+  const [replacementDialogOpen, setReplacementDialogOpen] = useState(false);
+  const [replacementOptions, setReplacementOptions] = useState<any[]>([]);
+  const [replacementTarget, setReplacementTarget] = useState<any>(null);
+  const [replacementOriginal, setReplacementOriginal] = useState<any>(null);
+  const [replacementReason, setReplacementReason] = useState("");
+  const [applyingReplacement, setApplyingReplacement] = useState(false);
   const [chooseExerciseOpen, setChooseExerciseOpen] = useState(false);
   const [chooseExerciseSearch, setChooseExerciseSearch] = useState("");
   const [addingChoiceExercise, setAddingChoiceExercise] = useState(false);
@@ -302,7 +306,26 @@ export default function WorkoutsPage() {
     );
   };
 
-  const fetchReplacementExercise = async (exercise: any, usedIds: string[], usedNames: string[]) => {
+  const getRecentReplacementNames = () => {
+    try {
+      const stored = window.localStorage.getItem(RECENT_REPLACEMENTS_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const rememberReplacementName = (name?: string | null) => {
+    const cleanName = String(name ?? "").trim();
+    if (!cleanName) return;
+    try {
+      const recentReplacementNames = getRecentReplacementNames();
+      const nextRecent = [cleanName, ...recentReplacementNames.filter((item: string) => item !== cleanName)].slice(0, 30);
+      window.localStorage.setItem(RECENT_REPLACEMENTS_STORAGE_KEY, JSON.stringify(nextRecent));
+    } catch {}
+  };
+
+  const fetchReplacementCandidates = async (exercise: any, usedIds: string[], usedNames: string[]) => {
     const recentReplacementNames = (() => {
       try {
         const stored = window.localStorage.getItem(RECENT_REPLACEMENTS_STORAGE_KEY);
@@ -327,19 +350,23 @@ export default function WorkoutsPage() {
       toast.error(data?.error ?? "No replacement found");
       return null;
     }
-    if (data?.source === "ai" || data?.source === "ai_pending" || data?.source === "pending") {
-      setExercises((prev) => [...prev, data.exercise].sort((a, b) => String(a.name).localeCompare(String(b.name))));
+    const nextOptions = [data?.exercise, ...(data?.options ?? [])]
+      .filter(Boolean)
+      .filter((exerciseOption: any, index: number, all: any[]) => all.findIndex((item: any) => item?.id === exerciseOption?.id) === index);
+    const generatedOptions = nextOptions.filter((option: any) => option?.status === "pending");
+    if (generatedOptions.length > 0) {
+      setExercises((prev) => {
+        const byId = new Map((prev ?? []).map((item: any) => [item.id, item]));
+        for (const option of generatedOptions) byId.set(option.id, option);
+        return Array.from(byId.values()).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      });
     }
     if (data?.source === "ai_pending") {
-      toast.info(`${data.exercise.name} was generated and sent to admin for approval.`);
+      toast.info("Generated new options and sent them to admin for approval.");
     } else if (data?.reason) {
       toast.info(data.reason);
     }
-    try {
-      const nextRecent = [data.exercise.name, ...recentReplacementNames.filter((name: string) => name !== data.exercise.name)].slice(0, 20);
-      window.localStorage.setItem(RECENT_REPLACEMENTS_STORAGE_KEY, JSON.stringify(nextRecent));
-    } catch {}
-    return data.exercise;
+    return { ...data, options: nextOptions };
   };
 
   const replaceProgramExercise = async (template: any, workoutExercise: any) => {
@@ -351,42 +378,19 @@ export default function WorkoutsPage() {
     const usedNames = (template?.exercises ?? [])
       .map((item: any) => item?.exercise?.name)
       .filter(Boolean);
-    const replacement = await fetchReplacementExercise(workoutExercise?.exercise, usedIds, usedNames);
-    if (!replacement) {
-      setReplacingProgramExerciseId(null);
-      return;
-    }
-
-    const nextExercises = (template?.exercises ?? []).map((item: any) => ({
-      exerciseId: item?.id === workoutExercise?.id ? replacement.id : item?.exercise?.id ?? item?.exerciseId,
-      sets: item?.sets ?? 3,
-      reps: item?.reps ?? "8-12",
-      restSeconds: item?.restSeconds ?? 90,
-    }));
-
     try {
-      const res = await dayzaFetch("/api/workout-templates", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: template.id,
-          name: template.name,
-          description: template.description,
-          dayOfWeek: template.dayOfWeek,
-          muscleGroups: template.muscleGroups,
-          difficulty: template.difficulty,
-          exercises: nextExercises,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data?.error ?? "Failed to replace exercise");
+      const replacementData = await fetchReplacementCandidates(workoutExercise?.exercise, usedIds, usedNames);
+      if (!replacementData?.options?.length) {
+        toast.error("No good replacement options found");
         return;
       }
-      toast.success(`Replaced with ${replacement.name}`);
-      loadData();
+      setReplacementTarget({ mode: "program", template, workoutExercise });
+      setReplacementOriginal(workoutExercise?.exercise);
+      setReplacementOptions(replacementData.options);
+      setReplacementReason(replacementData.reason ?? "");
+      setReplacementDialogOpen(true);
     } catch {
-      toast.error("Failed to replace exercise");
+      toast.error("Failed to load replacement options");
     } finally {
       setReplacingProgramExerciseId(null);
     }
@@ -405,14 +409,71 @@ export default function WorkoutsPage() {
       const usedNames = (activeExercises ?? [])
         .map((item: any) => item?.exercise?.name)
         .filter(Boolean);
-      const replacement = await fetchReplacementExercise(currentExercise.exercise, usedIds, usedNames);
-      if (!replacement) {
+      const replacementData = await fetchReplacementCandidates(currentExercise.exercise, usedIds, usedNames);
+      if (!replacementData?.options?.length) {
+        toast.error("No good replacement options found");
         return;
       }
-      applyActiveExerciseChoice(replacement);
-      toast.success(`Replaced with ${replacement.name}`);
+      setReplacementTarget({ mode: "active" });
+      setReplacementOriginal(currentExercise.exercise);
+      setReplacementOptions(replacementData.options);
+      setReplacementReason(replacementData.reason ?? "");
+      setReplacementDialogOpen(true);
     } finally {
       setReplacingActiveExercise(false);
+    }
+  };
+
+  const applyProgramReplacementChoice = async (replacement: any, target: any) => {
+    const template = target?.template;
+    const workoutExercise = target?.workoutExercise;
+    if (!template?.id || !workoutExercise?.id) return;
+
+    const nextExercises = (template?.exercises ?? []).map((item: any) => ({
+      exerciseId: item?.id === workoutExercise?.id ? replacement.id : item?.exercise?.id ?? item?.exerciseId,
+      sets: item?.sets ?? 3,
+      reps: item?.reps ?? "8-12",
+      restSeconds: item?.restSeconds ?? 90,
+    }));
+
+    const res = await dayzaFetch("/api/workout-templates", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: template.id,
+        name: template.name,
+        description: template.description,
+        dayOfWeek: template.dayOfWeek,
+        muscleGroups: template.muscleGroups,
+        difficulty: template.difficulty,
+        exercises: nextExercises,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error ?? "Failed to replace exercise");
+    loadData();
+  };
+
+  const applyReplacementChoice = async (replacement: any) => {
+    if (!replacement || applyingReplacement) return;
+    setApplyingReplacement(true);
+    try {
+      if (replacementTarget?.mode === "program") {
+        await applyProgramReplacementChoice(replacement, replacementTarget);
+      } else {
+        applyActiveExerciseChoice(replacement);
+      }
+      rememberReplacementName(replacement.name);
+      toast.success(`Replaced with ${replacement.name}`);
+      setReplacementDialogOpen(false);
+      setReplacementOptions([]);
+      setReplacementTarget(null);
+      setReplacementOriginal(null);
+      setReplacementReason("");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to replace exercise");
+    } finally {
+      setApplyingReplacement(false);
     }
   };
 
@@ -897,24 +958,7 @@ export default function WorkoutsPage() {
       sum + (log?.exerciseLogs ?? []).reduce((inner: number, entry: any) => inner + ((entry?.weight ?? 0) * (entry?.reps ?? 0)), 0)
     ), 0);
     const totalMinutes = logs.reduce((sum: number, log: any) => sum + (log?.duration ?? 0), 0);
-    const prMap = new Map<string, any>();
-    for (const log of logs) {
-      for (const entry of log?.exerciseLogs ?? []) {
-        const current = prMap.get(entry.exerciseId);
-        const volume = (entry?.weight ?? 0) * (entry?.reps ?? 0);
-        if (!current || (entry?.weight ?? 0) > current.weight || ((entry?.weight ?? 0) === current.weight && volume > current.volume)) {
-          prMap.set(entry.exerciseId, {
-            exerciseName: entry?.exercise?.name ?? "Exercise",
-            weight: entry?.weight ?? 0,
-            reps: entry?.reps ?? 0,
-            volume,
-            date: log?.date,
-          });
-        }
-      }
-    }
-    const topPrs = Array.from(prMap.values()).sort((a, b) => b.weight - a.weight).slice(0, 4);
-    return { totalWorkouts: logs.length, totalSets, totalVolume, totalMinutes, topPrs };
+    return { totalWorkouts: logs.length, totalSets, totalVolume, totalMinutes };
   }, [filteredWorkoutLogs]);
 
   const repeatWorkout = (log: any) => {
@@ -1212,6 +1256,64 @@ export default function WorkoutsPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={replacementDialogOpen} onOpenChange={(open) => {
+        if (applyingReplacement) return;
+        setReplacementDialogOpen(open);
+        if (!open) {
+          setReplacementOptions([]);
+          setReplacementTarget(null);
+          setReplacementOriginal(null);
+          setReplacementReason("");
+        }
+      }}>
+        <DialogContent className="inset-x-0 bottom-0 max-h-[92svh] max-w-none gap-0 rounded-b-none rounded-t-[28px] border-border/80 bg-card/95 p-0 shadow-2xl sm:max-w-2xl sm:rounded-2xl">
+          <div className="sticky top-0 z-10 border-b border-border/70 bg-card/95 px-4 pb-3 pt-3 backdrop-blur sm:px-5">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/30 sm:hidden" />
+            <DialogHeader className="pr-8 text-left">
+              <DialogTitle className="text-xl">Choose Replacement</DialogTitle>
+            </DialogHeader>
+            {replacementOriginal ? (
+              <p className="mt-1 text-sm text-muted-foreground">Replacing {replacementOriginal.name}</p>
+            ) : null}
+          </div>
+          <div className="max-h-[72svh] space-y-3 overflow-y-auto px-4 py-4 sm:px-5">
+            {replacementReason ? (
+              <p className="rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2 text-sm text-muted-foreground">
+                {replacementReason}
+              </p>
+            ) : null}
+            {replacementOptions.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => applyReplacementChoice(option)}
+                disabled={applyingReplacement}
+                className="w-full touch-manipulation rounded-[22px] border border-border/70 bg-background/55 p-4 text-left transition active:scale-[0.99] active:bg-muted disabled:opacity-70"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words font-semibold">{option.name}</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {option.muscleGroup ? <Badge variant="outline" className="capitalize">{option.muscleGroup}</Badge> : null}
+                      {option.equipment ? <Badge variant="secondary" className="capitalize">{option.equipment}</Badge> : null}
+                      {option.category ? <Badge variant="outline" className="capitalize">{option.category}</Badge> : null}
+                      {option.status === "pending" ? <Badge variant="secondary">Pending approval</Badge> : null}
+                    </div>
+                  </div>
+                  {applyingReplacement ? (
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                  ) : (
+                    <Shuffle className="h-4 w-4 shrink-0 text-primary" />
+                  )}
+                </div>
+                {option.description ? <p className="mt-3 text-sm text-muted-foreground">{option.description}</p> : null}
+                {option.formTips ? <p className="mt-2 text-xs text-muted-foreground">{option.formTips}</p> : null}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <FadeIn delay={0.05}>
         <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 p-3 text-sm sm:grid-cols-4">
           <div><span className="text-muted-foreground">Workouts</span><p className="font-mono font-semibold">{workoutStats.totalWorkouts}</p></div>
@@ -1221,39 +1323,11 @@ export default function WorkoutsPage() {
         </div>
       </FadeIn>
 
-      {workoutStats.topPrs.length > 0 && (
-        <FadeIn delay={0.08}>
-          <Card className="border-primary/30 bg-primary/5">
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <Trophy className="h-5 w-5 text-primary" />
-                Personal Records
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="grid max-h-64 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 lg:max-h-none lg:grid-cols-4 lg:overflow-visible lg:pr-0">
-              {workoutStats.topPrs.map((record: any) => (
-                <div key={record.exerciseName} className="rounded-lg border border-primary/20 bg-background/70 p-3">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <p className="min-w-0 flex-1 truncate text-sm font-semibold">{record.exerciseName}</p>
-                    <ExerciseYoutubeLink exerciseName={record.exerciseName} className="h-7 w-7" />
-                  </div>
-                  <p className="mt-1 font-mono text-lg font-bold">{record.weight}kg x {record.reps}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {formatAppDate(record.date ?? Date.now(), { month: "short", day: "numeric" })}
-                  </p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </FadeIn>
-      )}
-
       <Tabs defaultValue="programs" className="space-y-4">
-        <TabsList className="grid h-auto w-full grid-cols-4 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
+        <TabsList className="grid h-auto w-full grid-cols-3 gap-2 overflow-visible bg-transparent p-0 sm:inline-flex sm:h-10 sm:w-auto sm:gap-1">
           <TabsTrigger value="programs" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Programs</TabsTrigger>
           <TabsTrigger value="exercises" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">Library</TabsTrigger>
           <TabsTrigger value="history" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-primary/30 data-[state=active]:!bg-primary/15 data-[state=active]:!text-primary sm:h-10">History</TabsTrigger>
-          <TabsTrigger value="prs" className="h-12 w-full rounded-lg border border-border bg-transparent text-muted-foreground shadow-none data-[state=active]:!border-yellow-500/30 data-[state=active]:!bg-yellow-500/15 data-[state=active]:!text-yellow-600 sm:h-10"><Trophy className="w-4 h-4 mr-1" />PRs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="programs" className="space-y-4">
@@ -1263,14 +1337,17 @@ export default function WorkoutsPage() {
                 {[1, 2].map((i) => <div key={i} className="h-48 animate-pulse rounded-lg bg-muted" />)}
               </div>
             ) : null}
-            <div className="grid max-h-[42rem] grid-cols-1 gap-4 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {(templates ?? []).map((t: any) => (
-                <Card key={t?.id} className="hover:shadow-lg transition-shadow">
-                  <CardHeader className="p-3 pb-2 sm:p-6 sm:pb-2">
-                    <div className="grid gap-2 sm:flex sm:items-start sm:justify-between">
-                      <CardTitle className="min-w-0 text-lg leading-tight">{t?.name}</CardTitle>
+                <Card key={t?.id} className="overflow-hidden rounded-[26px] border-border/70 bg-card/90 shadow-sm shadow-black/10 transition hover:border-primary/30">
+                  <CardHeader className="p-4 pb-3 sm:p-5 sm:pb-3">
+                    <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <CardTitle className="break-words text-lg leading-tight">{t?.name}</CardTitle>
+                        {t?.description ? <p className="mt-1 text-sm text-muted-foreground">{t.description}</p> : null}
+                      </div>
                       <div className="flex items-center gap-1 sm:shrink-0">
-                        <Badge variant="secondary" className="max-w-24 truncate capitalize">{t?.difficulty ?? "Intermediate"}</Badge>
+                        <Badge variant="secondary" className="max-w-28 truncate capitalize">{t?.difficulty ?? "Intermediate"}</Badge>
                         <Button variant="ghost" size="icon" onClick={() => openTemplateDialog(t)} title="Edit workout day">
                           <Pencil className="w-4 h-4" />
                         </Button>
@@ -1279,22 +1356,26 @@ export default function WorkoutsPage() {
                         </Button>
                       </div>
                     </div>
-                    <p className="text-sm text-muted-foreground">{t?.description}</p>
-                    {t?.dayOfWeek && <Badge variant="outline" className="w-fit">{t.dayOfWeek}</Badge>}
+                    <div className="flex flex-wrap gap-2">
+                      {t?.dayOfWeek ? <Badge variant="outline" className="w-fit">{t.dayOfWeek}</Badge> : null}
+                      {String(t?.muscleGroups ?? "").split(",").filter(Boolean).slice(0, 4).map((group: string) => (
+                        <Badge key={group} variant="outline" className="capitalize">{group.trim()}</Badge>
+                      ))}
+                    </div>
                   </CardHeader>
-                  <CardContent className="p-3 pt-0 sm:p-6 sm:pt-0">
+                  <CardContent className="p-4 pt-0 sm:p-5 sm:pt-0">
                     <div className="mb-4 grid gap-2 sm:grid-cols-2">
                       <RoutinePreview title="Warm-up" items={parseRoutineItems(t?.warmupJson)} fallback="5-10 min light cardio + mobility" />
                       <RoutinePreview title="Stretches" items={parseRoutineItems(t?.stretchesJson)} fallback="Cooldown + target muscle stretches" />
                     </div>
-                    <div className="space-y-1 mb-4">
+                    <div className="mb-4 overflow-hidden rounded-[20px] border border-border/60 bg-background/45">
                       {(t?.exercises ?? []).map((we: any) => (
-                        <div key={we?.id} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 py-1 text-sm sm:grid-cols-[auto_minmax(0,1fr)_auto_auto] sm:gap-3">
+                        <div key={we?.id} className="grid min-h-12 grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-2 border-b border-border/50 px-2 py-2 text-sm last:border-b-0 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto_auto]">
                           <Button
                             type="button"
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7"
+                            className="h-9 w-9 rounded-full"
                             onClick={() => replaceProgramExercise(t, we)}
                             title="Replace exercise"
                             disabled={replacingProgramExerciseId === we?.id}
@@ -1302,13 +1383,13 @@ export default function WorkoutsPage() {
                           >
                             <Shuffle className="h-3.5 w-3.5" />
                           </Button>
-                          <span className="min-w-0 leading-tight">{we?.exercise?.name}</span>
+                          <span className="min-w-0 break-words font-medium leading-tight">{we?.exercise?.name}</span>
                           <ExerciseYoutubeLink exerciseName={we?.exercise?.name} className="h-7 w-7" />
-                          <span className="col-span-3 pl-9 font-mono text-xs text-muted-foreground sm:col-span-1 sm:pl-0 sm:text-sm">{we?.sets} x {we?.reps}</span>
+                          <span className="col-span-3 pl-10 font-mono text-xs text-muted-foreground sm:col-span-1 sm:pl-0 sm:text-sm">{we?.sets} x {we?.reps}</span>
                         </div>
                       ))}
                     </div>
-                    <Button onClick={() => startWorkout(t)} className="w-full" size="sm">
+                    <Button onClick={() => startWorkout(t)} className="h-12 w-full rounded-2xl" size="sm">
                       <Dumbbell className="w-4 h-4 mr-2" />Start Workout
                     </Button>
                   </CardContent>
@@ -1492,9 +1573,6 @@ export default function WorkoutsPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="prs" className="space-y-4">
-          <PersonalRecordsTab />
-        </TabsContent>
       </Tabs>
 
       <Dialog open={!!selectedHistoryLog} onOpenChange={(open) => !open && setSelectedHistoryLog(null)}>

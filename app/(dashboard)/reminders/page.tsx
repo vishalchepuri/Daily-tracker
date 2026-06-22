@@ -24,7 +24,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
 import { dateTimeInputToIso, formatAppDateTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
@@ -46,13 +45,12 @@ const blankReminder = {
 
 const listColors = ["#22c55e", "#3b82f6", "#a855f7", "#f97316", "#ef4444", "#06b6d4"];
 
-const contextOptions = [
-  { value: "general", label: "General" },
-  { value: "home", label: "Home" },
-  { value: "shopping", label: "Shopping" },
-  { value: "billing", label: "Bills" },
-  { value: "bring", label: "Bring" },
-  { value: "follow_up", label: "Follow Up" },
+const recurrenceOptions = [
+  { value: "none", label: "Never" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "custom", label: "Custom" },
 ];
 
 function splitDateTime(value?: string | null) {
@@ -82,10 +80,6 @@ function appDayRange(dateKey = formatLocalDateInput(new Date())) {
     start: new Date(dateTimeInputToIso(dateKey, "00:00")),
     end: new Date(dateTimeInputToIso(dateKey, "23:59")),
   };
-}
-
-function contextLabel(value?: string | null) {
-  return contextOptions.find((item) => item.value === value)?.label || "General";
 }
 
 function priorityWeight(priority?: string | null) {
@@ -120,6 +114,7 @@ export default function RemindersPage() {
   const [listOpen, setListOpen] = useState(false);
   const [savingReminder, setSavingReminder] = useState(false);
   const [savingList, setSavingList] = useState(false);
+  const [deletingListId, setDeletingListId] = useState<string | null>(null);
   const [showReminderAdvanced, setShowReminderAdvanced] = useState(false);
   const [pendingReminderActions, setPendingReminderActions] = useState<Record<string, "complete" | "snooze" | "delete">>({});
   const [expandedReminderIds, setExpandedReminderIds] = useState<Record<string, boolean>>({});
@@ -221,8 +216,8 @@ export default function RemindersPage() {
       id: item.id,
       title: item.title ?? "",
       notes: item.notes ?? "",
-      contextTag: contextOptions.some((option) => option.value === item.contextTag) ? item.contextTag : "general",
-      sourceLabel: item.sourceLabel ?? "",
+      contextTag: "general",
+      sourceLabel: "",
       dueDate: due.dueDate,
       dueTime: due.dueTime,
       recurrence: item.recurrence ?? "none",
@@ -231,7 +226,7 @@ export default function RemindersPage() {
       flagged: Boolean(item.flagged),
       listId: item.listId ?? "",
     });
-    setShowReminderAdvanced(Boolean(item.notes || item.recurrence !== "none" || item.sourceLabel || item.listId));
+    setShowReminderAdvanced(Boolean(item.notes || item.recurrence !== "none" || item.listId || item.flagged));
     setReminderOpen(true);
   };
 
@@ -361,6 +356,12 @@ export default function RemindersPage() {
     }
   };
 
+  const deleteReminderFromSheet = async () => {
+    if (!reminderForm.id) return;
+    setReminderOpen(false);
+    await deleteReminder(reminderForm.id);
+  };
+
   const saveList = async () => {
     if (savingList || saveListLock.current) return;
     if (!listForm.name.trim()) {
@@ -389,6 +390,33 @@ export default function RemindersPage() {
     } finally {
       saveListLock.current = false;
       setSavingList(false);
+    }
+  };
+
+  const deleteList = async (list: any) => {
+    if (!list?.id || deletingListId) return;
+    setDeletingListId(list.id);
+    const previousLists = lists;
+    const previousFilter = filter;
+    setLists((current) => current.filter((item) => item.id !== list.id));
+    if (filter === list.id) setFilter("today");
+    try {
+      const res = await fetch(`/api/reminder-lists?id=${list.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLists(previousLists);
+        setFilter(previousFilter);
+        toast.error(data?.error ?? "Failed to delete list");
+        return;
+      }
+      toast.success("List deleted");
+      loadData();
+    } catch {
+      setLists(previousLists);
+      setFilter(previousFilter);
+      toast.error("Failed to delete list");
+    } finally {
+      setDeletingListId(null);
     }
   };
 
@@ -477,20 +505,33 @@ export default function RemindersPage() {
               ) : (
                 <div className="divide-y divide-border/55">
                   {lists.map((list) => (
-                    <button
+                    <div
                       key={list.id}
-                      type="button"
-                      onClick={() => setFilter(list.id)}
-                      className={`flex min-h-14 w-full touch-manipulation items-center justify-between gap-3 px-4 py-3 text-left transition active:scale-[0.99] active:bg-muted ${filter === list.id ? "bg-primary/10 text-primary" : "hover:bg-muted/60"}`}
+                      className={`grid min-h-14 grid-cols-[1fr_2.75rem] items-stretch ${filter === list.id ? "bg-primary/10 text-primary" : ""}`}
                     >
-                      <span className="flex min-w-0 items-center gap-3">
-                        <span className="h-3.5 w-3.5 shrink-0 rounded-full shadow-sm" style={{ backgroundColor: list.color }} />
-                        <span className="truncate font-semibold">{list.name}</span>
-                      </span>
-                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
-                        {list._count?.reminders ?? 0}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setFilter(list.id)}
+                        className="flex min-w-0 touch-manipulation items-center justify-between gap-3 px-4 py-3 text-left transition active:scale-[0.99] active:bg-muted"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className="h-3.5 w-3.5 shrink-0 rounded-full shadow-sm" style={{ backgroundColor: list.color }} />
+                          <span className="truncate font-semibold">{list.name}</span>
+                        </span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                          {list._count?.reminders ?? 0}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteList(list)}
+                        disabled={deletingListId === list.id}
+                        aria-label={`Delete ${list.name}`}
+                        className="flex touch-manipulation items-center justify-center text-muted-foreground transition active:scale-90 active:bg-destructive/10 active:text-destructive disabled:opacity-60"
+                      >
+                        {deletingListId === list.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -576,8 +617,6 @@ export default function RemindersPage() {
                               {item.priority !== "none" && <Badge variant={isOverdue ? "destructive" : "outline"}>{item.priority}</Badge>}
                               {item.recurrence !== "none" && <Badge variant="outline"><Repeat className="mr-1 h-3 w-3" />{item.recurrence === "custom" ? item.recurrenceCustom || "custom" : item.recurrence}</Badge>}
                               {item.list && <Badge variant="secondary">{item.list.name}</Badge>}
-                              {item.contextTag && <Badge variant="secondary">{contextLabel(item.contextTag)}</Badge>}
-                              {item.sourceLabel && <Badge variant="outline">from {item.sourceLabel}</Badge>}
                             </div>
                             {item.notes && <p className="text-sm text-muted-foreground">{item.notes}</p>}
                             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
@@ -634,19 +673,25 @@ export default function RemindersPage() {
 
             <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
               <Label className="text-xs font-semibold text-muted-foreground">Date & Time</Label>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <Input
-                  type="date"
-                  value={reminderForm.dueDate}
-                  onChange={(event) => setReminderForm({ ...reminderForm, dueDate: event.target.value })}
-                  className="h-12 rounded-2xl bg-card/80 text-base"
-                />
-                <Input
-                  type="time"
-                  value={reminderForm.dueTime || "09:00"}
-                  onChange={(event) => setReminderForm({ ...reminderForm, dueTime: event.target.value })}
-                  className="h-12 rounded-2xl bg-card/80 text-base"
-                />
+              <div className="mt-2 grid grid-cols-1 gap-2 min-[440px]:grid-cols-2">
+                <div className="min-w-0 rounded-2xl border border-border/60 bg-card/80 px-3 py-2">
+                  <span className="block text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">Date</span>
+                  <Input
+                    type="date"
+                    value={reminderForm.dueDate}
+                    onChange={(event) => setReminderForm({ ...reminderForm, dueDate: event.target.value })}
+                    className="mt-1 h-9 min-w-0 border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0"
+                  />
+                </div>
+                <div className="min-w-0 rounded-2xl border border-border/60 bg-card/80 px-3 py-2">
+                  <span className="block text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">Time</span>
+                  <Input
+                    type="time"
+                    value={reminderForm.dueTime || "09:00"}
+                    onChange={(event) => setReminderForm({ ...reminderForm, dueTime: event.target.value })}
+                    className="mt-1 h-9 min-w-0 border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0"
+                  />
+                </div>
               </div>
             </div>
 
@@ -669,56 +714,20 @@ export default function RemindersPage() {
                   className="min-h-20 rounded-2xl bg-card/80 text-base"
                   placeholder="Notes"
                 />
-                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-                  <div>
-                    <Label>Repeat</Label>
-                    <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
-                      <SelectTrigger className="mt-1 h-12 rounded-2xl bg-card/80"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Never</SelectItem>
-                        <SelectItem value="daily">Daily</SelectItem>
-                        <SelectItem value="weekly">Weekly</SelectItem>
-                        <SelectItem value="monthly">Monthly</SelectItem>
-                        <SelectItem value="custom">Custom</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>List</Label>
-                    <Select value={reminderForm.listId || "none"} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value === "none" ? "" : value })}>
-                      <SelectTrigger className="mt-1 h-12 rounded-2xl bg-card/80"><SelectValue placeholder="List" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">No List</SelectItem>
-                        {lists.map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
+                <SegmentedPicker
+                  label="Repeat"
+                  value={reminderForm.recurrence}
+                  options={recurrenceOptions}
+                  onChange={(recurrence) => setReminderForm({ ...reminderForm, recurrence })}
+                />
                 {reminderForm.recurrence === "custom" && (
                   <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="h-12 rounded-2xl bg-card/80" placeholder="Every 2 weeks" />
                 )}
-                <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2">
-                  <div>
-                    <Label>Context</Label>
-                    <Select value={contextOptions.some((option) => option.value === reminderForm.contextTag) ? reminderForm.contextTag : "general"} onValueChange={(value) => setReminderForm({ ...reminderForm, contextTag: value })}>
-                      <SelectTrigger className="mt-1 h-12 rounded-2xl bg-card/80"><SelectValue placeholder="Context" /></SelectTrigger>
-                      <SelectContent>
-                        {contextOptions.map((option) => (
-                          <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label>Source</Label>
-                    <Input
-                      value={reminderForm.sourceLabel}
-                      onChange={(e) => setReminderForm({ ...reminderForm, sourceLabel: e.target.value })}
-                      className="mt-1 h-12 rounded-2xl bg-card/80"
-                      placeholder="Self, Dad, friend"
-                    />
-                  </div>
-                </div>
+                <ListPicker
+                  lists={lists}
+                  value={reminderForm.listId}
+                  onChange={(listId) => setReminderForm({ ...reminderForm, listId })}
+                />
                 <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="h-12 w-full rounded-2xl" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
                   <Flag className="w-4 h-4 mr-2" />{reminderForm.flagged ? "Flagged" : "Flag"}
                 </Button>
@@ -726,7 +735,7 @@ export default function RemindersPage() {
             )}
           </div>
 
-          <div className="sticky bottom-0 border-t border-border/70 bg-card/95 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] backdrop-blur sm:px-5">
+          <div className="sticky bottom-0 grid gap-2 border-t border-border/70 bg-card/95 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] backdrop-blur sm:px-5">
             <Button
               onClick={saveReminder}
               loading={savingReminder}
@@ -735,6 +744,18 @@ export default function RemindersPage() {
             >
               {savingReminder ? "Saving..." : reminderForm.id ? "Update Reminder" : "Add Reminder"}
             </Button>
+            {reminderForm.id && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={deleteReminderFromSheet}
+                disabled={savingReminder || pendingReminderActions[reminderForm.id] === "delete"}
+                className="h-11 w-full rounded-2xl border-destructive/40 text-destructive active:scale-95"
+              >
+                {pendingReminderActions[reminderForm.id] === "delete" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Delete Reminder
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -757,6 +778,71 @@ function SmartTile({ active, icon: Icon, label, count, color, tile, onClick }: a
       </div>
       <p className="mt-3 text-sm font-semibold text-muted-foreground">{label}</p>
     </button>
+  );
+}
+
+function SegmentedPicker({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+      <Label className="text-xs font-semibold text-muted-foreground">{label}</Label>
+      <div className="mt-2 grid grid-cols-2 gap-2 min-[440px]:grid-cols-3">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            data-active={value === option.value}
+            onClick={() => onChange(option.value)}
+            className="min-h-11 touch-manipulation rounded-2xl border border-border/60 bg-card/70 px-3 text-sm font-semibold text-muted-foreground transition active:scale-95 active:bg-muted data-[active=true]:border-primary/40 data-[active=true]:bg-primary/15 data-[active=true]:text-primary"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListPicker({
+  lists,
+  value,
+  onChange,
+}: {
+  lists: any[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const options = [{ id: "", name: "No List", color: "transparent" }, ...lists];
+  return (
+    <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+      <Label className="text-xs font-semibold text-muted-foreground">List</Label>
+      <div className="mt-2 grid grid-cols-1 gap-2 min-[440px]:grid-cols-2">
+        {options.map((list) => (
+          <button
+            key={list.id || "none"}
+            type="button"
+            data-active={(value || "") === list.id}
+            onClick={() => onChange(list.id)}
+            className="flex min-h-11 touch-manipulation items-center gap-2 rounded-2xl border border-border/60 bg-card/70 px-3 text-left text-sm font-semibold text-muted-foreground transition active:scale-95 active:bg-muted data-[active=true]:border-primary/40 data-[active=true]:bg-primary/15 data-[active=true]:text-primary"
+          >
+            <span
+              className={`h-3 w-3 shrink-0 rounded-full ${list.id ? "" : "border border-border"}`}
+              style={{ backgroundColor: list.id ? list.color : "transparent" }}
+            />
+            <span className="min-w-0 truncate">{list.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

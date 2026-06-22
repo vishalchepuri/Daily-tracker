@@ -91,12 +91,12 @@ async function createAiExercises(muscleGroup: string, currentExercise: any, used
     body: JSON.stringify({
       model: "gpt-5.4-mini",
       stream: false,
-      max_tokens: 1000,
+      max_tokens: 1400,
       messages: [
         {
           role: "system",
           content:
-            "You are a practical strength coach for Indian commercial gyms and Cult-style gyms. Return ONLY JSON. Generate 8 high-quality replacement exercises ranked best first. Use only these muscle groups: chest, back, shoulders, legs, arms, core. Replacements must train the same main muscle but should not be near-duplicates of the current exercise. Prefer common equipment: dumbbells, barbells, bench, cable station, lat pulldown, seated row, leg press, leg extension, leg curl, treadmill/cycle/cross-trainer, bodyweight, and mat movements. Avoid uncommon/specialty machines such as hack squat, pendulum squat, reverse pec deck, machine lateral raise, glute drive machine, assisted dip/pull-up machine, landmine setup, and specialty T-bar row unless the current exercise clearly uses that exact equipment. If a machine may be unavailable, include a fallback in description or formTips, not in the name. Make every option clearly different and useful.",
+            "You are a practical strength coach for Indian commercial gyms and Cult-style gyms. Return ONLY JSON. Generate 10 high-quality replacement exercises ranked best first. Use only these muscle groups: chest, back, shoulders, legs, arms, core. Replacements must train the same main muscle but should not be near-duplicates of the current exercise. Prefer common equipment: dumbbells, barbells, bench, cable station, lat pulldown, seated row, leg press, leg extension, leg curl, treadmill/cycle/cross-trainer, bodyweight, and mat movements. Avoid uncommon/specialty machines such as hack squat, pendulum squat, reverse pec deck, machine lateral raise, glute drive machine, assisted dip/pull-up machine, landmine setup, and specialty T-bar row unless the current exercise clearly uses that exact equipment. If a machine may be unavailable, include a fallback in description or formTips, not in the name. Make every option clearly different, practical, and useful for a normal Indian gym user.",
         },
         {
           role: "user",
@@ -196,7 +196,7 @@ export async function POST(req: Request) {
     if (!shouldUseAi && bestLibrary) {
       return NextResponse.json({
         exercise: bestLibrary.exercise,
-        options: rankedLibrary.slice(0, 5).map((item) => item.exercise),
+        options: rankedLibrary.slice(0, 8).map((item) => item.exercise),
         source: bestLibrary.exercise.status === "pending" ? "pending" : "library",
         reason: "Matched by muscle, common equipment, and workout context.",
       });
@@ -205,7 +205,7 @@ export async function POST(req: Request) {
     const aiExercises = await createAiExercises(
       muscleGroup,
       currentExercise,
-      [...usedNames, ...library.map((item) => item.name)],
+      [...usedNames, currentExercise?.name].filter(Boolean),
       recentReplacementNames,
       user.id
     );
@@ -215,7 +215,7 @@ export async function POST(req: Request) {
     if (best) {
       return NextResponse.json({
         exercise: best.exercise,
-        options: candidates.slice(0, 5).map((item) => item.exercise),
+        options: candidates.slice(0, 8).map((item) => item.exercise),
         source: best.exercise.status === "pending" ? "ai_pending" : "library",
         reason: best.exercise.status === "pending" ? "Generated a new India-friendly option for admin approval." : "Selected from library with AI-backed ranking.",
       });
