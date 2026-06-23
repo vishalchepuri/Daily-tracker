@@ -10,8 +10,10 @@ export async function GET(req: Request) {
     const userId = user.id;
     const { searchParams } = new URL(req.url);
     const dateStr = searchParams.get("date");
+    const rangeDays = Math.min(31, Math.max(1, Number(searchParams.get("rangeDays") ?? 1) || 1));
     const date = dateStr ? new Date(dateStr) : new Date();
     const startOfDay = new Date(date);
+    startOfDay.setDate(startOfDay.getDate() - (rangeDays - 1));
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
     endOfDay.setHours(23, 59, 59, 999);
