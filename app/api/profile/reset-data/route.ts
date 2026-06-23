@@ -4,7 +4,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { requireCurrentUser } from "@/lib/auth";
 import { deleteAllFirestoreChatData } from "@/lib/firestore-chat";
-import { deleteFoodMicronutrientLogsForUser, deleteIssueReportsForUser, deleteProgressPhotoMetadata, deleteReviewItemsForUser } from "@/lib/firestore-app-data";
+import {
+  deleteFoodMicronutrientLogsForUser,
+  deleteGmailTrackedMessagesForUser,
+  deleteIssueReportsForUser,
+  deleteProgressPhotoMetadata,
+  deleteReviewItemsForUser,
+} from "@/lib/firestore-app-data";
 
 const RESET_FEATURES = [
   "profile",
@@ -102,13 +108,14 @@ async function resetFeature(userId: string, feature: ResetFeature): Promise<Reco
     return { reviewItems, issueReports };
   }
 
+  const gmailTrackedMessages = await deleteGmailTrackedMessagesForUser(userId);
   const accounts = await prisma.account.deleteMany({ where: { userId } });
   const webPushSubscriptions = await prisma.webPushSubscription.deleteMany({ where: { userId } });
   const profileUpdate = await prisma.userProfile.updateMany({
       where: { userId },
       data: { telegramChatId: null, telegramEnabled: false },
   });
-  return { connectedAccounts: accounts.count, webPushSubscriptions: webPushSubscriptions.count, telegramProfiles: profileUpdate.count };
+  return { connectedAccounts: accounts.count, webPushSubscriptions: webPushSubscriptions.count, telegramProfiles: profileUpdate.count, gmailTrackedMessages };
 }
 
 export async function POST(req: Request) {

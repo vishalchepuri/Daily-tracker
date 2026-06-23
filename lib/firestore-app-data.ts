@@ -26,7 +26,51 @@ function docData(doc: FirebaseFirestore.DocumentSnapshot): Record<string, any> {
     lastViewedAt: fromTimestamp(data.lastViewedAt),
     expiresAt: fromTimestamp(data.expiresAt),
     usedAt: fromTimestamp(data.usedAt),
+    internalDate: fromTimestamp(data.internalDate),
+    lastSyncedAt: fromTimestamp(data.lastSyncedAt),
   };
+}
+
+export async function upsertGmailTrackedMessage(userId: string, messageId: string, input: any) {
+  const ref = userDoc(userId).collection("gmailTrackedMessages").doc(messageId);
+  const existing = await ref.get();
+  const messageDate = input.internalDate ? new Date(input.internalDate) : input.date ? new Date(input.date) : new Date();
+  await ref.set(
+    {
+      userId,
+      gmailMessageId: messageId,
+      threadId: input.threadId ?? null,
+      from: input.from ?? "",
+      fromEmail: input.fromEmail ?? "",
+      subject: input.subject ?? "(No subject)",
+      snippet: input.snippet ?? "",
+      category: input.category ?? "other",
+      importance: input.importance ?? "medium",
+      trackingStatus: existing.data()?.trackingStatus ?? input.trackingStatus ?? "new",
+      labelIds: Array.isArray(input.labelIds) ? input.labelIds.slice(0, 20) : [],
+      hasAttachments: Boolean(input.hasAttachments),
+      internalDate: Timestamp.fromDate(messageDate),
+      lastSyncedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: existing.exists ? existing.data()?.createdAt ?? FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
+
+export async function listGmailTrackedMessages(userId: string, options: { limit?: number; category?: string } = {}) {
+  const limit = Math.min(Math.max(Number(options.limit ?? 60), 1), 120);
+  const snap = await userDoc(userId).collection("gmailTrackedMessages").orderBy("internalDate", "desc").limit(limit).get();
+  return snap.docs
+    .map(docData)
+    .filter((item) => !options.category || options.category === "all" || item.category === options.category);
+}
+
+export async function deleteGmailTrackedMessagesForUser(userId: string) {
+  const docs = await userDoc(userId).collection("gmailTrackedMessages").listDocuments();
+  await Promise.all(docs.map((doc) => doc.delete()));
+  return docs.length;
 }
 
 export async function upsertYoutubeLearningItem(userId: string, videoId: string, input: any) {

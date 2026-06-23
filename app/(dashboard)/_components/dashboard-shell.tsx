@@ -6,7 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
-  Mic, Video,
+  Mail, Mic, Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ const navItems = [
   { label: "Reminders", href: "/reminders", icon: ListTodo },
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
+  { label: "Gmail", href: "/gmail", icon: Mail },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
@@ -71,6 +72,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Review fitness and food spending trends.",
       "Find budget-friendly swaps for meals or gear.",
       "Plan purchases around your goals.",
+    ],
+  },
+  "/gmail": {
+    label: "Gmail",
+    suggestions: [
+      "Group recent Gmail updates into bills, finance, travel, health, work, and orders.",
+      "Track important follow-ups without storing full email bodies.",
+      "Turn email updates into reminders or tasks when needed.",
     ],
   },
   "/nutrition": {
