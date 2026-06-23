@@ -1200,6 +1200,29 @@ function isLowerBodyTemplate(action: Extract<AgentAction, { type: "create_workou
   return includesAny(text, ["lower", "legs", "leg", "quad", "hamstring", "glute", "calf", "calves"]);
 }
 
+function isRecoveryOrMobilityTemplate(action: Extract<AgentAction, { type: "create_workout_template" }>) {
+  const text = [
+    action.name,
+    action.muscleGroups,
+    action.difficulty,
+    ...(action.warmups ?? []).map((item) => `${item.name} ${item.notes ?? ""}`),
+    ...(action.stretches ?? []).map((item) => `${item.name} ${item.notes ?? ""}`),
+    ...(action.exercises ?? []).map((item) => `${item.exerciseName} ${item.muscleGroup}`),
+  ].join(" ").toLowerCase();
+
+  return includesAny(text, [
+    "joint strength",
+    "joint-strength",
+    "joint strengthening",
+    "mobility",
+    "recovery",
+    "rehab",
+    "prehab",
+    "pain-free",
+    "isometric",
+  ]);
+}
+
 function inferSpendPaymentSource(text: string, action: Extract<AgentAction, { type: "create_spend_log" }>) {
   const sourceText = `${text}\n${action.notes ?? ""}`.replace(/\s+/g, " ");
   const bankMatch = sourceText.match(/\b(HDFC|ICICI|SBI|Axis|Kotak|Yes Bank|IDFC|IndusInd|Federal|Canara|Punjab National|Bank of Baroda)\b(?:\s+Bank)?/i);
@@ -1722,7 +1745,7 @@ async function executeAgentAction(
   }
 
   if (action.type === "create_workout_template") {
-    if (isUpperBodyPriorityFocus(options.workoutFocusMuscles) && isLowerBodyTemplate(action)) {
+    if (isUpperBodyPriorityFocus(options.workoutFocusMuscles) && isLowerBodyTemplate(action) && !isRecoveryOrMobilityTemplate(action)) {
       const existingLowerTemplates = await prisma.workoutTemplate.count({
         where: {
           userId,
@@ -2334,6 +2357,8 @@ Rules:
   - If the user names specific muscles, choose or adapt the split whose day targets directly include those exact muscles. The named muscles must appear as primary or direct targets in the draft and saved templates.
   - Respect the user's priority order. If chest, shoulders, back, biceps, triceps, arms, or forearms appear before legs, glutes, quadriceps, hamstrings, or calves, the split is upper-body priority.
   - For a 4-day upper-body priority plan, use 3 upper-body days and only 1 lower-body maintenance day. Do not create two lower-body days unless the user explicitly prioritizes legs, glutes, thighs, hamstrings, quadriceps, calves, or asks for full body/lower-body focus.
+  - For a 5-day upper-body priority plan, the 5th day may be a recovery, joint-strength, mobility, core, or light-cardio day. Do not count that day as an extra lower-body strength day just because it includes knee/hip/ankle prehab.
+  - If the user asks to add a missing joint-strength + mobility day, save it as its own workout template even when the weekly plan already has one lower-body maintenance day.
   - For the user's saved focus "chest, shoulders, biceps, triceps, back, legs, forearms, core", the correct 4-day structure is: Upper Push, Upper Pull, Lower Maintenance, Upper Hypertrophy/Arms/Core.
   - Split the ordered priority list across the number of days the user chooses. Earlier muscles get primary placement and slightly more weekly volume. Later muscles get maintenance/support volume.
   - Do not replace exact requested muscles with only broad categories. For example, quadriceps means quadriceps, hamstrings means hamstrings, glutes means glutes, rear deltoids means rear deltoids, forearms means forearms, and abs/obliques/core should be placed intentionally.
