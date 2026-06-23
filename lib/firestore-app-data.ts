@@ -24,7 +24,53 @@ function docData(doc: FirebaseFirestore.DocumentSnapshot): Record<string, any> {
     resolvedAt: fromTimestamp(data.resolvedAt),
     savedAt: fromTimestamp(data.savedAt),
     lastViewedAt: fromTimestamp(data.lastViewedAt),
+    expiresAt: fromTimestamp(data.expiresAt),
+    usedAt: fromTimestamp(data.usedAt),
+    internalDate: fromTimestamp(data.internalDate),
+    lastSyncedAt: fromTimestamp(data.lastSyncedAt),
   };
+}
+
+export async function upsertGmailTrackedMessage(userId: string, messageId: string, input: any) {
+  const ref = userDoc(userId).collection("gmailTrackedMessages").doc(messageId);
+  const existing = await ref.get();
+  const messageDate = input.internalDate ? new Date(input.internalDate) : input.date ? new Date(input.date) : new Date();
+  await ref.set(
+    {
+      userId,
+      gmailMessageId: messageId,
+      threadId: input.threadId ?? null,
+      from: input.from ?? "",
+      fromEmail: input.fromEmail ?? "",
+      subject: input.subject ?? "(No subject)",
+      snippet: input.snippet ?? "",
+      category: input.category ?? "other",
+      importance: input.importance ?? "medium",
+      trackingStatus: existing.data()?.trackingStatus ?? input.trackingStatus ?? "new",
+      labelIds: Array.isArray(input.labelIds) ? input.labelIds.slice(0, 20) : [],
+      hasAttachments: Boolean(input.hasAttachments),
+      internalDate: Timestamp.fromDate(messageDate),
+      lastSyncedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: existing.exists ? existing.data()?.createdAt ?? FieldValue.serverTimestamp() : FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
+
+export async function listGmailTrackedMessages(userId: string, options: { limit?: number; category?: string } = {}) {
+  const limit = Math.min(Math.max(Number(options.limit ?? 60), 1), 120);
+  const snap = await userDoc(userId).collection("gmailTrackedMessages").orderBy("internalDate", "desc").limit(limit).get();
+  return snap.docs
+    .map(docData)
+    .filter((item) => !options.category || options.category === "all" || item.category === options.category);
+}
+
+export async function deleteGmailTrackedMessagesForUser(userId: string) {
+  const docs = await userDoc(userId).collection("gmailTrackedMessages").listDocuments();
+  await Promise.all(docs.map((doc) => doc.delete()));
+  return docs.length;
 }
 
 export async function upsertYoutubeLearningItem(userId: string, videoId: string, input: any) {
@@ -290,12 +336,78 @@ export async function getAgentUndoAction(userId: string, id: string) {
   return snap.exists ? docData(snap) : null;
 }
 
+export async function listAgentUndoActions(userId: string, limit = 10) {
+  const safeLimit = Math.max(1, Math.min(25, Math.round(Number(limit) || 10)));
+  const snap = await userDoc(userId)
+    .collection("agentUndoActions")
+    .orderBy("createdAt", "desc")
+    .limit(safeLimit)
+    .get();
+  return snap.docs.map(docData);
+}
+
 export async function markAgentUndoActionUsed(userId: string, id: string) {
   const ref = userDoc(userId).collection("agentUndoActions").doc(id);
   await ref.set(
     {
       status: "used",
       usedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
+
+export type PendingAgentActionPlanInput = {
+  sessionId: string;
+  response: string;
+  actions: any[];
+  rawMessage?: string;
+  expiresAt?: Date;
+};
+
+export async function createPendingAgentActionPlan(userId: string, input: PendingAgentActionPlanInput) {
+  const ref = userDoc(userId).collection("pendingAgentActionPlans").doc();
+  const expiresAt = input.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000);
+  await ref.set({
+    userId,
+    sessionId: input.sessionId,
+    response: input.response ?? "",
+    actions: Array.isArray(input.actions) ? input.actions.slice(0, 20) : [],
+    rawMessage: input.rawMessage ?? "",
+    status: "pending",
+    expiresAt: Timestamp.fromDate(expiresAt),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return docData(await ref.get());
+}
+
+export async function getLatestPendingAgentActionPlan(userId: string, sessionId: string) {
+  const snap = await userDoc(userId)
+    .collection("pendingAgentActionPlans")
+    .where("sessionId", "==", sessionId)
+    .where("status", "==", "pending")
+    .get();
+  const plan = snap.docs
+    .map(docData)
+    .sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime())[0] ?? null;
+  if (!plan) return null;
+  const expiresAt = plan.expiresAt ? new Date(String(plan.expiresAt)) : null;
+  if (expiresAt && Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
+    await markPendingAgentActionPlan(userId, plan.id, "expired");
+    return null;
+  }
+  return plan;
+}
+
+export async function markPendingAgentActionPlan(userId: string, id: string, status: "executed" | "cancelled" | "expired") {
+  const ref = userDoc(userId).collection("pendingAgentActionPlans").doc(id);
+  await ref.set(
+    {
+      status,
+      resolvedAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }

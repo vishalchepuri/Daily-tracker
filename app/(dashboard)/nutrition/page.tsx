@@ -745,13 +745,13 @@ export default function NutritionPage() {
             <p className="mt-1 max-w-[18rem] text-sm text-muted-foreground sm:max-w-none">Log meals and track daily macros for muscle gain</p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
-          <div className="col-span-2 sm:col-span-1">
+          <div className="col-span-2 min-w-0 sm:col-span-1">
             <Input
               type="date"
               aria-label="Nutrition date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="h-10 min-w-0 sm:w-44"
+              className="h-11 w-full min-w-0 max-w-full rounded-2xl border-border/70 bg-card/80 px-3 text-sm [color-scheme:dark] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left sm:w-44"
             />
           </div>
           <Dialog open={targetsDialogOpen} onOpenChange={setTargetsDialogOpen}>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { deleteFoodMicronutrientLog, getAgentUndoAction, markAgentUndoActionUsed } from "@/lib/firestore-app-data";
+import { deleteFoodMicronutrientLog, getAgentUndoAction, listAgentUndoActions, markAgentUndoActionUsed } from "@/lib/firestore-app-data";
 
 function undoError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -16,6 +16,21 @@ function isExpired(value: unknown) {
 async function deleteOwnedRecord(model: any, userId: string, id: string) {
   const result = await model.deleteMany({ where: { id, userId } });
   return result.count > 0;
+}
+
+export async function GET(req: Request) {
+  try {
+    const user = await requireCurrentUser();
+    if (!user?.id) return undoError("Unauthorized", 401);
+
+    const url = new URL(req.url);
+    const limit = Math.max(1, Math.min(25, Number(url.searchParams.get("limit") ?? 10)));
+    const actions = await listAgentUndoActions(user.id, limit);
+    return NextResponse.json({ actions });
+  } catch (error: any) {
+    console.error("Agent undo list failed", error);
+    return undoError(error?.message ?? "Could not load undo actions", 500);
+  }
 }
 
 export async function POST(req: Request) {

@@ -651,6 +651,24 @@ export default function ProfilePage() {
   ];
   const activeSection = PROFILE_SECTION_OPTIONS.find((section) => section.value === activeTab);
   const ActiveSectionIcon = activeSection?.icon;
+  const memoryReviewItems = [
+    { label: "Safety", value: form.healthLimitations || "Not saved" },
+    { label: "Food allergies", value: form.foodAllergies || "Not saved" },
+    { label: "Workout focus", value: form.workoutFocusMuscles || "Not saved" },
+    { label: "Workout goal", value: form.workoutFocusGoal || "Not saved" },
+    {
+      label: "Training style",
+      value:
+        form.workoutTrainingStyle === "mat_bodyweight"
+          ? "Mat/bodyweight"
+          : form.workoutTrainingStyle === "machines"
+          ? "Machines"
+          : form.workoutTrainingStyle === "mixed"
+          ? "Mixed"
+          : "Indian/Cult-style gym",
+    },
+    { label: "Micronutrients", value: form.micronutrientTrackingEnabled ? "Enabled" : "Disabled" },
+  ];
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -864,6 +882,25 @@ export default function ProfilePage() {
                 </div>
               </CardHeader>
               <CardContent className="grid gap-4 px-4 pb-5 sm:px-6 lg:grid-cols-2">
+                <div className="lg:col-span-2 rounded-[24px] border border-primary/20 bg-primary/5 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">Memory Review</p>
+                      <p className="mt-1 text-xs text-muted-foreground">These are the saved assumptions Dayza will use in chats and plans.</p>
+                    </div>
+                    <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 text-primary">
+                      Review before asking
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {memoryReviewItems.map((item) => (
+                      <div key={item.label} className="rounded-2xl border border-border/60 bg-background/70 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                        <p className="mt-1 line-clamp-2 text-sm font-semibold">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <MemorySection
                   title="Safety & Food"
                   description="Used before workout and diet plans."

@@ -70,10 +70,10 @@ export default async function Home() {
 
         <div className="grid gap-4 pb-12 md:grid-cols-3">
           <InfoCard title="How Google access is used">
-            Google sign-in identifies your account. YouTube read-only access is used to show your subscriptions and recent videos for summaries. Gmail read-only access is used only when you manually run receipt import from Spends.
+            Google sign-in identifies your account. YouTube read-only access is used to show your subscriptions and recent videos for summaries. Gmail read-only access is used only when you manually run receipt import or Gmail Tracker grouping.
           </InfoCard>
           <InfoCard title="You stay in control">
-            Dayza does not upload, edit, delete, or manage YouTube content. It does not send, delete, or modify Gmail messages. Gmail import scans up to 40 recent candidate emails per run and ignores duplicates.
+            Dayza does not upload, edit, delete, or manage YouTube content. It does not send, delete, or modify Gmail messages. Gmail import scans candidate receipt emails, and Gmail Tracker stores only metadata summaries.
           </InfoCard>
           <InfoCard title="Privacy-minded by design">
             Public policy pages explain what is collected, why it is used, how AI processing works, and how account deletion works.
@@ -89,7 +89,7 @@ export default async function Home() {
               <div>
                 <h2 className="font-semibold">Google API Limited Use</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                  Dayza uses Google user data only to provide user-requested features, such as Google sign-in, YouTube read-only summaries, and manual Gmail receipt import. Dayza&apos;s use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.
+                  Dayza uses Google user data only to provide user-requested features, such as Google sign-in, YouTube read-only summaries, manual Gmail receipt import, and Gmail Tracker grouping. Dayza&apos;s use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-3 text-sm">
                   <Link href="/privacy" className="text-primary hover:underline">Privacy Policy</Link>
@@ -116,7 +116,7 @@ export default async function Home() {
           </Card>
           <div className="grid gap-3 sm:grid-cols-2">
             <DetailCard icon={Bot} title="Dayza Agent" text="Ask questions, upload screenshots, create workout and diet plans, and let the agent update logs only when you clearly ask." />
-            <DetailCard icon={Mail} title="Gmail spend import" text="Receipt-like emails are filtered by subject and snippet first. Full email content is fetched only for likely spend candidates." />
+            <DetailCard icon={Mail} title="Gmail tracker" text="Receipt import and update grouping use Gmail read-only access only when you start them. Tracker cards store metadata, not full email bodies." />
             <DetailCard icon={Clock} title="Short retention images" text="Dayza Agent chat images can be stored temporarily and removed after the retention window." />
             <DetailCard icon={ShieldCheck} title="Account deletion" text="Deleting an account removes user-owned records such as chats, workouts, spends, reminders, medications, and logs." />
           </div>

@@ -12,8 +12,11 @@ import {
 import { uploadBuffer } from "@/lib/s3";
 import {
   createAgentUndoAction,
+  createPendingAgentActionPlan,
   createReviewItemOnce,
+  getLatestPendingAgentActionPlan,
   listFoodMicronutrientLogsForFoodLogs,
+  markPendingAgentActionPlan,
   upsertFoodMicronutrientLog,
 } from "@/lib/firestore-app-data";
 import { BODY_PART_REFERENCE, GYM_TRAINING_SPLITS } from "@/lib/workout-split-library";
@@ -369,6 +372,10 @@ type AgentAction =
         exerciseId?: string;
         exerciseName?: string;
         muscleGroup?: string;
+        equipment?: string;
+        category?: string;
+        description?: string;
+        formTips?: string;
         sets?: number;
         reps?: string;
         restSeconds?: number;
@@ -456,6 +463,50 @@ function normalizeRoutineItems(items: any[] = []) {
 function routineJson(items: any[] = []) {
   const normalized = normalizeRoutineItems(items);
   return normalized.length ? JSON.stringify(normalized) : null;
+}
+
+function ensureWorkoutQualityRoutines(action: Extract<AgentAction, { type: "create_workout_template" }>, healthLimitations?: string | null) {
+  const text = `${action.name} ${action.muscleGroups ?? ""}`.toLowerCase();
+  const hasPainContext = hasKnownAnswer(healthLimitations) && !/^none$/i.test(String(healthLimitations).trim());
+  const warmups = normalizeRoutineItems(action.warmups);
+  const stretches = normalizeRoutineItems(action.stretches);
+
+  const dayWarmups = [
+    { name: "Easy treadmill, cycle, or cross trainer", duration: "5-8 min", notes: "Build warmth gradually before strength work." },
+    hasPainContext
+      ? { name: "Pain-free joint mobility", duration: "3-5 min", notes: "Use slow controlled range and stop before pain." }
+      : { name: "Dynamic mobility for trained joints", duration: "3-5 min", notes: "Match the drill to today's main muscles." },
+  ];
+  if (includesAny(text, ["chest", "shoulder", "push", "triceps", "upper"])) {
+    dayWarmups.push({ name: "Shoulder blade activation", duration: "2 sets", notes: "Band pull-aparts or wall slides before pressing." });
+  }
+  if (includesAny(text, ["back", "biceps", "pull", "row"])) {
+    dayWarmups.push({ name: "Lat and upper-back activation", duration: "2 sets", notes: "Light pulldowns or cable rows before working sets." });
+  }
+  if (includesAny(text, ["leg", "quad", "hamstring", "glute", "calf", "lower"])) {
+    dayWarmups.push({ name: "Hip, knee, and ankle prep", duration: "3-5 min", notes: "Bodyweight squats, glute bridges, and ankle rocks." });
+  }
+
+  const dayStretches = [
+    { name: "Easy cooldown walk or cycle", duration: "3-5 min", notes: "Bring breathing down before stretches." },
+    hasPainContext
+      ? { name: "Pain-free mobility hold", duration: "30 sec each", notes: "Gentle range only; avoid forcing painful joints." }
+      : { name: "Main muscle stretch", duration: "30-45 sec each", notes: "Stretch the muscles trained today without bouncing." },
+  ];
+  if (includesAny(text, ["chest", "shoulder", "triceps", "push", "upper"])) {
+    dayStretches.push({ name: "Doorway chest and triceps stretch", duration: "30 sec each", notes: "Keep shoulders relaxed." });
+  }
+  if (includesAny(text, ["back", "biceps", "pull", "row"])) {
+    dayStretches.push({ name: "Lat stretch and forearm release", duration: "30 sec each", notes: "Use a bench, wall, or cable post for support." });
+  }
+  if (includesAny(text, ["leg", "quad", "hamstring", "glute", "calf", "lower"])) {
+    dayStretches.push({ name: "Hamstring, quad, and calf stretch", duration: "30 sec each", notes: "Stay pain-free and controlled." });
+  }
+
+  return {
+    warmups: [...warmups, ...dayWarmups.filter((item) => !warmups.some((existing) => existing.name.toLowerCase() === item.name.toLowerCase()))].slice(0, 5),
+    stretches: [...stretches, ...dayStretches.filter((item) => !stretches.some((existing) => existing.name.toLowerCase() === item.name.toLowerCase()))].slice(0, 5),
+  };
 }
 
 function isDataImageUrl(value: unknown): value is string {
@@ -1157,7 +1208,55 @@ async function streamSingleMessage(content: string) {
   });
 }
 
-async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?: string; muscleGroup?: string }, userId: string) {
+function inferExerciseEquipment(name: string, provided?: string | null) {
+  const lower = name.toLowerCase();
+  if (provided?.trim()) return provided.trim().toLowerCase();
+  if (/\b(cable|rope|pulldown|pushdown|seated row)\b/.test(lower)) return "cable";
+  if (/\b(dumbbell|db)\b/.test(lower)) return "dumbbell";
+  if (/\b(barbell|bench press|deadlift)\b/.test(lower)) return "barbell";
+  if (/\b(machine|leg press|leg extension|leg curl|treadmill|cycle|cross trainer)\b/.test(lower)) return "machine";
+  if (/\b(plank|push-up|pushup|squat|lunge|bridge|dead bug|mountain climber|mat)\b/.test(lower)) return "bodyweight";
+  return "bodyweight or common gym equipment";
+}
+
+function inferExerciseCategory(name: string, provided?: string | null) {
+  const lower = name.toLowerCase();
+  if (provided?.trim()) return provided.trim().toLowerCase();
+  if (/\b(curl|extension|raise|fly|pushdown|crunch|calf)\b/.test(lower)) return "isolation";
+  if (/\b(warm|stretch|mobility|activation|cooldown|isometric)\b/.test(lower)) return "mobility";
+  if (/\b(treadmill|cycle|cross trainer|cardio|walk|run)\b/.test(lower)) return "cardio";
+  return "compound";
+}
+
+function buildExerciseDescription(input: { exerciseName?: string; muscleGroup?: string; equipment?: string | null; description?: string | null }) {
+  if (input.description?.trim()) return input.description.trim();
+  const name = input.exerciseName?.trim() || "Exercise";
+  const muscleGroup = normalizeMuscleGroup(input.muscleGroup);
+  const equipment = inferExerciseEquipment(name, input.equipment);
+  return `${name} for ${muscleGroup}. Equipment: ${equipment}. Submitted by Dayza Agent for admin review before it appears for everyone.`;
+}
+
+function buildExerciseFormTips(input: { exerciseName?: string; formTips?: string | null }) {
+  if (input.formTips?.trim()) return input.formTips.trim();
+  const name = input.exerciseName?.toLowerCase() ?? "";
+  if (/\b(stretch|mobility|isometric)\b/.test(name)) {
+    return "Move slowly, keep the range pain-free, and avoid forcing the joint.";
+  }
+  if (/\b(treadmill|cycle|cross trainer|cardio)\b/.test(name)) {
+    return "Start easy, keep breathing controlled, and increase intensity gradually.";
+  }
+  return "Use controlled tempo, stable posture, and a pain-free range. Stop if form breaks.";
+}
+
+async function findOrCreateExercise(input: {
+  exerciseId?: string;
+  exerciseName?: string;
+  muscleGroup?: string;
+  equipment?: string;
+  category?: string;
+  description?: string;
+  formTips?: string;
+}, userId: string) {
   if (input.exerciseId) {
     const byId = await prisma.exercise.findUnique({ where: { id: input.exerciseId } });
     if (byId) return byId;
@@ -1187,10 +1286,10 @@ async function findOrCreateExercise(input: { exerciseId?: string; exerciseName?:
       id,
       name,
       muscleGroup: normalizeMuscleGroup(input.muscleGroup),
-      equipment: null,
-      category: null,
-      description: `${name} exercise.`,
-      formTips: "Use controlled form and a pain-free range of motion.",
+      equipment: inferExerciseEquipment(name, input.equipment),
+      category: inferExerciseCategory(name, input.category),
+      description: buildExerciseDescription({ ...input, exerciseName: name }),
+      formTips: buildExerciseFormTips({ ...input, exerciseName: name }),
       status: "pending",
       submittedById: userId,
     },
@@ -1367,6 +1466,83 @@ function getDestructiveConfirmationMessage(actions: AgentAction[], message: stri
   ].join("\n");
 }
 
+function hasExplicitActionConfirmation(message: string) {
+  return /\b(confirm|confirmed|yes|yep|ok|okay|go ahead|proceed|save it|do it|looks good|create it|add it|log it)\b/i.test(message);
+}
+
+function isActionPreviewCancel(message: string) {
+  return /\b(cancel|stop|discard|do not save|don't save|ignore it|never mind|nevermind)\b/i.test(message);
+}
+
+const ACTIONS_REQUIRING_PREVIEW = new Set<string>([
+  "create_exercise",
+  "create_food_log",
+  "create_progress_entry",
+  "create_spend_log",
+  "create_credit_card",
+  "create_bank_account",
+  "create_money_link",
+  "create_reminder",
+  "complete_reminder",
+  "create_workout_log",
+  "create_workout_template",
+  "remove_exercise_from_template",
+  "add_exercise_to_template",
+  "delete_workout_template",
+  "create_diet_plan",
+  "update_diet_plan",
+  "delete_diet_plan",
+  "update_nutrition_targets",
+  "update_spend_target",
+  "update_finance_profile",
+  "update_wellness_targets",
+]);
+
+function actionsNeedPreview(actions: AgentAction[], message: string) {
+  if (!actions.some((action) => ACTIONS_REQUIRING_PREVIEW.has(action.type))) return false;
+  return !hasExplicitActionConfirmation(message);
+}
+
+function previewLabelForAction(action: AgentAction) {
+  if (action.type === "create_food_log") return `Log food: ${action.foodName} (${action.mealType}, ${Math.round(toNumber(action.calories))} kcal)`;
+  if (action.type === "create_spend_log") return `Log spend: ${action.merchant} - ${action.currency || "INR"} ${toNumber(action.amount)}`;
+  if (action.type === "create_reminder") return `Create reminder: ${action.title}${action.dueDate ? ` (${new Date(action.dueDate).toLocaleString("en-IN")})` : ""}`;
+  if (action.type === "complete_reminder") return `Complete reminder: ${action.title || action.reminderId}`;
+  if (action.type === "create_workout_template") return `Create workout day: ${action.name}${action.exercises?.length ? ` (${action.exercises.length} exercises)` : ""}`;
+  if (action.type === "create_workout_log") return `Log workout: ${action.templateName || "workout"}${action.duration ? ` (${action.duration} min)` : ""}`;
+  if (action.type === "create_exercise") return `Submit exercise for approval: ${action.name} (${action.muscleGroup})`;
+  if (action.type === "add_exercise_to_template") return `Add exercise: ${action.exerciseName} to ${action.templateName}`;
+  if (action.type === "remove_exercise_from_template") return `Remove exercise: ${action.exerciseName} from ${action.templateName}`;
+  if (action.type === "delete_workout_template") return `Delete workout day: ${action.templateName}`;
+  if (action.type === "create_diet_plan") return `Create diet plan: ${action.name}`;
+  if (action.type === "update_diet_plan") return `Update diet plan: ${action.planName}`;
+  if (action.type === "delete_diet_plan") return `Delete diet plan: ${action.planName}`;
+  if (action.type === "create_credit_card") return `Add credit card: ${action.name}`;
+  if (action.type === "create_bank_account") return `Add bank account: ${action.name}`;
+  if (action.type === "create_money_link") return `${action.linkType === "lend" ? "Track lent money" : "Track borrowed money"}: ${action.person} - ${action.currency || "INR"} ${toNumber(action.amount)}`;
+  if (action.type === "update_nutrition_targets") return "Update nutrition targets";
+  if (action.type === "update_spend_target") return `Update monthly spend target: INR ${toNumber(action.targetMonthlySpend)}`;
+  if (action.type === "update_finance_profile") return "Update finance profile";
+  if (action.type === "update_wellness_targets") return "Update wellness targets";
+  if (action.type === "create_progress_entry") return "Save progress entry";
+  if (action.type === "update_profile_safety") return "Update safety/allergy memory";
+  if (action.type === "update_workout_focus") return `Save workout focus: ${action.workoutFocusMuscles}${action.workoutFocusGoal ? ` (${action.workoutFocusGoal})` : ""}`;
+  if (action.type === "update_workout_training_style") return `Save workout style: ${action.workoutTrainingStyle.replace(/_/g, " ")}`;
+  if (action.type === "update_goal_timeline") return `Save goal timeline: ${action.goalOutcome} in ${action.goalTimelineDays} days`;
+  return `Save action: ${String((action as any).type ?? "change").replace(/_/g, " ")}`;
+}
+
+function formatAgentActionPreview(response: string, actions: AgentAction[]) {
+  return [
+    response,
+    "",
+    "Review before I save:",
+    ...actions.map((action, index) => `${index + 1}. ${previewLabelForAction(action)}`),
+    "",
+    "Reply with \"confirm\" to save these changes, or tell me what to change.",
+  ].filter(Boolean).join("\n");
+}
+
 async function withUndo(
   userId: string,
   result: AgentActionResult,
@@ -1396,7 +1572,14 @@ async function executeAgentAction(
   options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null; micronutrientTrackingEnabled?: boolean; profile?: any } = {}
 ): Promise<AgentActionResult | null> {
   if (action.type === "create_exercise") {
-    const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
+    const exercise = await findOrCreateExercise({
+      exerciseName: action.name,
+      muscleGroup: action.muscleGroup,
+      equipment: action.equipment,
+      category: action.category,
+      description: action.description,
+      formTips: action.formTips,
+    }, userId);
     const result = {
       type: action.type,
       label: exercise.status === "pending" ? `Sent ${exercise.name} to admin for approval` : `Added ${exercise.name} to Exercise Library`,
@@ -1830,7 +2013,11 @@ async function executeAgentAction(
       }
     }
 
+    const qualityRoutines = ensureWorkoutQualityRoutines(action, options.healthLimitations);
     const plannedExercises = capWorkoutTemplateExercises(action, action.exercises ?? []);
+    if (plannedExercises.length === 0 && isRecoveryOrMobilityTemplate(action)) {
+      plannedExercises.push(...getJointStrengtheningExercises(options.healthLimitations, `${action.name} ${action.muscleGroups ?? ""}`));
+    }
     if (options.userWantsJointStrengthening) {
       const existingNames = new Set(plannedExercises.map((item) => String(item.exerciseName ?? "").toLowerCase()));
       const templateFocus = `${action.name} ${action.muscleGroups ?? ""}`;
@@ -1870,8 +2057,8 @@ async function executeAgentAction(
         dayOfWeek: action.dayOfWeek || null,
         muscleGroups: action.muscleGroups || null,
         difficulty: action.difficulty || "intermediate",
-        warmupJson: routineJson(action.warmups),
-        stretchesJson: routineJson(action.stretches),
+        warmupJson: routineJson(qualityRoutines.warmups),
+        stretchesJson: routineJson(qualityRoutines.stretches),
         exercises: { create: exerciseRows },
       },
     });
@@ -1992,6 +2179,87 @@ async function writeSse(controller: ReadableStreamDefaultController, data: unkno
   controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
 }
 
+function streamAgentActionExecution({
+  userId,
+  sessionId,
+  initialContent,
+  actions,
+  rawMessage,
+  options,
+  onSuccess,
+}: {
+  userId: string;
+  sessionId: string;
+  initialContent: string;
+  actions: AgentAction[];
+  rawMessage: string;
+  options: Parameters<typeof executeAgentAction>[3];
+  onSuccess?: () => Promise<void>;
+}) {
+  const stream = new ReadableStream({
+    async start(controller) {
+      await writeSse(controller, { content: initialContent });
+      let fullContent = initialContent;
+      let undoActions: Array<{ id: string; label: string; actionLabel: string }> = [];
+      try {
+        const actionResults: AgentActionResult[] = [];
+        const totalActions = actions.length;
+        for (const [actionIndex, action] of actions.entries()) {
+          await writeSse(controller, { status: actionProgressLabel(action, actionIndex + 1, totalActions) });
+          const result = await executeAgentAction(userId, action, rawMessage, options);
+          if (result) actionResults.push(result);
+        }
+        if (actions.length > 0) {
+          await writeSse(controller, { status: "Verifying saved changes..." });
+        }
+        const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, rawMessage, actions);
+        actionResults.push(...inferredFriendLinks);
+
+        const checkedInitialContent = await validateWorkoutTemplateActionResults(userId, initialContent, actions, actionResults);
+        const correctedInitialContent = correctWorkoutPlanSaveMessage(checkedInitialContent, actionResults);
+        const actionSummary = formatActionResultsSummary(actionResults);
+        fullContent = `${correctedInitialContent}${actionSummary}`;
+        undoActions = actionResults
+          .filter((result): result is AgentActionResult & { undo: AgentUndoButton } => Boolean(result.undo?.id))
+          .map((result) => ({
+            id: result.undo.id,
+            label: result.undo.label,
+            actionLabel: result.label,
+          }));
+
+        if (correctedInitialContent !== initialContent) {
+          await writeSse(controller, { replaceContent: fullContent });
+        } else if (actionSummary) {
+          await writeSse(controller, { content: actionSummary });
+        }
+        if (undoActions.length > 0) {
+          await writeSse(controller, { undoActions });
+        }
+        await onSuccess?.();
+        await saveAssistantMessageBestEffort(userId, sessionId, fullContent, undoActions);
+        await pruneChatRetention(userId);
+      } catch (error) {
+        console.error("Dayza background action execution failed", error);
+        const warning = "\n\nI answered, but one background action could not finish. Please try that action again if you do not see it saved.";
+        fullContent = `${initialContent}${warning}`;
+        await writeSse(controller, { content: warning });
+        await saveAssistantMessageBestEffort(userId, sessionId, fullContent);
+      }
+      const encoder = new TextEncoder();
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+
 export async function GET(req: Request) {
   try {
     const user = await requireCurrentUser();
@@ -2090,6 +2358,36 @@ export async function POST(req: Request) {
       prisma.userProfile.findUnique({ where: { userId } }),
       listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
     ]);
+
+    if (!hasImage && typeof message === "string") {
+      const pendingPlan = await getLatestPendingAgentActionPlan(userId, chatSession.id);
+      if (pendingPlan && isActionPreviewCancel(message)) {
+        await markPendingAgentActionPlan(userId, pendingPlan.id, "cancelled");
+        const content = "No problem. I cancelled that pending save. Nothing was changed.";
+        await saveAssistantMessageBestEffort(userId, chatSession.id, content);
+        await pruneChatRetention(userId);
+        return streamSingleMessage(content);
+      }
+      if (pendingPlan && hasExplicitActionConfirmation(message)) {
+        const pendingActions = Array.isArray(pendingPlan.actions) ? (pendingPlan.actions as AgentAction[]).slice(0, 20) : [];
+        const rawPendingMessage = String(pendingPlan.rawMessage || message);
+        return streamAgentActionExecution({
+          userId,
+          sessionId: chatSession.id,
+          initialContent: "Confirmed. I am saving the reviewed changes now.",
+          actions: pendingActions,
+          rawMessage: rawPendingMessage,
+          options: {
+            healthLimitations: profile?.healthLimitations,
+            userWantsJointStrengthening: conversationWantsJointStrengthening(recentChat),
+            workoutFocusMuscles: profile?.workoutFocusMuscles,
+            micronutrientTrackingEnabled: Boolean(profile?.micronutrientTrackingEnabled),
+            profile,
+          },
+          onSuccess: () => markPendingAgentActionPlan(userId, pendingPlan.id, "executed").then(() => undefined),
+        });
+      }
+    }
 
     const workoutPlanningActive =
       isWorkoutPlanIntent(message) ||
@@ -2440,6 +2738,7 @@ Rules:
   - Core/cardio plans must still honor selected focus muscles and include appropriate core/cardio blocks.
   - If focus includes belly/stomach/waist, normalize it to core and explain that targeted fat loss is not physiologically guaranteed, while training core and using cardio/nutrition to support overall fat loss.
 - Warm-up and stretch rules for workout plans:
+  - Workout Quality Mode is always on: never save a day without specific warmups, cooldown/stretches, practical exercise substitutions, and a recoverable volume target.
   - Every saved workout template must include warmups and stretches.
   - Warmups should be specific to the day, not generic filler: 5-10 minutes of treadmill/cycle/cross-trainer plus 2-4 dynamic drills for the exact joints/muscles being trained.
   - For gym plans, include 1-2 ramp-up sets before the first heavy compound when appropriate.
@@ -2468,6 +2767,7 @@ Rules:
   - With joint pain, reduce total volume first. Prefer moderate effort, controlled tempo, pain-free range, and no forced reps.
   - If healthLimitations exist, choose pain-free alternatives first. Health compatibility is more important than the default split.
   - Do not include an exercise that conflicts with known pain/surgery/fracture context unless you clearly provide a safer modification.
+  - For replacement requests, return up to 10 varied India-friendly options when useful, including dumbbell, cable, machine, mat/bodyweight, and pain-friendly alternatives where appropriate.
 - Joint-aware plan rules:
   - If profile.healthLimitations mentions joint pain, elbow pain, knee pain, fractures, surgery, or injuries, the workout draft must visibly adapt to that limitation.
   - When the user reports joint pain, ask whether they want joint strengthening exercises added alongside each workout day before drafting the plan.
@@ -2520,7 +2820,8 @@ ${JSON.stringify({
 - If the user asks to delete a full workout program/day, use delete_workout_template only when the target name/day is clear. If unclear, ask which program to delete.
 - If the user asks to modify a workout program, use remove_exercise_from_template and add_exercise_to_template as needed. Do not just describe the change when the request is actionable.
 - If the user asks you to add an exercise, use create_exercise. Choose the best muscleGroup from: chest, back, shoulders, legs, arms, core.
-- For create_exercise, ask a follow-up only if the exercise name is unclear. Otherwise use sensible defaults for equipment/category.
+- Exercise Approval Pipeline: for every new AI-suggested exercise that is not already in the library, submit it as pending approval. Always include equipment, category, a useful description, and formTips. Prefer common Indian/Cult-gym equipment and include practical fallback wording in description when equipment may vary.
+- For create_exercise, ask a follow-up only if the exercise name is unclear. Otherwise use sensible defaults for equipment/category and send it to admin approval.
 - A food image by itself counts as a request to identify and log the food if the food and approximate portion are clear.
 - If the image has multiple possible foods, unclear portion size, hidden ingredients, or low confidence, ask for quantity/serving details instead of logging.
 - If you log food from an image, mention that calories/macros are estimates from the photo.
@@ -2698,72 +2999,31 @@ Available action examples:
       return streamSingleMessage(blocker);
     }
     const initialContent = agentResult.response ?? "Done.";
+    if (actionsNeedPreview(actions, String(message || ""))) {
+      const previewContent = formatAgentActionPreview(initialContent, actions);
+      await createPendingAgentActionPlan(userId, {
+        sessionId: chatSession.id,
+        response: initialContent,
+        actions,
+        rawMessage: String(message || ""),
+      });
+      await saveAssistantMessageBestEffort(userId, chatSession.id, previewContent);
+      await pruneChatRetention(userId);
+      return streamSingleMessage(previewContent);
+    }
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        await writeSse(controller, { content: initialContent });
-        let fullContent = initialContent;
-        let undoActions: Array<{ id: string; label: string; actionLabel: string }> = [];
-        try {
-          const actionResults: AgentActionResult[] = [];
-          const totalActions = actions.length;
-          for (const [actionIndex, action] of actions.entries()) {
-            await writeSse(controller, { status: actionProgressLabel(action, actionIndex + 1, totalActions) });
-            const result = await executeAgentAction(userId, action, message, {
-              healthLimitations: context.profile?.healthLimitations,
-              userWantsJointStrengthening: context.userWantsJointStrengthening,
-              workoutFocusMuscles: context.profile?.workoutFocusMuscles,
-              micronutrientTrackingEnabled: context.micronutrients.enabled,
-              profile: context.profile,
-            });
-            if (result) actionResults.push(result);
-          }
-          if (actions.length > 0) {
-            await writeSse(controller, { status: "Verifying saved changes..." });
-          }
-          const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
-          actionResults.push(...inferredFriendLinks);
-
-          const checkedInitialContent = await validateWorkoutTemplateActionResults(userId, initialContent, actions, actionResults);
-          const correctedInitialContent = correctWorkoutPlanSaveMessage(checkedInitialContent, actionResults);
-          const actionSummary = formatActionResultsSummary(actionResults);
-          fullContent = `${correctedInitialContent}${actionSummary}`;
-          undoActions = actionResults
-            .filter((result): result is AgentActionResult & { undo: AgentUndoButton } => Boolean(result.undo?.id))
-            .map((result) => ({
-              id: result.undo.id,
-              label: result.undo.label,
-              actionLabel: result.label,
-            }));
-
-          if (correctedInitialContent !== initialContent) {
-            await writeSse(controller, { replaceContent: fullContent });
-          } else if (actionSummary) {
-            await writeSse(controller, { content: actionSummary });
-          }
-          if (undoActions.length > 0) {
-            await writeSse(controller, { undoActions });
-          }
-          await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent, undoActions);
-          await pruneChatRetention(userId);
-        } catch (error) {
-          console.error("Dayza background action execution failed", error);
-          const warning = "\n\nI answered, but one background action could not finish. Please try that action again if you do not see it saved.";
-          fullContent = `${initialContent}${warning}`;
-          await writeSse(controller, { content: warning });
-          await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent);
-        }
-        const encoder = new TextEncoder();
-        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        controller.close();
-      },
-    });
-
-    return new Response(stream, {
-      headers: {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
+    return streamAgentActionExecution({
+      userId,
+      sessionId: chatSession.id,
+      initialContent,
+      actions,
+      rawMessage: String(message || ""),
+      options: {
+        healthLimitations: context.profile?.healthLimitations,
+        userWantsJointStrengthening: context.userWantsJointStrengthening,
+        workoutFocusMuscles: context.profile?.workoutFocusMuscles,
+        micronutrientTrackingEnabled: context.micronutrients.enabled,
+        profile: context.profile,
       },
     });
   } catch (error: any) {

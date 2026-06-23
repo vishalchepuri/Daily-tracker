@@ -6,7 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
-  Mic, Video,
+  Mail, Mic, Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,12 +17,14 @@ import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
 import { ensureDayzaSession, signOutOfDayza } from "@/lib/firebase-session-client";
+import { GlobalQuickAdd } from "./global-quick-add";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Reminders", href: "/reminders", icon: ListTodo },
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
+  { label: "Gmail", href: "/gmail", icon: Mail },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
@@ -70,6 +72,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Review fitness and food spending trends.",
       "Find budget-friendly swaps for meals or gear.",
       "Plan purchases around your goals.",
+    ],
+  },
+  "/gmail": {
+    label: "Gmail",
+    suggestions: [
+      "Group recent Gmail updates into bills, finance, travel, health, work, and orders.",
+      "Track important follow-ups without storing full email bodies.",
+      "Turn email updates into reminders or tasks when needed.",
     ],
   },
   "/nutrition": {
@@ -429,6 +439,8 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           <div className="h-full w-1/2 animate-[loading-bar_0.9s_ease-in-out_infinite] bg-primary" />
         </div>
       )}
+
+      <GlobalQuickAdd hidden={pathname === "/chat" || !profileComplete} />
 
       {pathname !== "/chat" && (
       <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
