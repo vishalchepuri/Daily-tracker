@@ -297,6 +297,7 @@ export default function MedicationsPage() {
 
   const deleteMedication = async (med: any) => {
     if (pendingMedicationActions[med.id]) return;
+    if (!window.confirm(`Delete ${med.name ? `"${med.name}"` : "this medication"}? This cannot be undone.`)) return;
     const previousMedications = medications;
     setMedicationAction(med.id, "delete");
     setMedications((current) => current.filter((item) => item.id !== med.id));
@@ -425,6 +426,7 @@ export default function MedicationsPage() {
 
   const deleteLog = async (log: any) => {
     if (pendingLogActions[log.id]) return;
+    if (!window.confirm("Delete this medication log? This cannot be undone.")) return;
     setPendingLogActions((current) => ({ ...current, [log.id]: "delete" }));
     const previousLogs = logs;
     setLogs((current) => current.filter((item) => item.id !== log.id));
@@ -526,7 +528,7 @@ export default function MedicationsPage() {
 
       <FadeIn delay={0.08}>
         <section className="overflow-hidden rounded-[26px] border border-border/70 bg-card/90 shadow-sm shadow-black/10">
-          <div className="grid gap-3 border-b border-border/70 px-4 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-5">
+          <div className="grid min-w-0 gap-3 border-b border-border/70 px-4 py-4 sm:grid-cols-[1fr_auto] sm:items-center sm:px-5">
             <div className="min-w-0">
               <h3 className="flex items-center gap-2 text-xl font-bold tracking-tight">
                 <CalendarDays className="h-5 w-5 text-primary" />
@@ -534,14 +536,14 @@ export default function MedicationsPage() {
               </h3>
               <p className="mt-0.5 text-sm text-muted-foreground">{dateLabel(scheduleDate)} - {dueSelectedMeds.length} planned</p>
             </div>
-            <div className="grid grid-cols-1 gap-2 min-[440px]:grid-cols-[1fr_auto]">
+            <div className="grid min-w-0 grid-cols-1 gap-2 min-[440px]:grid-cols-[minmax(0,1fr)_auto]">
               <Input
                 type="date"
                 value={selectedDate}
                 onChange={(event) => setSelectedDate(event.target.value)}
-                className="h-12 min-w-0 rounded-2xl bg-background/70 text-base"
+                className="h-12 w-full min-w-0 max-w-full appearance-none rounded-2xl bg-background/70 text-sm [color-scheme:dark] sm:text-base"
               />
-              <Button type="button" variant="outline" onClick={markSelectedScheduleTaken} loading={markingAll} disabled={markingAll} className="h-12 rounded-2xl active:scale-95">
+              <Button type="button" variant="outline" onClick={markSelectedScheduleTaken} loading={markingAll} disabled={markingAll} className="h-12 w-full rounded-2xl active:scale-95 min-[440px]:w-auto">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Mark All
               </Button>
@@ -565,13 +567,13 @@ export default function MedicationsPage() {
                   const scheduled = atDateTime(med.timeOfDay, scheduleDate);
                   const isOverdue = isSameDay(scheduleDate, new Date()) && !existingLog && scheduled.getTime() < Date.now();
                   return (
-                    <div key={med.id} className={`grid gap-3 p-4 transition ${isOverdue ? "bg-destructive/10" : ""}`}>
-                      <div className="flex items-start justify-between gap-3">
+                    <div key={med.id} className={`grid min-w-0 gap-3 p-4 transition ${isOverdue ? "bg-destructive/10" : ""}`}>
+                      <div className="grid min-w-0 gap-3 min-[380px]:grid-cols-[minmax(0,1fr)_auto] min-[380px]:items-start">
                         <div className="min-w-0">
                           <h4 className={`truncate font-semibold ${isOverdue ? "text-destructive" : ""}`}>{med.name}</h4>
                           <p className="mt-1 text-sm text-muted-foreground">{med.dosage || "No dosage set"}</p>
                         </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1">
+                        <div className="flex min-w-0 flex-wrap gap-1 min-[380px]:shrink-0 min-[380px]:flex-col min-[380px]:items-end">
                           <Badge variant="secondary"><Clock className="mr-1 h-3 w-3" />{med.timeOfDay}</Badge>
                           {existingLog ? <Badge variant="outline">{existingLog.status}</Badge> : isOverdue ? <Badge variant="destructive">Overdue</Badge> : <Badge variant="outline">Upcoming</Badge>}
                         </div>
