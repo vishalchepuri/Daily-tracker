@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -26,6 +26,8 @@ import {
   Brain,
   Calculator,
   CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   Dumbbell,
@@ -70,16 +72,15 @@ const RESET_FEATURE_OPTIONS = [
   { id: "integrations", label: "Integrations", detail: "Connected OAuth accounts and Telegram link settings" },
 ] as const;
 
-const PROFILE_TAB_OPTIONS = [
-  { value: "profile", label: "Profile" },
-  { value: "memory", label: "Memory" },
-  { value: "review", label: "Review" },
-  { value: "report", label: "Report" },
-  { value: "progress", label: "Progress" },
-  { value: "activity", label: "Activity" },
-  { value: "notifications", label: "Notifications" },
-  { value: "integrations", label: "Integrations" },
-  { value: "danger", label: "Danger" },
+const PROFILE_SECTION_OPTIONS = [
+  { value: "memory", label: "Agent Memory", detail: "Workout focus, allergies, safety notes, and nutrition depth.", icon: Brain, group: "Personalization" },
+  { value: "notifications", label: "Notifications", detail: "Manage mobile alerts and saved devices.", icon: BellRing, group: "Personalization" },
+  { value: "integrations", label: "Integrations", detail: "Password, Telegram, and cleanup tools.", icon: KeyRound, group: "Personalization" },
+  { value: "activity", label: "Recent Activity", detail: "Review the latest account events.", icon: Activity, group: "History" },
+  { value: "progress", label: "Progress", detail: "Measurements, reports, and progress photos.", icon: TrendingUp, group: "History" },
+  { value: "review", label: "Review Inbox", detail: "Pending exercise submissions and agent checks.", icon: Inbox, group: "History" },
+  { value: "report", label: "Report Issue", detail: "Send app issues from Profile.", icon: AlertTriangle, group: "Support" },
+  { value: "danger", label: "Privacy & Data", detail: "Reset feature data or delete the account.", icon: Trash2, group: "Support" },
 ] as const;
 
 const PROFILE_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
@@ -648,6 +649,8 @@ export default function ProfilePage() {
     { label: "Height", value: form.height ? `${form.height} cm` : "--" },
     { label: "Goal", value: form.goal.replace(/_/g, " ") },
   ];
+  const activeSection = PROFILE_SECTION_OPTIONS.find((section) => section.value === activeTab);
+  const ActiveSectionIcon = activeSection?.icon;
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -679,17 +682,29 @@ export default function ProfilePage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex h-auto w-full justify-start gap-2 overflow-x-auto bg-transparent p-0 pb-1 ios-scroll">
-          {PROFILE_TAB_OPTIONS.map((item) => (
-            <TabsTrigger
-              key={item.value}
-              value={item.value}
-              className="h-11 shrink-0 rounded-full border border-border/70 bg-card/70 px-4 text-sm text-muted-foreground shadow-none transition active:scale-[0.98] data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15 data-[state=active]:text-primary"
-            >
-              {item.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        {activeTab !== "profile" && activeSection && (
+          <FadeIn delay={0.02}>
+            <div className="rounded-[28px] border border-border/70 bg-card/85 p-3 shadow-sm shadow-black/10">
+              <button
+                type="button"
+                onClick={() => setActiveTab("profile")}
+                className="mb-3 inline-flex h-10 items-center gap-2 rounded-full border border-border/70 bg-muted/25 px-3 text-sm font-medium text-muted-foreground transition active:scale-[0.97]"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Profile
+              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-primary/12 text-primary">
+                  {ActiveSectionIcon && <ActiveSectionIcon className="h-6 w-6" />}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xl font-bold tracking-tight">{activeSection.label}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{activeSection.detail}</p>
+                </div>
+              </div>
+            </div>
+          </FadeIn>
+        )}
 
         <TabsContent value="profile" className="space-y-4 sm:space-y-6">
           <FadeIn delay={0.05}>
@@ -718,6 +733,9 @@ export default function ProfilePage() {
                 </div>
               </CardContent>
             </Card>
+          </FadeIn>
+          <FadeIn delay={0.08}>
+            <ProfileSettingsList onSelect={setActiveTab} />
           </FadeIn>
       <FadeIn delay={0.1}>
         <Card className={PROFILE_CARD_CLASS}>
@@ -777,47 +795,15 @@ export default function ProfilePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>Goal Outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Fat loss, muscle gain..." /></div>
-                <div><Label>Timeline (days)</Label><Input type="number" min="1" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="56" /></div>
-                <div><Label>Target Weight (kg)</Label><Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Optional" /></div>
               </div>
+              <button
+                type="button"
+                className="mt-4 w-full rounded-2xl border border-border/70 bg-muted/20 p-3 text-left text-sm text-muted-foreground transition active:scale-[0.99]"
+                onClick={() => setActiveTab("memory")}
+              >
+                Advanced workout focus, allergies, timeline, and nutrition depth are in Agent Memory.
+              </button>
             </div>
-
-            <div className={PROFILE_PANEL_CLASS}>
-              <p className="mb-3 text-sm font-semibold">Agent Memory</p>
-              <div className="grid grid-cols-1 gap-3">
-                <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, knee pain, shoulder surgery..." /></div>
-                <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, peanuts, lactose..." /></div>
-                <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="core, legs, glutes, chest..." /></div>
-                <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="fat_loss, muscle_gain, cardio..." /></div>
-                <div>
-                  <Label>Workout style</Label>
-                  <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
-                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
-                      <SelectItem value="machines">Machines</SelectItem>
-                      <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
-                      <SelectItem value="mixed">Mixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            <label className="flex items-start gap-3 rounded-[22px] border border-orange-500/20 bg-orange-500/5 p-4 active:scale-[0.99]">
-              <Checkbox
-                checked={form.micronutrientTrackingEnabled}
-                onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="block text-sm font-semibold">Track vitamins & minerals</span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Adds detailed micronutrient targets and food-photo estimates in Nutrition.
-                </span>
-              </span>
-            </label>
             <Button className="h-12 w-full rounded-2xl" onClick={handleSave} loading={saving}><Save className="mr-2 h-4 w-4" />Save Profile</Button>
           </CardContent>
         </Card>
@@ -1072,7 +1058,7 @@ export default function ProfilePage() {
                 No activity yet.
               </div>
             ) : (
-              <div className="relative max-h-[32rem] space-y-3 overflow-y-auto pr-1 before:absolute before:left-4 before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border ios-scroll">
+              <div className="relative space-y-3 before:absolute before:left-4 before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border">
                 {activityItems.map((item) => {
                   const meta = activityMeta(item.type);
                   const Icon = meta.icon;
@@ -1511,6 +1497,47 @@ function ActivityMetric({ label, value }: { label: string; value: number }) {
     <div className="rounded-[22px] border border-border/70 bg-muted/25 p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 font-mono text-xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function ProfileSettingsList({ onSelect }: { onSelect: (value: string) => void }) {
+  const groups = ["Personalization", "History", "Support"];
+
+  return (
+    <div className="space-y-4">
+      {groups.map((group) => {
+        const sections = PROFILE_SECTION_OPTIONS.filter((section) => section.group === group);
+        return (
+          <section key={group} className="rounded-[28px] border border-border/70 bg-card/85 p-2 shadow-sm shadow-black/10">
+            <p className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+            <div className="overflow-hidden rounded-[22px] border border-border/50 bg-background/40">
+              {sections.map((section, index) => {
+                const Icon = section.icon;
+                return (
+                  <button
+                    key={section.value}
+                    type="button"
+                    onClick={() => onSelect(section.value)}
+                    className={`flex w-full items-center gap-3 px-3 py-3.5 text-left transition active:scale-[0.99] active:bg-primary/10 ${
+                      index > 0 ? "border-t border-border/50" : ""
+                    }`}
+                  >
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-primary/12 text-primary">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold">{section.label}</span>
+                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{section.detail}</span>
+                    </span>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }

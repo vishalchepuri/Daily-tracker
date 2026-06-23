@@ -19,6 +19,80 @@ function cleanAiJson(value: string) {
 const allowedMuscles = ["chest", "back", "shoulders", "legs", "arms", "core"];
 const rareEquipment = ["hack squat", "pendulum", "reverse pec deck", "glute drive", "assisted dip", "assisted pull", "landmine", "t-bar machine"];
 const commonEquipment = ["dumbbell", "barbell", "bench", "cable", "lat pulldown", "seated row", "leg press", "leg extension", "leg curl", "bodyweight", "mat", "machine"];
+const indiaFriendlyReplacementPool: Record<string, Array<{ name: string; equipment: string; category: string; description: string; formTips: string }>> = {
+  chest: [
+    { name: "Dumbbell Bench Press", equipment: "dumbbell, bench", category: "compound", description: "Common chest press using dumbbells and a flat bench.", formTips: "Keep shoulder blades set and press in a pain-free range." },
+    { name: "Incline Dumbbell Press", equipment: "dumbbell, incline bench", category: "compound", description: "Upper-chest focused press available in most Indian gyms.", formTips: "Use a modest incline and avoid flaring elbows hard." },
+    { name: "Machine Chest Press", equipment: "machine", category: "compound", description: "Joint-friendly chest press if the gym has a basic chest press machine.", formTips: "Set handles near mid-chest and control the return." },
+    { name: "Cable Chest Fly", equipment: "cable", category: "isolation", description: "Cable fly for chest tension without needing specialty machines.", formTips: "Keep a soft elbow bend and stop before shoulder discomfort." },
+    { name: "Push-Up", equipment: "bodyweight, mat", category: "compound", description: "Bodyweight chest exercise with easy incline/knee regressions.", formTips: "Brace core and keep elbows about 30-45 degrees from the body." },
+    { name: "Incline Push-Up", equipment: "bodyweight, bench", category: "compound", description: "Beginner and joint-friendly push-up variation.", formTips: "Use a bench height that lets you keep clean reps." },
+    { name: "Dumbbell Floor Press", equipment: "dumbbell, mat", category: "compound", description: "Shoulder-friendly chest press done on a mat.", formTips: "Pause triceps lightly on the floor and press smoothly." },
+    { name: "Low Cable Fly", equipment: "cable", category: "isolation", description: "Upper-chest cable fly option using a cable station.", formTips: "Move slowly and keep ribs down." },
+    { name: "Flat Barbell Bench Press", equipment: "barbell, bench", category: "compound", description: "Standard chest compound lift.", formTips: "Use a spotter or safe pins for heavier sets." },
+    { name: "Single-Arm Cable Press", equipment: "cable", category: "compound", description: "Cable press that trains chest with core stability.", formTips: "Do not twist the torso; press straight forward." },
+  ],
+  back: [
+    { name: "Lat Pulldown", equipment: "lat pulldown", category: "compound", description: "Common vertical pull for lats.", formTips: "Pull elbows down, not the bar behind the neck." },
+    { name: "Seated Cable Row", equipment: "seated row, cable", category: "compound", description: "Common cable row for mid-back.", formTips: "Stay tall and squeeze shoulder blades gently." },
+    { name: "One-Arm Dumbbell Row", equipment: "dumbbell, bench", category: "compound", description: "Reliable dumbbell row for lats and mid-back.", formTips: "Keep hips square and row toward the hip." },
+    { name: "Chest-Supported Dumbbell Row", equipment: "dumbbell, incline bench", category: "compound", description: "Back row that reduces lower-back strain.", formTips: "Let shoulder blades move, then squeeze at the top." },
+    { name: "Cable Straight-Arm Pulldown", equipment: "cable", category: "isolation", description: "Lat isolation using a cable station.", formTips: "Keep arms mostly straight and avoid shrugging." },
+    { name: "Assisted Inverted Row", equipment: "smith machine/bar", category: "compound", description: "Bodyweight row option using a fixed bar.", formTips: "Walk feet closer to make it easier." },
+    { name: "Dumbbell Pullover", equipment: "dumbbell, bench", category: "isolation", description: "Lat and chest accessory using a dumbbell.", formTips: "Keep ribs controlled and use a light load." },
+    { name: "Close-Grip Lat Pulldown", equipment: "lat pulldown", category: "compound", description: "Lat pulldown variation with a neutral or close grip.", formTips: "Keep shoulders away from ears." },
+    { name: "Cable Face Pull", equipment: "cable", category: "isolation", description: "Rear-delt and upper-back friendly cable exercise.", formTips: "Pull toward eye level with light weight." },
+    { name: "Dumbbell Rear-Delt Row", equipment: "dumbbell", category: "isolation", description: "Upper-back and rear-delt row using dumbbells.", formTips: "Use lighter weight and lead with elbows." },
+  ],
+  shoulders: [
+    { name: "Seated Dumbbell Shoulder Press", equipment: "dumbbell, bench", category: "compound", description: "Common shoulder press option.", formTips: "Keep elbows slightly forward and avoid painful depth." },
+    { name: "Standing Dumbbell Lateral Raise", equipment: "dumbbell", category: "isolation", description: "Side-delt raise with dumbbells.", formTips: "Use light weight and stop around shoulder height." },
+    { name: "Cable Lateral Raise", equipment: "cable", category: "isolation", description: "Side-delt raise using one cable handle.", formTips: "Lean slightly away and move slowly." },
+    { name: "Dumbbell Front Raise", equipment: "dumbbell", category: "isolation", description: "Front-delt accessory.", formTips: "Do not swing; stop if shoulder pinches." },
+    { name: "Face Pull", equipment: "cable", category: "isolation", description: "Rear-delt and shoulder-health movement.", formTips: "Pull high with elbows out and light load." },
+    { name: "Band External Rotation", equipment: "band", category: "rehab", description: "Rotator cuff strengthening for shoulder control.", formTips: "Keep elbow tucked and move slowly." },
+    { name: "Dumbbell Arnold Press", equipment: "dumbbell", category: "compound", description: "Shoulder press variation with controlled rotation.", formTips: "Use light-moderate weight and no painful rotation." },
+    { name: "Rear-Delt Dumbbell Fly", equipment: "dumbbell", category: "isolation", description: "Rear-delt option available in any dumbbell area.", formTips: "Hinge lightly and keep neck relaxed." },
+    { name: "Scapular Wall Slide", equipment: "bodyweight", category: "mobility", description: "Shoulder mobility and control drill.", formTips: "Move only in a pain-free range." },
+    { name: "Pike Push-Up", equipment: "bodyweight, mat", category: "compound", description: "Mat/bodyweight shoulder press option.", formTips: "Use a small range if wrists or shoulders complain." },
+  ],
+  legs: [
+    { name: "Leg Press", equipment: "leg press", category: "compound", description: "Common lower-body machine in Indian gyms.", formTips: "Use pain-free depth and keep knees tracking over toes." },
+    { name: "Goblet Squat", equipment: "dumbbell", category: "compound", description: "Simple squat alternative using a dumbbell.", formTips: "Keep chest tall and control depth." },
+    { name: "Romanian Deadlift", equipment: "barbell or dumbbell", category: "compound", description: "Hip-hinge for hamstrings and glutes.", formTips: "Soft knees, hips back, neutral spine." },
+    { name: "Dumbbell Split Squat", equipment: "dumbbell", category: "compound", description: "Single-leg strength using dumbbells.", formTips: "Shorten range if knees feel sensitive." },
+    { name: "Leg Extension", equipment: "leg extension", category: "isolation", description: "Quad isolation machine commonly available.", formTips: "Use smooth reps and avoid locking aggressively." },
+    { name: "Seated or Lying Leg Curl", equipment: "leg curl", category: "isolation", description: "Hamstring curl using whichever machine is available.", formTips: "Control both lift and return." },
+    { name: "Hip Thrust or Glute Bridge", equipment: "bench or mat", category: "compound", description: "Glute exercise with bench or mat fallback.", formTips: "Posteriorly tilt pelvis and avoid lower-back arching." },
+    { name: "Step-Up", equipment: "bench, dumbbell", category: "compound", description: "Leg exercise using a stable bench or box.", formTips: "Choose a low height and drive through the whole foot." },
+    { name: "Standing Calf Raise", equipment: "bodyweight or dumbbell", category: "isolation", description: "Calf exercise with no special machine required.", formTips: "Pause at the top and lower slowly." },
+    { name: "Terminal Knee Extension", equipment: "band", category: "rehab", description: "Knee-friendly quad control drill.", formTips: "Squeeze quad without knee pain." },
+  ],
+  arms: [
+    { name: "Dumbbell Curl", equipment: "dumbbell", category: "isolation", description: "Basic biceps curl.", formTips: "Keep elbows still and avoid swinging." },
+    { name: "Hammer Curl", equipment: "dumbbell", category: "isolation", description: "Biceps and forearm-friendly curl.", formTips: "Use neutral grip and pain-free range." },
+    { name: "Cable Curl", equipment: "cable", category: "isolation", description: "Cable biceps curl with steady tension.", formTips: "Stand tall and control the return." },
+    { name: "Rope Pushdown", equipment: "cable", category: "isolation", description: "Common triceps cable exercise.", formTips: "Keep elbows close; swap handle if elbows hurt." },
+    { name: "Straight-Bar Pushdown", equipment: "cable", category: "isolation", description: "Triceps pushdown with bar attachment.", formTips: "Use lighter load if wrists or elbows complain." },
+    { name: "Cross-Body Cable Triceps Extension", equipment: "cable", category: "isolation", description: "Elbow-friendly triceps option.", formTips: "Move slowly and keep shoulder stable." },
+    { name: "Close-Grip Push-Up", equipment: "bodyweight, mat", category: "compound", description: "Triceps-focused bodyweight option.", formTips: "Use incline if wrists or elbows feel strained." },
+    { name: "Dumbbell Overhead Triceps Extension", equipment: "dumbbell", category: "isolation", description: "Triceps long-head exercise.", formTips: "Use light load and stop if elbows pinch." },
+    { name: "Wrist Curl And Extension", equipment: "dumbbell", category: "isolation", description: "Forearm strengthening with light dumbbells.", formTips: "Use slow reps and small pain-free range." },
+    { name: "Farmer Carry", equipment: "dumbbell", category: "compound", description: "Grip and forearm exercise.", formTips: "Walk tall and keep shoulders packed." },
+  ],
+  core: [
+    { name: "Dead Bug", equipment: "mat", category: "core", description: "Core stability drill.", formTips: "Keep lower back gently pressed to the mat." },
+    { name: "Plank", equipment: "mat", category: "core", description: "Basic anti-extension core hold.", formTips: "Brace abs and stop before form breaks." },
+    { name: "Side Plank", equipment: "mat", category: "core", description: "Oblique and lateral core hold.", formTips: "Stack hips and keep neck relaxed." },
+    { name: "Pallof Press", equipment: "cable or band", category: "core", description: "Anti-rotation core exercise.", formTips: "Do not let the torso rotate." },
+    { name: "Cable Wood Chop", equipment: "cable", category: "core", description: "Rotational core exercise using cable.", formTips: "Rotate through torso, not lower back." },
+    { name: "Mountain Climber", equipment: "mat", category: "conditioning", description: "Core and cardio movement.", formTips: "Keep hips controlled and choose a low-impact pace." },
+    { name: "Bird Dog", equipment: "mat", category: "core", description: "Spine-friendly core stability drill.", formTips: "Reach long without twisting." },
+    { name: "Reverse Crunch", equipment: "mat", category: "core", description: "Lower-ab focused mat movement.", formTips: "Curl pelvis up; avoid swinging legs." },
+    { name: "Bicycle Crunch", equipment: "mat", category: "core", description: "Abs and obliques movement.", formTips: "Move slowly and keep elbows wide." },
+    { name: "Hollow Hold Regression", equipment: "mat", category: "core", description: "Core tension drill with easier bent-knee option.", formTips: "Use the easiest version that keeps your back safe." },
+  ],
+};
 
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase().trim();
@@ -78,6 +152,18 @@ function rankLibrary(library: any[], currentExercise: any, usedIds: string[], us
     }))
     .filter((item) => item.score > -999)
     .sort((a, b) => b.score - a.score || String(a.exercise.name).localeCompare(String(b.exercise.name)));
+}
+
+function dedupeRanked(items: Array<{ exercise: any; score: number }>) {
+  const seen = new Set<string>();
+  const output = [];
+  for (const item of items) {
+    const key = String(item.exercise?.id ?? item.exercise?.name ?? "").toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(item);
+  }
+  return output;
 }
 
 async function createAiExercises(muscleGroup: string, currentExercise: any, usedNames: string[], recentReplacementNames: string[], userId: string) {
@@ -161,6 +247,57 @@ Return:
   return created;
 }
 
+async function createSeedReplacementExercises(muscleGroup: string, currentExercise: any, usedNames: string[], recentReplacementNames: string[], userId: string) {
+  const seedOptions = indiaFriendlyReplacementPool[muscleGroup] ?? [];
+  if (seedOptions.length === 0) return [];
+
+  const blockedNames = new Set([...usedNames, ...recentReplacementNames, currentExercise?.name].map(normalize).filter(Boolean));
+  const created = [];
+
+  for (const option of seedOptions) {
+    const name = option.name.trim();
+    if (!name || blockedNames.has(normalize(name))) continue;
+
+    const existing = await prisma.exercise.findFirst({
+      where: {
+        name: { equals: name, mode: "insensitive" },
+        OR: [
+          { status: "approved" },
+          { status: "pending", submittedById: userId },
+        ],
+      },
+    });
+    if (existing) {
+      created.push(existing);
+      continue;
+    }
+
+    let id = slugify(name);
+    let suffix = 2;
+    while (await prisma.exercise.findUnique({ where: { id } })) {
+      id = `${slugify(name)}-${suffix}`;
+      suffix += 1;
+    }
+
+    const exercise = await prisma.exercise.create({
+      data: {
+        id,
+        name,
+        muscleGroup,
+        equipment: option.equipment,
+        category: option.category,
+        description: option.description,
+        formTips: option.formTips,
+        status: "pending",
+        submittedById: userId,
+      },
+    });
+    created.push(exercise);
+  }
+
+  return created;
+}
+
 export async function POST(req: Request) {
   try {
     const user = await requireCurrentUser();
@@ -186,18 +323,30 @@ export async function POST(req: Request) {
     });
     const rankedLibrary = rankLibrary(library, { ...currentExercise, id: currentId }, usedIds, usedNames, recentReplacementNames);
     const bestLibrary = rankedLibrary[0];
+    const seedExercises = await createSeedReplacementExercises(
+      muscleGroup,
+      currentExercise,
+      usedNames,
+      recentReplacementNames,
+      user.id
+    );
+    const rankedSeeds = rankLibrary(seedExercises, { ...currentExercise, id: currentId }, usedIds, usedNames, recentReplacementNames);
 
     const shouldUseAi =
       !bestLibrary ||
       bestLibrary.score < 45 ||
       recentReplacementNames.length > 0 ||
-      library.length < 12;
+      library.length < 12 ||
+      rankedSeeds.length > rankedLibrary.length;
 
-    if (!shouldUseAi && bestLibrary) {
+    const rankedLibraryWithSeeds = dedupeRanked([...rankedSeeds, ...rankedLibrary].sort((a, b) => b.score - a.score));
+    const bestLibraryWithSeed = rankedLibraryWithSeeds[0];
+
+    if (!shouldUseAi && bestLibraryWithSeed) {
       return NextResponse.json({
-        exercise: bestLibrary.exercise,
-        options: rankedLibrary.slice(0, 10).map((item) => item.exercise),
-        source: bestLibrary.exercise.status === "pending" ? "pending" : "library",
+        exercise: bestLibraryWithSeed.exercise,
+        options: rankedLibraryWithSeeds.slice(0, 10).map((item) => item.exercise),
+        source: bestLibraryWithSeed.exercise.status === "pending" ? "pending" : "library",
         reason: "Matched by muscle, common equipment, and workout context.",
       });
     }
@@ -210,7 +359,7 @@ export async function POST(req: Request) {
       user.id
     );
     const rankedAi = rankLibrary(aiExercises, { ...currentExercise, id: currentId }, usedIds, usedNames, recentReplacementNames);
-    const candidates = [...rankedAi, ...rankedLibrary].sort((a, b) => b.score - a.score);
+    const candidates = dedupeRanked([...rankedAi, ...rankedSeeds, ...rankedLibrary].sort((a, b) => b.score - a.score));
     const best = candidates[0];
     if (best) {
       return NextResponse.json({

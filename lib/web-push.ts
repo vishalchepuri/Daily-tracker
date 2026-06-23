@@ -72,8 +72,27 @@ function normalizePayload(payload: PushPayload) {
   });
 }
 
+export async function pruneStalePushSubscriptions(userId?: string, maxAgeDays = 60) {
+  const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
+  const result = await prisma.webPushSubscription.deleteMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      lastUsedAt: null,
+      updatedAt: { lt: cutoff },
+    },
+  });
+  const usedResult = await prisma.webPushSubscription.deleteMany({
+    where: {
+      ...(userId ? { userId } : {}),
+      lastUsedAt: { lt: cutoff },
+    },
+  });
+  return result.count + usedResult.count;
+}
+
 export async function sendPushToUser(userId: string, payload: PushPayload) {
   configureWebPush();
+  await pruneStalePushSubscriptions(userId);
 
   const subscriptions = await prisma.webPushSubscription.findMany({
     where: { userId },
