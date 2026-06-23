@@ -57,6 +57,72 @@ type AgentActionResult = {
   undo?: AgentUndoButton;
 };
 
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function compactUndoButtonLabel(label: string) {
+  const createdMatch = label.match(/^Created\s+(.+)$/i);
+  if (createdMatch) {
+    const createdName = createdMatch[1].trim();
+    const dayName = WEEKDAY_NAMES.find((day) => createdName.toLowerCase().startsWith(day.toLowerCase()));
+    return dayName ? `Undo ${dayName}` : `Undo ${createdName.slice(0, 24)}`;
+  }
+
+  const loggedMatch = label.match(/^Logged\s+(.+)$/i);
+  if (loggedMatch) return `Undo ${loggedMatch[1].trim().slice(0, 24)}`;
+
+  return "Undo";
+}
+
+function isSkippedActionResult(result: AgentActionResult) {
+  return /^Skipped\s+/i.test(result.label);
+}
+
+function cleanSkippedLabel(label: string) {
+  return label.replace(/^Skipped\s+/i, "");
+}
+
+function formatActionResultsSummary(actionResults: AgentActionResult[]) {
+  if (actionResults.length === 0) return "";
+
+  const completed = actionResults.filter((result) => !isSkippedActionResult(result));
+  const skipped = actionResults.filter(isSkippedActionResult);
+  const sections: string[] = [];
+
+  if (completed.length > 0) {
+    sections.push(`Actions completed:\n${completed.map((result) => `- ${result.label}`).join("\n")}`);
+  }
+
+  if (skipped.length > 0) {
+    sections.push(`Actions skipped:\n${skipped.map((result) => `- ${cleanSkippedLabel(result.label)}`).join("\n")}`);
+  }
+
+  return `\n\n${sections.join("\n\n")}`;
+}
+
+function correctWorkoutPlanSaveMessage(content: string, actionResults: AgentActionResult[]) {
+  const createdWorkoutCount = actionResults.filter(
+    (result) => result.type === "create_workout_template" && /^Created\s+/i.test(result.label)
+  ).length;
+  const skippedWorkoutCount = actionResults.filter(
+    (result) => result.type === "create_workout_template" && isSkippedActionResult(result)
+  ).length;
+
+  if (skippedWorkoutCount === 0) return content;
+
+  const savedText = createdWorkoutCount === 1 ? "1 workout day was saved" : `${createdWorkoutCount} workout days were saved`;
+  const skippedText =
+    skippedWorkoutCount === 1
+      ? "1 planned day was skipped by validation"
+      : `${skippedWorkoutCount} planned days were skipped by validation`;
+  const correction = `Done - ${savedText}; ${skippedText}.`;
+
+  if (/^Done\b[^\n]*/i.test(content)) {
+    return content.replace(/^Done\b[^\n]*/i, correction);
+  }
+
+  return `${correction}\n\n${content}`;
+}
+
 type AgentAction =
   | {
       type: "create_exercise";
@@ -644,6 +710,104 @@ function isWorkoutPlanIntent(text: unknown) {
   ]);
 }
 
+function isWorkoutContextIntent(text: unknown) {
+  if (typeof text !== "string") return false;
+  return isWorkoutPlanIntent(text) || includesAny(text, [
+    "workout",
+    "exercise",
+    "gym",
+    "training",
+    "program",
+    "template",
+    "replace exercise",
+    "remove exercise",
+    "add exercise",
+    "sets",
+    "reps",
+  ]);
+}
+
+function isNutritionContextIntent(text: unknown) {
+  if (typeof text !== "string") return false;
+  return isFoodPlanIntent(text) || includesAny(text, [
+    "food",
+    "meal",
+    "diet",
+    "nutrition",
+    "calorie",
+    "calories",
+    "protein",
+    "carbs",
+    "fat",
+    "fiber",
+    "water",
+    "ate",
+    "breakfast",
+    "lunch",
+    "dinner",
+    "snack",
+    "vitamin",
+    "mineral",
+  ]);
+}
+
+function isSpendContextIntent(text: unknown) {
+  if (typeof text !== "string") return false;
+  return includesAny(text, [
+    "spend",
+    "spent",
+    "expense",
+    "payment",
+    "receipt",
+    "upi",
+    "bank",
+    "balance",
+    "credit card",
+    "card",
+    "borrow",
+    "lent",
+    "lend",
+    "money",
+    "budget",
+    "bill",
+  ]);
+}
+
+function isReminderContextIntent(text: unknown) {
+  if (typeof text !== "string") return false;
+  return includesAny(text, [
+    "remind",
+    "reminder",
+    "task",
+    "todo",
+    "to-do",
+    "done",
+    "complete",
+    "completed",
+    "office",
+    "leaving home",
+    "tomorrow",
+    "tonight",
+    "bring",
+    "bill",
+  ]);
+}
+
+function isProgressContextIntent(text: unknown) {
+  if (typeof text !== "string") return false;
+  return includesAny(text, [
+    "progress",
+    "weight",
+    "measurement",
+    "body fat",
+    "steps",
+    "active energy",
+    "fitness",
+    "health",
+    "photo",
+  ]);
+}
+
 function isSimpleGreeting(text: unknown) {
   if (typeof text !== "string") return false;
   const normalized = text
@@ -1036,6 +1200,29 @@ function isLowerBodyTemplate(action: Extract<AgentAction, { type: "create_workou
   return includesAny(text, ["lower", "legs", "leg", "quad", "hamstring", "glute", "calf", "calves"]);
 }
 
+function isRecoveryOrMobilityTemplate(action: Extract<AgentAction, { type: "create_workout_template" }>) {
+  const text = [
+    action.name,
+    action.muscleGroups,
+    action.difficulty,
+    ...(action.warmups ?? []).map((item) => `${item.name} ${item.notes ?? ""}`),
+    ...(action.stretches ?? []).map((item) => `${item.name} ${item.notes ?? ""}`),
+    ...(action.exercises ?? []).map((item) => `${item.exerciseName} ${item.muscleGroup}`),
+  ].join(" ").toLowerCase();
+
+  return includesAny(text, [
+    "joint strength",
+    "joint-strength",
+    "joint strengthening",
+    "mobility",
+    "recovery",
+    "rehab",
+    "prehab",
+    "pain-free",
+    "isometric",
+  ]);
+}
+
 function inferSpendPaymentSource(text: string, action: Extract<AgentAction, { type: "create_spend_log" }>) {
   const sourceText = `${text}\n${action.notes ?? ""}`.replace(/\s+/g, " ");
   const bankMatch = sourceText.match(/\b(HDFC|ICICI|SBI|Axis|Kotak|Yes Bank|IDFC|IndusInd|Federal|Canara|Punjab National|Bank of Baroda)\b(?:\s+Bank)?/i);
@@ -1132,7 +1319,7 @@ async function withUndo(
     ...result,
     undo: {
       id: record.id,
-      label: "Undo",
+      label: compactUndoButtonLabel(result.label),
     },
   };
 }
@@ -1558,7 +1745,7 @@ async function executeAgentAction(
   }
 
   if (action.type === "create_workout_template") {
-    if (isUpperBodyPriorityFocus(options.workoutFocusMuscles) && isLowerBodyTemplate(action)) {
+    if (isUpperBodyPriorityFocus(options.workoutFocusMuscles) && isLowerBodyTemplate(action) && !isRecoveryOrMobilityTemplate(action)) {
       const existingLowerTemplates = await prisma.workoutTemplate.count({
         where: {
           userId,
@@ -1834,91 +2021,10 @@ export async function POST(req: Request) {
     const startOfWeek = new Date(startOfDay);
     startOfWeek.setDate(startOfWeek.getDate() - 6);
 
-    const [profile, todayFoodLogs, weekFoodLogs, recentWorkouts, recentProgress, exercises, workoutTemplates, dietPlans, recentSpends, financeProfile, bankAccounts, creditCards, moneyLinks, pendingReminders, reminderLists, recentChat] =
-      await Promise.all([
-        prisma.userProfile.findUnique({ where: { userId } }),
-        prisma.foodLog.findMany({
-          where: { userId, date: { gte: startOfDay, lte: endOfDay } },
-          orderBy: { createdAt: "asc" },
-        }),
-        prisma.foodLog.findMany({
-          where: { userId, date: { gte: startOfWeek, lte: endOfDay } },
-          orderBy: { date: "asc" },
-        }),
-        prisma.workoutLog.findMany({
-          where: { userId },
-          include: { exerciseLogs: { take: 8, include: { exercise: true } } },
-          orderBy: { date: "desc" },
-          take: 3,
-        }),
-        prisma.progressEntry.findMany({
-          where: { userId },
-          orderBy: { date: "desc" },
-          take: 5,
-        }),
-        prisma.exercise.findMany({
-          orderBy: { name: "asc" },
-          select: { id: true, name: true, muscleGroup: true },
-          take: 120,
-        }),
-        prisma.workoutTemplate.findMany({
-          where: { userId },
-          include: { exercises: { include: { exercise: true }, orderBy: { orderIndex: "asc" } } },
-          orderBy: { createdAt: "desc" },
-          take: 8,
-        }),
-        prisma.dietPlan.findMany({
-          where: { userId },
-          orderBy: { updatedAt: "desc" },
-          take: 5,
-        }),
-        prisma.spend.findMany({
-          where: { userId },
-          include: { bankAccount: true, creditCard: true },
-          orderBy: { date: "desc" },
-          take: 10,
-        }),
-        prisma.financeProfile.findUnique({ where: { userId } }),
-        prisma.bankAccount.findMany({
-          where: { userId, active: true },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.creditCard.findMany({
-          where: { userId, active: true },
-          orderBy: { createdAt: "desc" },
-        }),
-        prisma.moneyLink.findMany({
-          where: { userId },
-          orderBy: [{ settled: "asc" }, { date: "desc" }],
-          take: 10,
-        }),
-        prisma.reminder.findMany({
-          where: { userId, completed: false },
-          select: {
-            id: true,
-            title: true,
-            notes: true,
-            contextTag: true,
-            sourceLabel: true,
-            dueDate: true,
-            recurrence: true,
-            recurrenceCustom: true,
-            priority: true,
-            flagged: true,
-            listId: true,
-            list: { select: { id: true, name: true, color: true } },
-          },
-          orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
-          take: 20,
-        }),
-        prisma.reminderList.findMany({
-          where: { userId },
-          select: { id: true, name: true, color: true },
-          orderBy: { createdAt: "asc" },
-          take: 12,
-        }),
-        listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
-      ]);
+    const [profile, recentChat] = await Promise.all([
+      prisma.userProfile.findUnique({ where: { userId } }),
+      listFirestoreChatMessages(userId, chatSession.id, CHAT_MESSAGES_PER_SESSION_LIMIT),
+    ]);
 
     const workoutPlanningActive =
       isWorkoutPlanIntent(message) ||
@@ -1926,6 +2032,136 @@ export async function POST(req: Request) {
       lastAssistantAskedWorkoutTrainingStyle(recentChat) ||
       lastAssistantAskedWorkoutSafety(recentChat) ||
       lastAssistantAskedJointStrengthening(recentChat);
+    const needsNutritionContext = hasImage || isNutritionContextIntent(message);
+    const needsWorkoutContext = hasImage || workoutPlanningActive || isWorkoutContextIntent(message);
+    const needsSpendContext = hasImage || isSpendContextIntent(message);
+    const needsReminderContext = isReminderContextIntent(message);
+    const needsProgressContext = hasImage || isProgressContextIntent(message);
+    const needsDietPlans = needsNutritionContext || isFoodPlanIntent(message);
+
+    const [
+      todayFoodLogs,
+      weekFoodLogs,
+      recentWorkouts,
+      recentProgress,
+      exercises,
+      workoutTemplates,
+      dietPlans,
+      recentSpends,
+      financeProfile,
+      bankAccounts,
+      creditCards,
+      moneyLinks,
+      pendingReminders,
+      reminderLists,
+    ] = await Promise.all([
+      needsNutritionContext
+        ? prisma.foodLog.findMany({
+            where: { userId, date: { gte: startOfDay, lte: endOfDay } },
+            orderBy: { createdAt: "asc" },
+          })
+        : Promise.resolve([]),
+      needsNutritionContext
+        ? prisma.foodLog.findMany({
+            where: { userId, date: { gte: startOfWeek, lte: endOfDay } },
+            orderBy: { date: "asc" },
+          })
+        : Promise.resolve([]),
+      needsWorkoutContext
+        ? prisma.workoutLog.findMany({
+            where: { userId },
+            include: { exerciseLogs: { take: 8, include: { exercise: true } } },
+            orderBy: { date: "desc" },
+            take: 3,
+          })
+        : Promise.resolve([]),
+      needsProgressContext
+        ? prisma.progressEntry.findMany({
+            where: { userId },
+            orderBy: { date: "desc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
+      needsWorkoutContext
+        ? prisma.exercise.findMany({
+            orderBy: { name: "asc" },
+            select: { id: true, name: true, muscleGroup: true },
+            take: 120,
+          })
+        : Promise.resolve([]),
+      needsWorkoutContext
+        ? prisma.workoutTemplate.findMany({
+            where: { userId },
+            include: { exercises: { include: { exercise: true }, orderBy: { orderIndex: "asc" } } },
+            orderBy: { createdAt: "desc" },
+            take: 8,
+          })
+        : Promise.resolve([]),
+      needsDietPlans
+        ? prisma.dietPlan.findMany({
+            where: { userId },
+            orderBy: { updatedAt: "desc" },
+            take: 5,
+          })
+        : Promise.resolve([]),
+      needsSpendContext
+        ? prisma.spend.findMany({
+            where: { userId },
+            include: { bankAccount: true, creditCard: true },
+            orderBy: { date: "desc" },
+            take: 10,
+          })
+        : Promise.resolve([]),
+      needsSpendContext ? prisma.financeProfile.findUnique({ where: { userId } }) : Promise.resolve(null),
+      needsSpendContext
+        ? prisma.bankAccount.findMany({
+            where: { userId, active: true },
+            orderBy: { createdAt: "desc" },
+          })
+        : Promise.resolve([]),
+      needsSpendContext
+        ? prisma.creditCard.findMany({
+            where: { userId, active: true },
+            orderBy: { createdAt: "desc" },
+          })
+        : Promise.resolve([]),
+      needsSpendContext
+        ? prisma.moneyLink.findMany({
+            where: { userId },
+            orderBy: [{ settled: "asc" }, { date: "desc" }],
+            take: 10,
+          })
+        : Promise.resolve([]),
+      needsReminderContext
+        ? prisma.reminder.findMany({
+            where: { userId, completed: false },
+            select: {
+              id: true,
+              title: true,
+              notes: true,
+              contextTag: true,
+              sourceLabel: true,
+              dueDate: true,
+              recurrence: true,
+              recurrenceCustom: true,
+              priority: true,
+              flagged: true,
+              listId: true,
+              list: { select: { id: true, name: true, color: true } },
+            },
+            orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+            take: 20,
+          })
+        : Promise.resolve([]),
+      needsReminderContext
+        ? prisma.reminderList.findMany({
+            where: { userId },
+            select: { id: true, name: true, color: true },
+            orderBy: { createdAt: "asc" },
+            take: 12,
+          })
+        : Promise.resolve([]),
+    ]);
     const workoutFocusOverride: { workoutFocusMuscles?: string; workoutFocusGoal?: string } = {};
     const workoutTrainingStyleOverride: { workoutTrainingStyle?: string } = {};
     const workoutGoal = inferWorkoutFocusGoal(message, profile?.goal);
@@ -1998,7 +2234,10 @@ export async function POST(req: Request) {
       profile?.healthLimitations ??
       (conversationMentionsJointSensitive(recentChat) ? "joint pain mentioned in chat" : undefined);
     const uniqueFoodLogIds = Array.from(new Set([...todayFoodLogs, ...weekFoodLogs].map((log) => log.id)));
-    const micronutrientLogsByFoodLogId = await listFoodMicronutrientLogsForFoodLogs(userId, uniqueFoodLogIds);
+    const micronutrientLogsByFoodLogId =
+      needsNutritionContext && uniqueFoodLogIds.length > 0
+        ? await listFoodMicronutrientLogsForFoodLogs(userId, uniqueFoodLogIds)
+        : {};
     const todayFoodLogsWithMicronutrients = todayFoodLogs.map((log) => ({
       ...log,
       micronutrients: micronutrientLogsByFoodLogId[log.id]?.micronutrients ?? {},
@@ -2118,6 +2357,8 @@ Rules:
   - If the user names specific muscles, choose or adapt the split whose day targets directly include those exact muscles. The named muscles must appear as primary or direct targets in the draft and saved templates.
   - Respect the user's priority order. If chest, shoulders, back, biceps, triceps, arms, or forearms appear before legs, glutes, quadriceps, hamstrings, or calves, the split is upper-body priority.
   - For a 4-day upper-body priority plan, use 3 upper-body days and only 1 lower-body maintenance day. Do not create two lower-body days unless the user explicitly prioritizes legs, glutes, thighs, hamstrings, quadriceps, calves, or asks for full body/lower-body focus.
+  - For a 5-day upper-body priority plan, the 5th day may be a recovery, joint-strength, mobility, core, or light-cardio day. Do not count that day as an extra lower-body strength day just because it includes knee/hip/ankle prehab.
+  - If the user asks to add a missing joint-strength + mobility day, save it as its own workout template even when the weekly plan already has one lower-body maintenance day.
   - For the user's saved focus "chest, shoulders, biceps, triceps, back, legs, forearms, core", the correct 4-day structure is: Upper Push, Upper Pull, Lower Maintenance, Upper Hypertrophy/Arms/Core.
   - Split the ordered priority list across the number of days the user chooses. Earlier muscles get primary placement and slightly more weekly volume. Later muscles get maintenance/support volume.
   - Do not replace exact requested muscles with only broad categories. For example, quadriceps means quadriceps, hamstrings means hamstrings, glutes means glutes, rear deltoids means rear deltoids, forearms means forearms, and abs/obliques/core should be placed intentionally.
@@ -2391,41 +2632,55 @@ Available action examples:
       await pruneChatRetention(userId);
       return streamSingleMessage(blocker);
     }
-    const actionResults: AgentActionResult[] = [];
-    for (const action of actions) {
-      const result = await executeAgentAction(userId, action, message, {
-        healthLimitations: context.profile?.healthLimitations,
-        userWantsJointStrengthening: context.userWantsJointStrengthening,
-        workoutFocusMuscles: context.profile?.workoutFocusMuscles,
-        micronutrientTrackingEnabled: context.micronutrients.enabled,
-        profile: context.profile,
-      });
-      if (result) actionResults.push(result);
-    }
-    const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
-    actionResults.push(...inferredFriendLinks);
-
-    const actionSummary =
-      actionResults.length > 0
-        ? `\n\nActions completed:\n${actionResults.map((result) => `- ${result.label}`).join("\n")}`
-        : "";
-    const fullContent = `${agentResult.response ?? "Done."}${actionSummary}`;
-    const undoActions = actionResults
-      .filter((result): result is AgentActionResult & { undo: AgentUndoButton } => Boolean(result.undo?.id))
-      .map((result) => ({
-        id: result.undo.id,
-        label: result.undo.label,
-        actionLabel: result.label,
-      }));
-
-    await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent, undoActions);
-    await pruneChatRetention(userId);
+    const initialContent = agentResult.response ?? "Done.";
 
     const stream = new ReadableStream({
       async start(controller) {
-        await writeSse(controller, { content: fullContent });
-        if (undoActions.length > 0) {
-          await writeSse(controller, { undoActions });
+        await writeSse(controller, { content: initialContent });
+        let fullContent = initialContent;
+        let undoActions: Array<{ id: string; label: string; actionLabel: string }> = [];
+        try {
+          const actionResults: AgentActionResult[] = [];
+          for (const action of actions) {
+            const result = await executeAgentAction(userId, action, message, {
+              healthLimitations: context.profile?.healthLimitations,
+              userWantsJointStrengthening: context.userWantsJointStrengthening,
+              workoutFocusMuscles: context.profile?.workoutFocusMuscles,
+              micronutrientTrackingEnabled: context.micronutrients.enabled,
+              profile: context.profile,
+            });
+            if (result) actionResults.push(result);
+          }
+          const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
+          actionResults.push(...inferredFriendLinks);
+
+          const correctedInitialContent = correctWorkoutPlanSaveMessage(initialContent, actionResults);
+          const actionSummary = formatActionResultsSummary(actionResults);
+          fullContent = `${correctedInitialContent}${actionSummary}`;
+          undoActions = actionResults
+            .filter((result): result is AgentActionResult & { undo: AgentUndoButton } => Boolean(result.undo?.id))
+            .map((result) => ({
+              id: result.undo.id,
+              label: result.undo.label,
+              actionLabel: result.label,
+            }));
+
+          if (correctedInitialContent !== initialContent) {
+            await writeSse(controller, { replaceContent: fullContent });
+          } else if (actionSummary) {
+            await writeSse(controller, { content: actionSummary });
+          }
+          if (undoActions.length > 0) {
+            await writeSse(controller, { undoActions });
+          }
+          await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent, undoActions);
+          await pruneChatRetention(userId);
+        } catch (error) {
+          console.error("Dayza background action execution failed", error);
+          const warning = "\n\nI answered, but one background action could not finish. Please try that action again if you do not see it saved.";
+          fullContent = `${initialContent}${warning}`;
+          await writeSse(controller, { content: warning });
+          await saveAssistantMessageBestEffort(userId, chatSession.id, fullContent);
         }
         const encoder = new TextEncoder();
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));

@@ -104,10 +104,11 @@ export async function getPushDeviceDiagnostics() {
     };
   }
 
-  const stateRes = await fetch("/api/push/subscription");
-  const state = await stateRes.json().catch(() => ({}));
   const registration = await navigator.serviceWorker.getRegistration("/sw.js");
   const subscription = await registration?.pushManager.getSubscription();
+  const headers = subscription?.endpoint ? { "x-dayza-push-endpoint": subscription.endpoint } : undefined;
+  const stateRes = await fetch("/api/push/subscription", { headers });
+  const state = await stateRes.json().catch(() => ({}));
   const key = arrayBufferToBase64Url(subscription?.options?.applicationServerKey);
   return {
     supported: true,
