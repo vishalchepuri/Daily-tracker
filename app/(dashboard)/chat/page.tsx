@@ -260,6 +260,17 @@ export default function ChatPage() {
                   return updated;
                 });
               }
+              if (parsed?.replaceContent) {
+                setAgentStatus("Finalizing saved actions...");
+                setMessages(prev => {
+                  const updated = [...(prev ?? [])];
+                  const last = updated[updated.length - 1];
+                  if (last?.role === "assistant") {
+                    updated[updated.length - 1] = { ...last, content: parsed.replaceContent };
+                  }
+                  return updated;
+                });
+              }
               if (Array.isArray(parsed?.undoActions) && parsed.undoActions.length > 0) {
                 setMessages(prev => {
                   const updated = [...(prev ?? [])];
@@ -857,7 +868,7 @@ export default function ChatPage() {
                         title={action.actionLabel ? `Undo: ${action.actionLabel}` : "Undo this agent action"}
                       >
                         {undoingId === action.id && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                        {action.undone ? "Undone" : "Undo"}
+                        {action.undone ? "Undone" : action.label || "Undo"}
                       </Button>
                     ))}
                   </div>

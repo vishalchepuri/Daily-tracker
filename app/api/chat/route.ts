@@ -57,6 +57,72 @@ type AgentActionResult = {
   undo?: AgentUndoButton;
 };
 
+const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function compactUndoButtonLabel(label: string) {
+  const createdMatch = label.match(/^Created\s+(.+)$/i);
+  if (createdMatch) {
+    const createdName = createdMatch[1].trim();
+    const dayName = WEEKDAY_NAMES.find((day) => createdName.toLowerCase().startsWith(day.toLowerCase()));
+    return dayName ? `Undo ${dayName}` : `Undo ${createdName.slice(0, 24)}`;
+  }
+
+  const loggedMatch = label.match(/^Logged\s+(.+)$/i);
+  if (loggedMatch) return `Undo ${loggedMatch[1].trim().slice(0, 24)}`;
+
+  return "Undo";
+}
+
+function isSkippedActionResult(result: AgentActionResult) {
+  return /^Skipped\s+/i.test(result.label);
+}
+
+function cleanSkippedLabel(label: string) {
+  return label.replace(/^Skipped\s+/i, "");
+}
+
+function formatActionResultsSummary(actionResults: AgentActionResult[]) {
+  if (actionResults.length === 0) return "";
+
+  const completed = actionResults.filter((result) => !isSkippedActionResult(result));
+  const skipped = actionResults.filter(isSkippedActionResult);
+  const sections: string[] = [];
+
+  if (completed.length > 0) {
+    sections.push(`Actions completed:\n${completed.map((result) => `- ${result.label}`).join("\n")}`);
+  }
+
+  if (skipped.length > 0) {
+    sections.push(`Actions skipped:\n${skipped.map((result) => `- ${cleanSkippedLabel(result.label)}`).join("\n")}`);
+  }
+
+  return `\n\n${sections.join("\n\n")}`;
+}
+
+function correctWorkoutPlanSaveMessage(content: string, actionResults: AgentActionResult[]) {
+  const createdWorkoutCount = actionResults.filter(
+    (result) => result.type === "create_workout_template" && /^Created\s+/i.test(result.label)
+  ).length;
+  const skippedWorkoutCount = actionResults.filter(
+    (result) => result.type === "create_workout_template" && isSkippedActionResult(result)
+  ).length;
+
+  if (skippedWorkoutCount === 0) return content;
+
+  const savedText = createdWorkoutCount === 1 ? "1 workout day was saved" : `${createdWorkoutCount} workout days were saved`;
+  const skippedText =
+    skippedWorkoutCount === 1
+      ? "1 planned day was skipped by validation"
+      : `${skippedWorkoutCount} planned days were skipped by validation`;
+  const correction = `Done - ${savedText}; ${skippedText}.`;
+
+  if (/^Done\b[^\n]*/i.test(content)) {
+    return content.replace(/^Done\b[^\n]*/i, correction);
+  }
+
+  return `${correction}\n\n${content}`;
+}
+
 type AgentAction =
   | {
       type: "create_exercise";
@@ -1230,7 +1296,7 @@ async function withUndo(
     ...result,
     undo: {
       id: record.id,
-      label: "Undo",
+      label: compactUndoButtonLabel(result.label),
     },
   };
 }
@@ -2563,11 +2629,9 @@ Available action examples:
           const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
           actionResults.push(...inferredFriendLinks);
 
-          const actionSummary =
-            actionResults.length > 0
-              ? `\n\nActions completed:\n${actionResults.map((result) => `- ${result.label}`).join("\n")}`
-              : "";
-          fullContent = `${initialContent}${actionSummary}`;
+          const correctedInitialContent = correctWorkoutPlanSaveMessage(initialContent, actionResults);
+          const actionSummary = formatActionResultsSummary(actionResults);
+          fullContent = `${correctedInitialContent}${actionSummary}`;
           undoActions = actionResults
             .filter((result): result is AgentActionResult & { undo: AgentUndoButton } => Boolean(result.undo?.id))
             .map((result) => ({
@@ -2576,7 +2640,9 @@ Available action examples:
               actionLabel: result.label,
             }));
 
-          if (actionSummary) {
+          if (correctedInitialContent !== initialContent) {
+            await writeSse(controller, { replaceContent: fullContent });
+          } else if (actionSummary) {
             await writeSse(controller, { content: actionSummary });
           }
           if (undoActions.length > 0) {
