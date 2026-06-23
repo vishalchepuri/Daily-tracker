@@ -132,6 +132,23 @@ export default function ChatPage() {
   }, []);
 
   useEffect(() => {
+    if (!streaming) return;
+    const steps = [
+      "Preparing your request...",
+      "Loading only the needed app context...",
+      "Asking Dayza Agent...",
+      "Checking whether any app action is needed...",
+      "Finishing the response...",
+    ];
+    let index = 0;
+    const interval = window.setInterval(() => {
+      index = (index + 1) % steps.length;
+      setAgentStatus((current) => current === "Writing response..." ? current : steps[index]);
+    }, 2200);
+    return () => window.clearInterval(interval);
+  }, [streaming]);
+
+  useEffect(() => {
     if (!interactionMode || !voiceReplies || streaming) return;
     const lastAssistant = [...(messages ?? [])].reverse().find((message) => message?.role === "assistant" && message?.content?.trim());
     const content = lastAssistant?.content?.trim();

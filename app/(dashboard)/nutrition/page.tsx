@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck, Sparkles, Filter, Leaf } from "lucide-react";
+import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck, Sparkles, Filter, Leaf, Eye, EyeOff } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
@@ -108,6 +108,7 @@ export default function NutritionPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const [foodIdeaFilter, setFoodIdeaFilter] = useState("all");
   const [trackingRange, setTrackingRange] = useState<"week" | "month">("week");
+  const [showFoodIdeas, setShowFoodIdeas] = useState(true);
   const [dietForm, setDietForm] = useState({
     name: "",
     goal: "muscle_gain",
@@ -120,6 +121,15 @@ export default function NutritionPage() {
       { mealType: "Dinner", title: "", foods: "", calories: "", protein: "", carbs: "", fat: "" },
     ],
   });
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("dayza-show-food-ideas");
+    if (saved === "false") setShowFoodIdeas(false);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("dayza-show-food-ideas", showFoodIdeas ? "true" : "false");
+  }, [showFoodIdeas]);
 
   const loadData = useCallback(async () => {
     fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}`)
@@ -906,8 +916,8 @@ export default function NutritionPage() {
           <TabsTrigger value="diet" className="h-11 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Diet</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="tracker" className="space-y-6">
-      <FadeIn delay={0.05}>
+        <TabsContent value="tracker" className="flex flex-col gap-6">
+      <FadeIn delay={0.05} className="order-1">
         <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
           <Card className="rounded-[26px] border-primary/30 bg-primary/5">
             <CardContent className="p-4">
@@ -956,7 +966,7 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
-      <FadeIn delay={0.1}>
+      <FadeIn delay={0.1} className="order-2">
         <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-6 lg:gap-4">
           {[
             { label: "Calories", value: Math.round(totals.calories), target: targetCal, unit: "kcal", icon: Flame, color: "text-orange-500", bg: "bg-orange-500/10" },
@@ -987,7 +997,7 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
-      <FadeIn delay={0.12}>
+      <FadeIn delay={0.14} className="order-4">
         <Card className="max-w-full overflow-hidden rounded-[26px]">
           <CardHeader className="pb-3">
             <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
@@ -1128,7 +1138,7 @@ export default function NutritionPage() {
       </FadeIn>
 
       {micronutrientTrackingEnabled && (
-        <FadeIn delay={0.16}>
+        <FadeIn delay={0.12} className="order-3">
           <Card className="max-w-full overflow-hidden rounded-[26px] border-orange-500/20 bg-orange-500/5">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
@@ -1190,7 +1200,7 @@ export default function NutritionPage() {
         </FadeIn>
       )}
 
-      <FadeIn delay={0.15}>
+      <FadeIn delay={0.16} className="order-5">
         <Card className="rounded-[26px]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1232,7 +1242,7 @@ export default function NutritionPage() {
       </FadeIn>
 
       {/* Food Logs */}
-      <FadeIn delay={0.2}>
+      <FadeIn delay={0.2} className="order-6">
         <Card className="rounded-[26px]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1303,7 +1313,7 @@ export default function NutritionPage() {
       </FadeIn>
 
       {/* Muscle Building Meal Ideas */}
-      <FadeIn delay={0.3}>
+      <FadeIn delay={0.3} className="order-7">
         <Card className="rounded-[26px]">
           <CardHeader>
             <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
@@ -1314,19 +1324,33 @@ export default function NutritionPage() {
                 </CardTitle>
                 <p className="mt-1 text-sm text-muted-foreground">All portions are grams-based so your logs stay consistent.</p>
               </div>
-              <Select value={foodIdeaFilter} onValueChange={setFoodIdeaFilter}>
-                <SelectTrigger className="h-11 rounded-2xl sm:w-44">
-                  <Filter className="mr-2 h-4 w-4" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {foodIdeaCategories.map((item) => (
-                    <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 rounded-2xl"
+                  onClick={() => setShowFoodIdeas((value) => !value)}
+                >
+                  {showFoodIdeas ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+                  {showFoodIdeas ? "Hide" : "Show"}
+                </Button>
+                {showFoodIdeas && (
+                  <Select value={foodIdeaFilter} onValueChange={setFoodIdeaFilter}>
+                    <SelectTrigger className="h-11 rounded-2xl sm:w-44">
+                      <Filter className="mr-2 h-4 w-4" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {foodIdeaCategories.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
             </div>
           </CardHeader>
+          {showFoodIdeas && (
           <CardContent>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {filteredFoodIdeas.map((s: any) => (
@@ -1363,6 +1387,7 @@ export default function NutritionPage() {
               ))}
             </div>
           </CardContent>
+          )}
         </Card>
       </FadeIn>
         </TabsContent>
