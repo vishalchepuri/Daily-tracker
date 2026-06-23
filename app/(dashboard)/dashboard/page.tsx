@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox } from "lucide-react";
-import { FadeIn, SlideIn } from "@/components/ui/animate";
+import { AlertTriangle, BellRing, Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox, Undo2 } from "lucide-react";
+import { FadeIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -32,6 +32,16 @@ interface DashboardData {
   weeklyTrends?: { date: string; fullDate: string; calories: number; protein: number; water: number }[];
 }
 
+type UndoAction = {
+  id: string;
+  label: string;
+  actionType: string;
+  targetType: string;
+  status: string;
+  createdAt?: string;
+  expiresAt?: string;
+};
+
 export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,6 +55,9 @@ export default function DashboardPage() {
   const [youtubeNeedsConnection, setYoutubeNeedsConnection] = useState(false);
   const [reviewItems, setReviewItems] = useState<any[]>([]);
   const [reviewLoading, setReviewLoading] = useState(true);
+  const [undoActions, setUndoActions] = useState<UndoAction[]>([]);
+  const [undoLoading, setUndoLoading] = useState(true);
+  const [undoingId, setUndoingId] = useState<string | null>(null);
 
   // Targets Settings Drawer States
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -133,6 +146,20 @@ export default function DashboardPage() {
     }
   };
 
+  const fetchUndoActions = async () => {
+    try {
+      const res = await fetch("/api/agent-undo?limit=6");
+      if (res.ok) {
+        const d = await res.json();
+        setUndoActions(d.actions ?? []);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setUndoLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetch("/api/dashboard")
       .then((r) => r.json())
@@ -144,6 +171,7 @@ export default function DashboardPage() {
     fetchWaterLogs();
     fetchYoutubeVideos();
     fetchReviewItems();
+    fetchUndoActions();
   }, []);
 
   const toggleReminder = async (id: string, completed: boolean) => {
@@ -195,6 +223,33 @@ export default function DashboardPage() {
       toast.error("Failed to log water");
     } finally {
       setWaterAdding(false);
+    }
+  };
+
+  const undoAgentAction = async (undoId: string) => {
+    if (undoingId) return;
+    setUndoingId(undoId);
+    try {
+      const res = await fetch("/api/agent-undo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ undoId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(d?.error ?? "Could not undo action");
+        return;
+      }
+      toast.success(d?.message ?? "Action undone");
+      setUndoActions((prev) => prev.map((item) => (item.id === undoId ? { ...item, status: "used" } : item)));
+      fetch("/api/dashboard")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((next) => next && setData(next))
+        .catch(() => null);
+    } catch {
+      toast.error("Could not undo action");
+    } finally {
+      setUndoingId(null);
     }
   };
 
@@ -307,6 +362,51 @@ export default function DashboardPage() {
       icon: Sparkles,
     },
   ];
+  const dueReminderCount = (data?.todayReminders ?? reminders ?? []).filter((item: any) => !item.completed).length;
+  const dueMedicationCount = (data?.todayMedicationLogs ?? []).filter((item: any) => item.status === "pending" || !item.status).length;
+  const openUndoActions = undoActions.filter((item) => item.status === "open");
+  const healthAlerts = [
+    targetProtein > 0 && macros.protein < targetProtein * 0.55
+      ? {
+          label: "Protein is low",
+          detail: `${Math.round(macros.protein)}g of ${Math.round(targetProtein)}g logged. Add a protein-rich meal if it fits your day.`,
+          tone: "amber",
+          href: "/nutrition",
+        }
+      : null,
+    targetWaterMl > 0 && waterTotal < targetWaterMl * 0.5
+      ? {
+          label: "Hydration needs attention",
+          detail: `${Math.round(waterTotal)}ml logged. Quick add 250ml or open Nutrition for the full tracker.`,
+          tone: "blue",
+          href: "/dashboard",
+        }
+      : null,
+    dueReminderCount > 0
+      ? {
+          label: `${dueReminderCount} reminder${dueReminderCount === 1 ? "" : "s"} due`,
+          detail: "Clear the important ones first so the day does not get noisy.",
+          tone: "red",
+          href: "/reminders",
+        }
+      : null,
+    dueMedicationCount > 0
+      ? {
+          label: `${dueMedicationCount} medication alert${dueMedicationCount === 1 ? "" : "s"}`,
+          detail: "Review scheduled doses and mark what you took.",
+          tone: "red",
+          href: "/medications",
+        }
+      : null,
+    ...(data?.micronutrients?.enabled
+      ? (data.micronutrients.low ?? []).slice(0, 2).map((item) => ({
+          label: `${item.label} below target`,
+          detail: `${item.scope ?? "Average"} is ${Math.round(item.percent ?? 0)}%. Use Nutrition to plan food sources.`,
+          tone: "amber",
+          href: "/nutrition",
+        }))
+      : []),
+  ].filter(Boolean) as Array<{ label: string; detail: string; tone: string; href: string }>;
 
   return (
     <div className="space-y-5 sm:space-y-6">
@@ -355,8 +455,9 @@ export default function DashboardPage() {
           <CardHeader className="p-4 pb-2 sm:p-5 sm:pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <CheckCircle2 className="h-5 w-5 text-primary" />
-              Today
+              Today Command Center
             </CardTitle>
+            <p className="text-xs text-muted-foreground">Fast actions, due items, and health signals for the day.</p>
           </CardHeader>
           <CardContent className="space-y-4 p-4 pt-2 sm:p-5 sm:pt-2">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -388,9 +489,71 @@ export default function DashboardPage() {
                 )
               ))}
             </div>
+            {healthAlerts.length > 0 && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                {healthAlerts.slice(0, 4).map((alert) => (
+                  <Link
+                    key={`${alert.label}-${alert.href}`}
+                    href={alert.href}
+                    className={`rounded-2xl border p-3 transition active:scale-[0.99] ${
+                      alert.tone === "red"
+                        ? "border-destructive/30 bg-destructive/10 hover:bg-destructive/15"
+                        : alert.tone === "blue"
+                        ? "border-blue-500/25 bg-blue-500/10 hover:bg-blue-500/15"
+                        : "border-amber-500/25 bg-amber-500/10 hover:bg-amber-500/15"
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      {alert.tone === "red" ? (
+                        <BellRing className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+                      ) : (
+                        <AlertTriangle className={`mt-0.5 h-4 w-4 shrink-0 ${alert.tone === "blue" ? "text-blue-400" : "text-amber-400"}`} />
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">{alert.label}</p>
+                        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{alert.detail}</p>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </FadeIn>
+
+      {!undoLoading && openUndoActions.length > 0 && (
+        <FadeIn delay={0.16}>
+          <Card className="border-sky-500/25 bg-sky-500/5">
+            <CardHeader className="p-4 pb-2 sm:p-5 sm:pb-3">
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Undo2 className="h-5 w-5 text-sky-400" />
+                Undo Center
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Recent agent changes that can still be reversed.</p>
+            </CardHeader>
+            <CardContent className="grid gap-2 p-4 pt-2 sm:grid-cols-2 sm:p-5 sm:pt-2 lg:grid-cols-3">
+              {openUndoActions.slice(0, 3).map((action) => (
+                <div key={action.id} className="rounded-2xl border border-border/70 bg-background/70 p-3">
+                  <p className="line-clamp-2 text-sm font-semibold">{action.label}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{action.targetType.replace(/([A-Z])/g, " $1").toLowerCase()}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="mt-3 h-9 w-full rounded-xl"
+                    onClick={() => undoAgentAction(action.id)}
+                    loading={undoingId === action.id}
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                    Undo
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </FadeIn>
+      )}
 
       {/* Macros Section */}
       <FadeIn delay={0.2}>

@@ -24,6 +24,8 @@ function docData(doc: FirebaseFirestore.DocumentSnapshot): Record<string, any> {
     resolvedAt: fromTimestamp(data.resolvedAt),
     savedAt: fromTimestamp(data.savedAt),
     lastViewedAt: fromTimestamp(data.lastViewedAt),
+    expiresAt: fromTimestamp(data.expiresAt),
+    usedAt: fromTimestamp(data.usedAt),
   };
 }
 
@@ -288,6 +290,16 @@ export async function createAgentUndoAction(userId: string, input: AgentUndoActi
 export async function getAgentUndoAction(userId: string, id: string) {
   const snap = await userDoc(userId).collection("agentUndoActions").doc(id).get();
   return snap.exists ? docData(snap) : null;
+}
+
+export async function listAgentUndoActions(userId: string, limit = 10) {
+  const safeLimit = Math.max(1, Math.min(25, Math.round(Number(limit) || 10)));
+  const snap = await userDoc(userId)
+    .collection("agentUndoActions")
+    .orderBy("createdAt", "desc")
+    .limit(safeLimit)
+    .get();
+  return snap.docs.map(docData);
 }
 
 export async function markAgentUndoActionUsed(userId: string, id: string) {

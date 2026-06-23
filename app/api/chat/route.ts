@@ -458,6 +458,50 @@ function routineJson(items: any[] = []) {
   return normalized.length ? JSON.stringify(normalized) : null;
 }
 
+function ensureWorkoutQualityRoutines(action: Extract<AgentAction, { type: "create_workout_template" }>, healthLimitations?: string | null) {
+  const text = `${action.name} ${action.muscleGroups ?? ""}`.toLowerCase();
+  const hasPainContext = hasKnownAnswer(healthLimitations) && !/^none$/i.test(String(healthLimitations).trim());
+  const warmups = normalizeRoutineItems(action.warmups);
+  const stretches = normalizeRoutineItems(action.stretches);
+
+  const dayWarmups = [
+    { name: "Easy treadmill, cycle, or cross trainer", duration: "5-8 min", notes: "Build warmth gradually before strength work." },
+    hasPainContext
+      ? { name: "Pain-free joint mobility", duration: "3-5 min", notes: "Use slow controlled range and stop before pain." }
+      : { name: "Dynamic mobility for trained joints", duration: "3-5 min", notes: "Match the drill to today's main muscles." },
+  ];
+  if (includesAny(text, ["chest", "shoulder", "push", "triceps", "upper"])) {
+    dayWarmups.push({ name: "Shoulder blade activation", duration: "2 sets", notes: "Band pull-aparts or wall slides before pressing." });
+  }
+  if (includesAny(text, ["back", "biceps", "pull", "row"])) {
+    dayWarmups.push({ name: "Lat and upper-back activation", duration: "2 sets", notes: "Light pulldowns or cable rows before working sets." });
+  }
+  if (includesAny(text, ["leg", "quad", "hamstring", "glute", "calf", "lower"])) {
+    dayWarmups.push({ name: "Hip, knee, and ankle prep", duration: "3-5 min", notes: "Bodyweight squats, glute bridges, and ankle rocks." });
+  }
+
+  const dayStretches = [
+    { name: "Easy cooldown walk or cycle", duration: "3-5 min", notes: "Bring breathing down before stretches." },
+    hasPainContext
+      ? { name: "Pain-free mobility hold", duration: "30 sec each", notes: "Gentle range only; avoid forcing painful joints." }
+      : { name: "Main muscle stretch", duration: "30-45 sec each", notes: "Stretch the muscles trained today without bouncing." },
+  ];
+  if (includesAny(text, ["chest", "shoulder", "triceps", "push", "upper"])) {
+    dayStretches.push({ name: "Doorway chest and triceps stretch", duration: "30 sec each", notes: "Keep shoulders relaxed." });
+  }
+  if (includesAny(text, ["back", "biceps", "pull", "row"])) {
+    dayStretches.push({ name: "Lat stretch and forearm release", duration: "30 sec each", notes: "Use a bench, wall, or cable post for support." });
+  }
+  if (includesAny(text, ["leg", "quad", "hamstring", "glute", "calf", "lower"])) {
+    dayStretches.push({ name: "Hamstring, quad, and calf stretch", duration: "30 sec each", notes: "Stay pain-free and controlled." });
+  }
+
+  return {
+    warmups: [...warmups, ...dayWarmups.filter((item) => !warmups.some((existing) => existing.name.toLowerCase() === item.name.toLowerCase()))].slice(0, 5),
+    stretches: [...stretches, ...dayStretches.filter((item) => !stretches.some((existing) => existing.name.toLowerCase() === item.name.toLowerCase()))].slice(0, 5),
+  };
+}
+
 function isDataImageUrl(value: unknown): value is string {
   return typeof value === "string" && /^data:image\/(png|jpe?g|webp);base64,/i.test(value);
 }
@@ -1830,7 +1874,11 @@ async function executeAgentAction(
       }
     }
 
+    const qualityRoutines = ensureWorkoutQualityRoutines(action, options.healthLimitations);
     const plannedExercises = capWorkoutTemplateExercises(action, action.exercises ?? []);
+    if (plannedExercises.length === 0 && isRecoveryOrMobilityTemplate(action)) {
+      plannedExercises.push(...getJointStrengtheningExercises(options.healthLimitations, `${action.name} ${action.muscleGroups ?? ""}`));
+    }
     if (options.userWantsJointStrengthening) {
       const existingNames = new Set(plannedExercises.map((item) => String(item.exerciseName ?? "").toLowerCase()));
       const templateFocus = `${action.name} ${action.muscleGroups ?? ""}`;
@@ -1870,8 +1918,8 @@ async function executeAgentAction(
         dayOfWeek: action.dayOfWeek || null,
         muscleGroups: action.muscleGroups || null,
         difficulty: action.difficulty || "intermediate",
-        warmupJson: routineJson(action.warmups),
-        stretchesJson: routineJson(action.stretches),
+        warmupJson: routineJson(qualityRoutines.warmups),
+        stretchesJson: routineJson(qualityRoutines.stretches),
         exercises: { create: exerciseRows },
       },
     });
@@ -2440,6 +2488,7 @@ Rules:
   - Core/cardio plans must still honor selected focus muscles and include appropriate core/cardio blocks.
   - If focus includes belly/stomach/waist, normalize it to core and explain that targeted fat loss is not physiologically guaranteed, while training core and using cardio/nutrition to support overall fat loss.
 - Warm-up and stretch rules for workout plans:
+  - Workout Quality Mode is always on: never save a day without specific warmups, cooldown/stretches, practical exercise substitutions, and a recoverable volume target.
   - Every saved workout template must include warmups and stretches.
   - Warmups should be specific to the day, not generic filler: 5-10 minutes of treadmill/cycle/cross-trainer plus 2-4 dynamic drills for the exact joints/muscles being trained.
   - For gym plans, include 1-2 ramp-up sets before the first heavy compound when appropriate.
@@ -2468,6 +2517,7 @@ Rules:
   - With joint pain, reduce total volume first. Prefer moderate effort, controlled tempo, pain-free range, and no forced reps.
   - If healthLimitations exist, choose pain-free alternatives first. Health compatibility is more important than the default split.
   - Do not include an exercise that conflicts with known pain/surgery/fracture context unless you clearly provide a safer modification.
+  - For replacement requests, return up to 10 varied India-friendly options when useful, including dumbbell, cable, machine, mat/bodyweight, and pain-friendly alternatives where appropriate.
 - Joint-aware plan rules:
   - If profile.healthLimitations mentions joint pain, elbow pain, knee pain, fractures, surgery, or injuries, the workout draft must visibly adapt to that limitation.
   - When the user reports joint pain, ask whether they want joint strengthening exercises added alongside each workout day before drafting the plan.

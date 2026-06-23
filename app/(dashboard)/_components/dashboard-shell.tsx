@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
 import { ensureDayzaSession, signOutOfDayza } from "@/lib/firebase-session-client";
+import { GlobalQuickAdd } from "./global-quick-add";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -429,6 +430,8 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           <div className="h-full w-1/2 animate-[loading-bar_0.9s_ease-in-out_infinite] bg-primary" />
         </div>
       )}
+
+      <GlobalQuickAdd hidden={pathname === "/chat" || !profileComplete} />
 
       {pathname !== "/chat" && (
       <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
