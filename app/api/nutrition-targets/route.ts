@@ -15,13 +15,14 @@ export async function PATCH(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const data = await req.json();
+    const existingProfile = await prisma.userProfile.findUnique({ where: { userId } });
     const micronutrientData: Record<string, any> = {};
     if ("micronutrientTrackingEnabled" in data) {
       micronutrientData.micronutrientTrackingEnabled = Boolean(data.micronutrientTrackingEnabled);
     }
     if ("micronutrientTargets" in data || "micronutrientTargetsJson" in data) {
       micronutrientData.micronutrientTargetsJson = JSON.stringify(
-        parseMicronutrientMap(mergeWithDefaultMicronutrientTargets(data.micronutrientTargets ?? data.micronutrientTargetsJson))
+        parseMicronutrientMap(mergeWithDefaultMicronutrientTargets(data.micronutrientTargets ?? data.micronutrientTargetsJson, existingProfile))
       );
     }
 

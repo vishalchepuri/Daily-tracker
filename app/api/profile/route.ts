@@ -193,7 +193,7 @@ export async function POST(req: Request) {
       micronutrientData.micronutrientTrackingEnabled = Boolean(data.micronutrientTrackingEnabled);
     }
     if ("micronutrientTargets" in data || "micronutrientTargetsJson" in data) {
-      const targets = mergeWithDefaultMicronutrientTargets(data.micronutrientTargets ?? data.micronutrientTargetsJson);
+      const targets = mergeWithDefaultMicronutrientTargets(data.micronutrientTargets ?? data.micronutrientTargetsJson, data);
       micronutrientData.micronutrientTargetsJson = JSON.stringify(parseMicronutrientMap(targets));
     }
 
