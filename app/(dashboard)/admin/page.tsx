@@ -217,6 +217,9 @@ export default async function AdminPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" />Exercise Approval Queue</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            AI-created exercises stay pending here until an admin checks equipment, muscle target, availability, and safety notes.
+          </p>
         </CardHeader>
         <CardContent>
           {pendingExercises.length === 0 ? (
@@ -234,6 +237,11 @@ export default async function AdminPage() {
                     </div>
                     {exercise.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{exercise.description}</p>}
                     {exercise.formTips && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">Tips: {exercise.formTips}</p>}
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-1">Check common availability</span>
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-1">Verify target muscle</span>
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-1">Review safety tips</span>
+                    </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Submitted by {exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user"} on {formatDate(exercise.createdAt)}
                     </p>

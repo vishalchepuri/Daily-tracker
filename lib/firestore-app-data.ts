@@ -314,3 +314,59 @@ export async function markAgentUndoActionUsed(userId: string, id: string) {
   );
   return docData(await ref.get());
 }
+
+export type PendingAgentActionPlanInput = {
+  sessionId: string;
+  response: string;
+  actions: any[];
+  rawMessage?: string;
+  expiresAt?: Date;
+};
+
+export async function createPendingAgentActionPlan(userId: string, input: PendingAgentActionPlanInput) {
+  const ref = userDoc(userId).collection("pendingAgentActionPlans").doc();
+  const expiresAt = input.expiresAt ?? new Date(Date.now() + 30 * 60 * 1000);
+  await ref.set({
+    userId,
+    sessionId: input.sessionId,
+    response: input.response ?? "",
+    actions: Array.isArray(input.actions) ? input.actions.slice(0, 20) : [],
+    rawMessage: input.rawMessage ?? "",
+    status: "pending",
+    expiresAt: Timestamp.fromDate(expiresAt),
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return docData(await ref.get());
+}
+
+export async function getLatestPendingAgentActionPlan(userId: string, sessionId: string) {
+  const snap = await userDoc(userId)
+    .collection("pendingAgentActionPlans")
+    .where("sessionId", "==", sessionId)
+    .where("status", "==", "pending")
+    .get();
+  const plan = snap.docs
+    .map(docData)
+    .sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime())[0] ?? null;
+  if (!plan) return null;
+  const expiresAt = plan.expiresAt ? new Date(String(plan.expiresAt)) : null;
+  if (expiresAt && Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() < Date.now()) {
+    await markPendingAgentActionPlan(userId, plan.id, "expired");
+    return null;
+  }
+  return plan;
+}
+
+export async function markPendingAgentActionPlan(userId: string, id: string, status: "executed" | "cancelled" | "expired") {
+  const ref = userDoc(userId).collection("pendingAgentActionPlans").doc(id);
+  await ref.set(
+    {
+      status,
+      resolvedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+  return docData(await ref.get());
+}
