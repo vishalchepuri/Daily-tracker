@@ -82,6 +82,11 @@ const PROFILE_TAB_OPTIONS = [
   { value: "danger", label: "Danger" },
 ] as const;
 
+const PROFILE_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
+const PROFILE_PANEL_CLASS = "rounded-[24px] border border-border/70 bg-background/55 p-4";
+const PROFILE_INPUT_CLASS = "mt-2 h-12 rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
+const PROFILE_SELECT_CLASS = "mt-2 h-12 rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
+
 type PushDevice = {
   id: string;
   deviceId: string;
@@ -636,6 +641,14 @@ export default function ProfilePage() {
     loadReviewItems();
   };
 
+  const displayName = [form.firstName, form.lastName].filter(Boolean).join(" ").trim() || "Your Profile";
+  const profileSummary = [
+    { label: "Age", value: form.age ? `${form.age}` : "--" },
+    { label: "Weight", value: form.weight ? `${form.weight} kg` : "--" },
+    { label: "Height", value: form.height ? `${form.height} cm` : "--" },
+    { label: "Goal", value: form.goal.replace(/_/g, " ") },
+  ];
+
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn className="hidden sm:block">
@@ -666,162 +679,176 @@ export default function ProfilePage() {
       )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <div className="rounded-xl border border-border/70 bg-card/85 p-2 shadow-sm shadow-black/10 sm:hidden">
-          <Select value={activeTab} onValueChange={setActiveTab}>
-            <SelectTrigger className="h-11 border-border/70 bg-background/70">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PROFILE_TAB_OPTIONS.map((item) => (
-                <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <TabsList className="hidden h-auto w-full gap-2 overflow-x-auto bg-transparent p-0 sm:flex">
+        <TabsList className="flex h-auto w-full justify-start gap-2 overflow-x-auto bg-transparent p-0 pb-1 ios-scroll">
           {PROFILE_TAB_OPTIONS.map((item) => (
             <TabsTrigger
               key={item.value}
               value={item.value}
-              className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15"
+              className="h-11 shrink-0 rounded-full border border-border/70 bg-card/70 px-4 text-sm text-muted-foreground shadow-none transition active:scale-[0.98] data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15 data-[state=active]:text-primary"
             >
               {item.label}
             </TabsTrigger>
           ))}
         </TabsList>
 
-        <TabsContent value="profile" className="space-y-6">
+        <TabsContent value="profile" className="space-y-4 sm:space-y-6">
+          <FadeIn delay={0.05}>
+            <Card className={`${PROFILE_CARD_CLASS} overflow-hidden`}>
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] bg-primary/15 text-primary">
+                    <UserCircle className="h-8 w-8" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xl font-bold">{displayName}</p>
+                    <p className="mt-1 text-sm capitalize text-muted-foreground">{form.activityLevel.replace(/_/g, " ")} - {form.gender}</p>
+                  </div>
+                  <Button type="button" size="sm" onClick={handleSave} loading={saving} className="h-10 rounded-full px-4">
+                    <Save className="h-4 w-4" />
+                    Save
+                  </Button>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {profileSummary.map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">{item.label}</p>
+                      <p className="mt-1 truncate text-sm font-semibold capitalize">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </FadeIn>
       <FadeIn delay={0.1}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCircle className="w-5 h-5 text-primary" />
               Body Stats
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div><Label>First Name</Label><Input value={form.firstName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, firstName: e.target.value})} className="mt-1" /></div>
-              <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, lastName: e.target.value})} className="mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div><Label>Age</Label><Input type="number" value={form.age} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, age: e.target.value})} className="mt-1" /></div>
-              <div><Label>Weight (kg)</Label><Input type="number" value={form.weight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, weight: e.target.value})} className="mt-1" /></div>
-              <div><Label>Height (cm)</Label><Input type="number" value={form.height} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, height: e.target.value})} className="mt-1" /></div>
-              <div>
-                <Label>Gender</Label>
-                <Select value={form.gender} onValueChange={(v: string) => setForm({...form, gender: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+          <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+            <div className={PROFILE_PANEL_CLASS}>
+              <p className="mb-3 text-sm font-semibold">Basics</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div><Label>First Name</Label><Input value={form.firstName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, firstName: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, lastName: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Age</Label><Input type="number" value={form.age} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, age: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Weight (kg)</Label><Input type="number" value={form.weight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, weight: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Height (cm)</Label><Input type="number" value={form.height} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, height: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div>
+                  <Label>Gender</Label>
+                  <Select value={form.gender} onValueChange={(v: string) => setForm({...form, gender: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">Male</SelectItem>
+                      <SelectItem value="female">Female</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <Label>Activity Level</Label>
-                <Select value={form.activityLevel} onValueChange={(v: string) => setForm({...form, activityLevel: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sedentary">Sedentary</SelectItem>
-                    <SelectItem value="light">Lightly Active</SelectItem>
-                    <SelectItem value="moderate">Moderately Active</SelectItem>
-                    <SelectItem value="active">Very Active</SelectItem>
-                    <SelectItem value="very_active">Extremely Active</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Fitness Goal</Label>
-                <Select value={form.goal} onValueChange={(v: string) => setForm({...form, goal: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
-                    <SelectItem value="fat_loss">Fat Loss</SelectItem>
-                    <SelectItem value="maintain">Maintain</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
-              <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
-              <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
-              <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
-              <div>
-                <Label>Workout style</Label>
-                <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
-                    <SelectItem value="machines">Machines</SelectItem>
-                    <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
-                    <SelectItem value="mixed">Mixed</SelectItem>
-                  </SelectContent>
-                </Select>
+
+            <div className={PROFILE_PANEL_CLASS}>
+              <p className="mb-3 text-sm font-semibold">Goals</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Activity Level</Label>
+                  <Select value={form.activityLevel} onValueChange={(v: string) => setForm({...form, activityLevel: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sedentary">Sedentary</SelectItem>
+                      <SelectItem value="light">Lightly Active</SelectItem>
+                      <SelectItem value="moderate">Moderately Active</SelectItem>
+                      <SelectItem value="active">Very Active</SelectItem>
+                      <SelectItem value="very_active">Extremely Active</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Fitness Goal</Label>
+                  <Select value={form.goal} onValueChange={(v: string) => setForm({...form, goal: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
+                      <SelectItem value="fat_loss">Fat Loss</SelectItem>
+                      <SelectItem value="maintain">Maintain</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div><Label>Goal Outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Fat loss, muscle gain..." /></div>
+                <div><Label>Timeline (days)</Label><Input type="number" min="1" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="56" /></div>
+                <div><Label>Target Weight (kg)</Label><Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Optional" /></div>
               </div>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <Label>Goal Outcome</Label>
-                <Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." />
-              </div>
-              <div>
-                <Label>Timeline (days)</Label>
-                <Input type="number" min="1" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" placeholder="56" />
-              </div>
-              <div>
-                <Label>Target Weight (kg)</Label>
-                <Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" placeholder="Optional" />
+
+            <div className={PROFILE_PANEL_CLASS}>
+              <p className="mb-3 text-sm font-semibold">Agent Memory</p>
+              <div className="grid grid-cols-1 gap-3">
+                <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, knee pain, shoulder surgery..." /></div>
+                <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, peanuts, lactose..." /></div>
+                <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="core, legs, glutes, chest..." /></div>
+                <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="fat_loss, muscle_gain, cardio..." /></div>
+                <div>
+                  <Label>Workout style</Label>
+                  <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
+                      <SelectItem value="machines">Machines</SelectItem>
+                      <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
+                      <SelectItem value="mixed">Mixed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
-            <label className="flex items-start gap-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
+
+            <label className="flex items-start gap-3 rounded-[22px] border border-orange-500/20 bg-orange-500/5 p-4 active:scale-[0.99]">
               <Checkbox
                 checked={form.micronutrientTrackingEnabled}
                 onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
                 className="mt-0.5"
               />
               <span>
-                <span className="block text-sm font-medium">Track vitamins & minerals</span>
+                <span className="block text-sm font-semibold">Track vitamins & minerals</span>
                 <span className="mt-1 block text-xs text-muted-foreground">
                   Adds detailed micronutrient targets and food-photo estimates in Nutrition.
                 </span>
               </span>
             </label>
-            <Button onClick={handleSave} loading={saving}><Save className="w-4 h-4 mr-2" />Save Profile</Button>
+            <Button className="h-12 w-full rounded-2xl" onClick={handleSave} loading={saving}><Save className="mr-2 h-4 w-4" />Save Profile</Button>
           </CardContent>
         </Card>
       </FadeIn>
 
       {profile && (
         <FadeIn delay={0.2}>
-          <Card>
-            <CardHeader>
+          <Card className={PROFILE_CARD_CLASS}>
+            <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="w-5 h-5 text-primary" />
                 Calculated Targets
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="p-4 rounded-lg bg-muted">
+            <CardContent className="px-4 pb-5 sm:px-6">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-[22px] border border-border/70 bg-muted/25 p-4">
                   <p className="text-xs text-muted-foreground">TDEE</p>
                   <p className="text-2xl font-bold font-mono">{Math.round(profile?.tdee ?? 0)}</p>
                   <p className="text-xs text-muted-foreground">kcal/day</p>
                 </div>
-                <div className="p-4 rounded-lg bg-primary/10">
+                <div className="rounded-[22px] border border-primary/20 bg-primary/10 p-4">
                   <p className="text-xs text-muted-foreground">Target Calories</p>
                   <p className="text-2xl font-bold font-mono text-primary">{Math.round(profile?.targetCalories ?? 0)}</p>
                   <p className="text-xs text-muted-foreground">kcal/day</p>
                 </div>
-                <div className="p-4 rounded-lg bg-blue-500/10">
+                <div className="rounded-[22px] border border-blue-500/20 bg-blue-500/10 p-4">
                   <p className="text-xs text-muted-foreground">Protein Target</p>
                   <p className="text-2xl font-bold font-mono text-blue-500">{Math.round(profile?.targetProtein ?? 0)}g</p>
                 </div>
-                <div className="p-4 rounded-lg bg-green-500/10">
+                <div className="rounded-[22px] border border-green-500/20 bg-green-500/10 p-4">
                   <p className="text-xs text-muted-foreground">Carbs Target</p>
                   <p className="text-2xl font-bold font-mono text-green-500">{Math.round(profile?.targetCarbs ?? 0)}g</p>
                 </div>
@@ -834,8 +861,8 @@ export default function ProfilePage() {
 
         <TabsContent value="memory" className="space-y-6">
           <FadeIn delay={0.1}>
-            <Card>
-              <CardHeader>
+            <Card className={PROFILE_CARD_CLASS}>
+              <CardHeader className="pb-3">
                 <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
@@ -844,20 +871,20 @@ export default function ProfilePage() {
                     </CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">Review and edit what Dayza uses to personalize plans and answers.</p>
                   </div>
-                  <Button onClick={handleSave} loading={saving}>
+                  <Button className="h-11 rounded-2xl" onClick={handleSave} loading={saving}>
                     <Save className="h-4 w-4" />
                     Save Memory
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-2">
+              <CardContent className="grid gap-4 px-4 pb-5 sm:px-6 lg:grid-cols-2">
                 <MemorySection
                   title="Safety & Food"
                   description="Used before workout and diet plans."
                   onClear={() => clearMemoryFields(["healthLimitations", "foodAllergies"])}
                 >
-                  <div><Label>Health limitations</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
-                  <div><Label>Food allergies</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
+                  <div><Label>Health limitations</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, knee pain, shoulder surgery..." /></div>
+                  <div><Label>Food allergies</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, peanuts, lactose..." /></div>
                 </MemorySection>
 
                 <MemorySection
@@ -865,12 +892,12 @@ export default function ProfilePage() {
                   description="Used for strict workout planning and exercise choices."
                   onClear={() => clearMemoryFields(["workoutFocusMuscles", "workoutFocusGoal", "workoutTrainingStyle"])}
                 >
-                  <div><Label>Focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
-                  <div><Label>Focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
+                  <div><Label>Focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="core, legs, glutes, chest..." /></div>
+                  <div><Label>Focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="fat_loss, muscle_gain, cardio..." /></div>
                   <div>
                     <Label>Training style</Label>
                     <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
                         <SelectItem value="machines">Machines</SelectItem>
@@ -886,10 +913,10 @@ export default function ProfilePage() {
                   description="Used to keep plans realistic and paced."
                   onClear={() => clearMemoryFields(["goalOutcome", "goalTimelineDays", "goalTargetWeight"])}
                 >
-                  <div><Label>Goal outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." /></div>
+                  <div><Label>Goal outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Fat loss, muscle gain..." /></div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div><Label>Timeline days</Label><Input type="number" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" /></div>
-                    <div><Label>Target weight</Label><Input type="number" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" /></div>
+                    <div><Label>Timeline days</Label><Input type="number" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                    <div><Label>Target weight</Label><Input type="number" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
                   </div>
                 </MemorySection>
 
@@ -898,7 +925,7 @@ export default function ProfilePage() {
                   description="Used for vitamins, minerals, and detailed food-photo estimates."
                   onClear={() => clearMemoryFields(["micronutrientTrackingEnabled"])}
                 >
-                  <label className="flex items-start gap-3 rounded-lg border border-border bg-background/70 p-3">
+                  <label className="flex items-start gap-3 rounded-[22px] border border-border/70 bg-background/70 p-4 active:scale-[0.99]">
                     <Checkbox
                       checked={form.micronutrientTrackingEnabled}
                       onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
@@ -918,7 +945,7 @@ export default function ProfilePage() {
         <TabsContent value="review" className="space-y-6">
       {pendingExercises.length > 0 && (
         <FadeIn delay={0.1}>
-          <Card>
+          <Card className={PROFILE_CARD_CLASS}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Dumbbell className="h-5 w-5 text-primary" />
@@ -942,7 +969,7 @@ export default function ProfilePage() {
         </FadeIn>
       )}
       <FadeIn delay={0.16}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
               <div>
@@ -1025,7 +1052,7 @@ export default function ProfilePage() {
 
         <TabsContent value="activity" className="space-y-6">
       <FadeIn delay={0.25}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
@@ -1083,7 +1110,7 @@ export default function ProfilePage() {
 
         <TabsContent value="notifications" className="space-y-6">
       <FadeIn delay={0.14}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
@@ -1095,7 +1122,7 @@ export default function ProfilePage() {
                   Enable push notifications for reminders, tasks, medications, and due alerts on this device.
                 </p>
               </div>
-              <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/30 px-3 py-2">
+              <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
                 <Label htmlFor="push-notifications-enabled" className="text-sm">
                   {pushStatus.subscribed ? "On" : "Off"}
                 </Label>
@@ -1144,32 +1171,32 @@ export default function ProfilePage() {
               {pushStatus.subscribed && <Badge variant={pushStatus.keyMatches ? "secondary" : "destructive"}>{pushStatus.keyMatches ? "Key current" : "Old key"}</Badge>}
               {pushStatus.timeZone && <Badge variant="outline">Timezone: {pushStatus.timeZone}</Badge>}
             </div>
-            <div className="grid gap-2 rounded-lg border border-border bg-muted/20 p-3 text-sm text-muted-foreground sm:grid-cols-3">
+            <div className="grid gap-2 rounded-[22px] border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground sm:grid-cols-3">
               <div><span className="font-medium text-foreground">Reminders</span><br />Due date and time alerts</div>
               <div><span className="font-medium text-foreground">Medications</span><br />Dose time alerts</div>
               <div><span className="font-medium text-foreground">Refills</span><br />Low stock alerts</div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+              <Button type="button" className="h-11 rounded-2xl" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
                 Enable
               </Button>
-              <Button type="button" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
+              <Button type="button" className="h-11 rounded-2xl" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
                 Disable This Device
               </Button>
-              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={pushDevices.length === 0}>
+              <Button type="button" className="h-11 rounded-2xl" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={pushDevices.length === 0}>
                 Test Notification
               </Button>
-              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={pushDevices.length === 0}>
+              <Button type="button" className="h-11 rounded-2xl" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={pushDevices.length === 0}>
                 Send Due Now
               </Button>
             </div>
-            <div className="rounded-2xl border border-border bg-card/70 p-3">
+            <div className="rounded-[24px] border border-border/70 bg-background/55 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-foreground">Saved Devices</p>
                   <p className="text-xs text-muted-foreground">Remove old phones, browsers, or Home Screen installs that should not receive alerts.</p>
                 </div>
-                <Button type="button" size="sm" variant="ghost" onClick={loadPushStatus} disabled={pushLoading || Boolean(deletingPushDeviceId)}>
+                <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={loadPushStatus} disabled={pushLoading || Boolean(deletingPushDeviceId)}>
                   <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
                   Refresh
                 </Button>
@@ -1181,7 +1208,7 @@ export default function ProfilePage() {
               ) : (
                 <div className="mt-3 space-y-2">
                   {pushDevices.map((device) => (
-                    <div key={device.id} className="rounded-2xl border border-border bg-muted/20 p-3">
+                    <div key={device.id} className="rounded-[22px] border border-border/70 bg-muted/20 p-3 active:scale-[0.99]">
                       <div className="flex items-start gap-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                           <Smartphone className="h-5 w-5" />
@@ -1221,8 +1248,8 @@ export default function ProfilePage() {
 
         <TabsContent value="integrations" className="space-y-6">
       <FadeIn delay={0.14}>
-        <Card>
-          <CardHeader>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <KeyRound className="h-5 w-5 text-primary" />
               Account Password
@@ -1231,17 +1258,17 @@ export default function ProfilePage() {
               Add a password to this account so you can sign in with Google or email/password.
             </p>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>New Password</Label>
-                <div className="relative mt-1">
+                <div className="relative">
                   <Input
                     type={showAccountPassword ? "text" : "password"}
                     value={passwordForm.password}
                     onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })}
                     placeholder="Min 6 characters"
-                    className="pr-10"
+                    className={`${PROFILE_INPUT_CLASS} pr-10`}
                     autoComplete="new-password"
                   />
                   <button
@@ -1261,12 +1288,12 @@ export default function ProfilePage() {
                   value={passwordForm.confirmPassword}
                   onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                   placeholder="Repeat password"
-                  className="mt-1"
+                  className={PROFILE_INPUT_CLASS}
                   autoComplete="new-password"
                 />
               </div>
             </div>
-            <Button type="button" onClick={handleSetAccountPassword} loading={savingPassword}>
+            <Button type="button" className="h-12 rounded-2xl" onClick={handleSetAccountPassword} loading={savingPassword}>
               <KeyRound className="mr-2 h-4 w-4" />
               Save Password
             </Button>
@@ -1274,15 +1301,15 @@ export default function ProfilePage() {
         </Card>
       </FadeIn>
       <FadeIn delay={0.2}>
-        <Card>
-          <CardHeader>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-primary" />
               Telegram Bot
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+          <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+            <div className="rounded-[22px] bg-muted/30 p-4 text-sm text-muted-foreground">
               Message your Dayza Telegram bot once, send <span className="font-mono text-foreground">/start</span>, then paste the chat ID here. Once connected, Telegram can receive reminders and log spends, water, weight, medications, reminders, and saved diet meals.
             </div>
             {!telegramForm.botConfigured && (
@@ -1295,7 +1322,7 @@ export default function ProfilePage() {
               <Input
                 value={telegramForm.telegramChatId}
                 onChange={(e) => setTelegramForm({ ...telegramForm, telegramChatId: e.target.value })}
-                className="mt-1"
+                className={PROFILE_INPUT_CLASS}
                 placeholder="123456789"
               />
             </div>
@@ -1324,8 +1351,8 @@ export default function ProfilePage() {
         </Card>
       </FadeIn>
       <FadeIn delay={0.24}>
-        <Card>
-          <CardHeader>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <RefreshCw className="h-5 w-5 text-primary" />
               Data Retention
@@ -1334,8 +1361,8 @@ export default function ProfilePage() {
               Keeps the latest 7 chats, latest 10 messages in each chat, and removes image data after 5 days.
             </p>
           </CardHeader>
-          <CardContent>
-            <Button type="button" variant="outline" onClick={runRetentionCleanup} loading={cleaningRetention}>
+          <CardContent className="px-4 pb-5 sm:px-6">
+            <Button type="button" className="h-12 rounded-2xl" variant="outline" onClick={runRetentionCleanup} loading={cleaningRetention}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Run Cleanup
             </Button>
@@ -1346,18 +1373,18 @@ export default function ProfilePage() {
 
         <TabsContent value="danger" className="space-y-6">
       <FadeIn delay={0.25}>
-        <Card className="border-amber-500/30">
-          <CardHeader>
+        <Card className={`${PROFILE_CARD_CLASS} border-amber-500/30`}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-amber-500">
               <RefreshCw className="h-5 w-5" />
               Reset Feature Data
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
             <p className="text-sm text-muted-foreground">
               Choose one or more features to clear. This keeps your account and login intact.
             </p>
-            <Button type="button" variant="outline" onClick={() => setResetOpen(true)}>
+            <Button type="button" className="h-12 rounded-2xl" variant="outline" onClick={() => setResetOpen(true)}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Reset Selected Features
             </Button>
@@ -1365,22 +1392,22 @@ export default function ProfilePage() {
         </Card>
       </FadeIn>
       <FadeIn delay={0.3}>
-        <Card className="border-destructive/30">
-          <CardHeader>
+        <Card className={`${PROFILE_CARD_CLASS} border-destructive/30`}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-destructive">
               <Trash2 className="h-5 w-5" />
               Delete Account
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
             <p className="text-sm text-muted-foreground">
               This permanently deletes your account, profile, workouts, meals, diet plans, reminders, progress, chat history, and logs.
             </p>
             <div>
               <Label>Type DELETE to confirm</Label>
-              <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} className="mt-1" placeholder="DELETE" />
+              <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} className={PROFILE_INPUT_CLASS} placeholder="DELETE" />
             </div>
-            <Button variant="destructive" onClick={handleDeleteAccount} loading={deleting} disabled={deleteConfirm !== "DELETE"}>
+            <Button className="h-12 rounded-2xl" variant="destructive" onClick={handleDeleteAccount} loading={deleting} disabled={deleteConfirm !== "DELETE"}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete My Account
             </Button>
@@ -1481,7 +1508,7 @@ function activityMeta(type: string) {
 
 function ActivityMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/25 p-3">
+    <div className="rounded-[22px] border border-border/70 bg-muted/25 p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 font-mono text-xl font-bold">{value}</p>
     </div>
@@ -1500,13 +1527,13 @@ function MemorySection({
   onClear: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+    <div className="space-y-3 rounded-[24px] border border-border/70 bg-background/55 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-semibold">{title}</p>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+        <Button type="button" variant="ghost" size="sm" className="rounded-full" onClick={onClear}>
           <Trash2 className="h-4 w-4" />
           Clear
         </Button>
@@ -1534,7 +1561,7 @@ function ReviewFilterButton({ active, label, count, onClick }: { active: boolean
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg border p-3 text-left transition-colors ${active ? "border-primary/40 bg-primary/15 text-primary" : "border-border bg-card text-muted-foreground"}`}
+      className={`rounded-[22px] border p-4 text-left transition active:scale-[0.99] ${active ? "border-primary/40 bg-primary/15 text-primary" : "border-border/70 bg-card/70 text-muted-foreground"}`}
     >
       <span className="text-xs font-medium">{label}</span>
       <p className="mt-1 font-mono text-xl font-bold">{count}</p>
