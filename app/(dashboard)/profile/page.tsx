@@ -34,6 +34,7 @@ import {
   Pill,
   Save,
   Send,
+  Smartphone,
   MessageCircle,
   Eye,
   EyeOff,
@@ -81,6 +82,30 @@ const PROFILE_TAB_OPTIONS = [
   { value: "danger", label: "Danger" },
 ] as const;
 
+type PushDevice = {
+  id: string;
+  deviceId: string;
+  label: string;
+  browser: string;
+  platform: string;
+  isCurrent: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  lastUsedAt?: string | null;
+};
+
+function formatDeviceDate(value?: string | null) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
   const [activityItems, setActivityItems] = useState<any[]>([]);
@@ -98,6 +123,8 @@ export default function ProfilePage() {
   const [savingPassword, setSavingPassword] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
   const [pushSending, setPushSending] = useState(false);
+  const [pushDevices, setPushDevices] = useState<PushDevice[]>([]);
+  const [deletingPushDeviceId, setDeletingPushDeviceId] = useState<string | null>(null);
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -124,6 +151,45 @@ export default function ProfilePage() {
     healthLimitations: "", foodAllergies: "", workoutFocusMuscles: "", workoutFocusGoal: "", workoutTrainingStyle: "indian_gym", goalOutcome: "", goalTimelineDays: "", goalTargetWeight: "", linkedinUrl: "",
     micronutrientTrackingEnabled: false,
   });
+
+  const loadPushStatus = useCallback(async () => {
+    if (!supportsPushNotifications()) {
+      setPushDevices([]);
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "", missing: [], keyMatches: true, controlled: false });
+      return;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker?.getRegistration?.("/sw.js");
+      const subscription = await registration?.pushManager.getSubscription();
+      const headers = subscription?.endpoint ? { "x-dayza-push-endpoint": subscription.endpoint } : undefined;
+      const res = await fetch("/api/push/subscription", { headers });
+      const data = res.ok ? await res.json() : { configured: false, subscribed: false, devices: [] };
+      setPushDevices(Array.isArray(data?.devices) ? data.devices : []);
+      setPushStatus({
+        supported: true,
+        configured: Boolean(data?.configured),
+        subscribed: Boolean(data?.subscribed),
+        permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+        timeZone: data?.timeZone ?? getClientTimeZone(),
+        missing: Array.isArray(data?.missing) ? data.missing : [],
+        keyMatches: true,
+        controlled: Boolean(navigator.serviceWorker?.controller),
+      });
+    } catch {
+      setPushDevices([]);
+      setPushStatus({
+        supported: true,
+        configured: false,
+        subscribed: false,
+        permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+        timeZone: getClientTimeZone(),
+        missing: [],
+        keyMatches: true,
+        controlled: Boolean(navigator.serviceWorker?.controller),
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
@@ -166,36 +232,7 @@ export default function ProfilePage() {
         botConfigured: Boolean(d?.botConfigured),
       });
     }).catch(console.error);
-    if (supportsPushNotifications()) {
-      fetch("/api/push/subscription")
-        .then((r) => r.ok ? r.json() : { configured: false, subscribed: false })
-        .then((d) => {
-          setPushStatus({
-            supported: true,
-            configured: Boolean(d?.configured),
-            subscribed: Boolean(d?.subscribed),
-            permission: typeof Notification !== "undefined" ? Notification.permission : "default",
-            timeZone: d?.timeZone ?? getClientTimeZone(),
-            missing: Array.isArray(d?.missing) ? d.missing : [],
-            keyMatches: true,
-            controlled: Boolean(navigator.serviceWorker?.controller),
-          });
-        })
-        .catch(() => {
-          setPushStatus({
-            supported: true,
-            configured: false,
-            subscribed: false,
-            permission: typeof Notification !== "undefined" ? Notification.permission : "default",
-            timeZone: getClientTimeZone(),
-            missing: [],
-            keyMatches: true,
-            controlled: Boolean(navigator.serviceWorker?.controller),
-          });
-        });
-    } else {
-      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "", missing: [], keyMatches: true, controlled: false });
-    }
+    loadPushStatus();
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
       setActivityCounts(d?.counts ?? {});
@@ -425,16 +462,7 @@ export default function ProfilePage() {
     setPushLoading(true);
     try {
       await registerPushNotifications();
-      setPushStatus({
-        supported: true,
-        configured: true,
-        subscribed: true,
-        permission: typeof Notification !== "undefined" ? Notification.permission : "granted",
-        timeZone: getClientTimeZone(),
-        missing: [],
-        keyMatches: true,
-        controlled: Boolean(navigator.serviceWorker?.controller),
-      });
+      await loadPushStatus();
       toast.success("Push notifications enabled");
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to enable push notifications");
@@ -447,8 +475,8 @@ export default function ProfilePage() {
     setPushLoading(true);
     try {
       await unregisterPushNotifications();
-      setPushStatus((current) => ({ ...current, subscribed: false }));
-      toast.success("Push notifications disabled");
+      await loadPushStatus();
+      toast.success("Push notifications disabled on this device");
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to disable push notifications");
     } finally {
@@ -483,6 +511,7 @@ export default function ProfilePage() {
           controlled: Boolean(diagnostics.controlled),
         }));
       }
+      await loadPushStatus();
       if (!data?.sent) {
         toast.error("No active device subscription found. Tap Enable again on this device.");
         return;
@@ -491,11 +520,36 @@ export default function ProfilePage() {
         toast.error("This device has an old push key. Tap Disable, then Enable again.");
         return;
       }
-      toast.success(`Test notification sent to ${data.sent} device${data.sent === 1 ? "" : "s"}`);
+      toast.success(`Test notification sent to ${data.sent} device${data.sent === 1 ? "" : "s"}. Review saved devices below.`);
     } catch {
       toast.error("Failed to send test notification");
     } finally {
       setPushSending(false);
+    }
+  };
+
+  const removePushDevice = async (device: PushDevice) => {
+    const name = device.isCurrent ? "this device" : `${device.label} (${device.deviceId})`;
+    if (!window.confirm(`Remove notifications from ${name}? This device will stop receiving Dayza alerts.`)) return;
+    setDeletingPushDeviceId(device.id);
+    try {
+      if (device.isCurrent) {
+        await unregisterPushNotifications();
+      } else {
+        const res = await fetch("/api/push/subscription", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: device.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error ?? "Failed to remove device");
+      }
+      await loadPushStatus();
+      toast.success(device.isCurrent ? "Notifications disabled on this device" : "Saved notification device removed");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to remove device");
+    } finally {
+      setDeletingPushDeviceId(null);
     }
   };
 
@@ -1085,6 +1139,7 @@ export default function ProfilePage() {
             <div className="flex flex-wrap gap-2 text-xs">
               <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
               <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Enabled" : "Disabled"}</Badge>
+              <Badge variant="outline">{pushDevices.length} saved device{pushDevices.length === 1 ? "" : "s"}</Badge>
               <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
               {pushStatus.subscribed && <Badge variant={pushStatus.keyMatches ? "secondary" : "destructive"}>{pushStatus.keyMatches ? "Key current" : "Old key"}</Badge>}
               {pushStatus.timeZone && <Badge variant="outline">Timezone: {pushStatus.timeZone}</Badge>}
@@ -1099,14 +1154,65 @@ export default function ProfilePage() {
                 Enable
               </Button>
               <Button type="button" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
-                Disable
+                Disable This Device
               </Button>
-              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={!pushStatus.subscribed}>
+              <Button type="button" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={pushDevices.length === 0}>
                 Test Notification
               </Button>
-              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={!pushStatus.subscribed}>
+              <Button type="button" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={pushDevices.length === 0}>
                 Send Due Now
               </Button>
+            </div>
+            <div className="rounded-2xl border border-border bg-card/70 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Saved Devices</p>
+                  <p className="text-xs text-muted-foreground">Remove old phones, browsers, or Home Screen installs that should not receive alerts.</p>
+                </div>
+                <Button type="button" size="sm" variant="ghost" onClick={loadPushStatus} disabled={pushLoading || Boolean(deletingPushDeviceId)}>
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  Refresh
+                </Button>
+              </div>
+              {pushDevices.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  No saved notification devices yet. Tap Enable on the device you want to use.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {pushDevices.map((device) => (
+                    <div key={device.id} className="rounded-2xl border border-border bg-muted/20 p-3">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <Smartphone className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-foreground">{device.label}</p>
+                            {device.isCurrent && <Badge variant="secondary">This device</Badge>}
+                            <Badge variant="outline">ID {device.deviceId}</Badge>
+                          </div>
+                          <div className="mt-1 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                            <span>Last test/alert: {formatDeviceDate(device.lastUsedAt)}</span>
+                            <span>Updated: {formatDeviceDate(device.updatedAt)}</span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => removePushDevice(device)}
+                          disabled={deletingPushDeviceId === device.id}
+                          aria-label={`Remove ${device.label}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
