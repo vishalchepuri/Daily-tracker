@@ -75,7 +75,7 @@ export async function getDashboardData(userId: string) {
     safeService([], () => prisma.progressEntry.findMany({ where: { userId }, orderBy: { date: "desc" }, take: 7 })),
     safeService(0, () => prisma.workoutLog.count({ where: { userId } })),
     safeService(0, () => getWorkoutStreak(userId)),
-    safeService([], () => prisma.foodLog.findMany({ where: { userId, date: { gte: sevenDaysAgo } }, select: { date: true, calories: true, protein: true } })),
+    safeService([], () => prisma.foodLog.findMany({ where: { userId, date: { gte: sevenDaysAgo } }, select: { id: true, date: true, calories: true, protein: true } })),
     safeService([], () => prisma.waterLog.findMany({ where: { userId, date: { gte: sevenDaysAgo } }, select: { date: true, amountMl: true } })),
     safeService([], () => prisma.reminder.findMany({
       where: { userId, dueDate: { gte: startOfDay, lte: endOfDay } },
@@ -91,21 +91,36 @@ export async function getDashboardData(userId: string) {
   ]);
 
   const logs = todayFoodLogs.data ?? [];
+  const weeklyLogs = weekFoodLogs.data ?? [];
   const micronutrientTrackingEnabled = Boolean(profile.data?.micronutrientTrackingEnabled);
+  const weeklyFoodLogIds = [...new Set(weeklyLogs.map((log: any) => log.id).filter(Boolean))];
   const micronutrientLogs = micronutrientTrackingEnabled
-    ? await safeService({}, () => listFoodMicronutrientLogsForFoodLogs(userId, logs.map((log: any) => log.id)))
+    ? await safeService({}, () => listFoodMicronutrientLogsForFoodLogs(userId, weeklyFoodLogIds))
     : { data: {}, ok: true, error: null };
   const micronutrientTotals = micronutrientTrackingEnabled
+    ? sumMicronutrients(logs.map((log: any) => (micronutrientLogs.data as any)?.[log.id]?.micronutrients))
+    : {};
+  const weeklyMicronutrientTotals = micronutrientTrackingEnabled
     ? sumMicronutrients(Object.values(micronutrientLogs.data ?? {}).map((item: any) => item?.micronutrients))
     : {};
-  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile.data?.micronutrientTargetsJson);
+  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile.data?.micronutrientTargetsJson, profile.data);
   const lowMicronutrients = micronutrientTrackingEnabled
     ? MICRONUTRIENTS
         .map((item) => {
-          const value = micronutrientTotals[item.key] ?? 0;
+          const isDailyFocus = item.cadence === "daily_focus";
+          const value = isDailyFocus
+            ? micronutrientTotals[item.key] ?? 0
+            : (weeklyMicronutrientTotals[item.key] ?? 0) / 7;
           const target = micronutrientTargets[item.key] ?? item.target;
           const percent = target > 0 ? Math.round((value / target) * 100) : 0;
-          return { ...item, value, target, remaining: Math.max(0, target - value), percent };
+          return {
+            ...item,
+            value,
+            target,
+            remaining: Math.max(0, target - value),
+            percent,
+            scope: isDailyFocus ? "Today" : "7-day avg",
+          };
         })
         .filter((item) => item.percent < 70)
         .sort((a, b) => a.percent - b.percent)

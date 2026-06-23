@@ -1141,7 +1141,7 @@ async function executeAgentAction(
   userId: string,
   action: AgentAction,
   rawMessage = "",
-  options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null; micronutrientTrackingEnabled?: boolean } = {}
+  options: { healthLimitations?: string | null; userWantsJointStrengthening?: boolean; workoutFocusMuscles?: string | null; micronutrientTrackingEnabled?: boolean; profile?: any } = {}
 ): Promise<AgentActionResult | null> {
   if (action.type === "create_exercise") {
     const exercise = await findOrCreateExercise({ exerciseName: action.name, muscleGroup: action.muscleGroup }, userId);
@@ -1191,7 +1191,7 @@ async function executeAgentAction(
   if (action.type === "update_nutrition_targets") {
     const currentProfile = await prisma.userProfile.findUnique({ where: { userId } });
     const mergedMicros = "micronutrientTargets" in action
-      ? JSON.stringify(parseMicronutrientMap(mergeWithDefaultMicronutrientTargets(action.micronutrientTargets)))
+      ? JSON.stringify(parseMicronutrientMap(mergeWithDefaultMicronutrientTargets(action.micronutrientTargets, currentProfile ?? options.profile)))
       : currentProfile?.micronutrientTargetsJson ?? undefined;
     const profile = await prisma.userProfile.upsert({
       where: { userId },
@@ -2007,7 +2007,7 @@ export async function POST(req: Request) {
       ...log,
       micronutrients: micronutrientLogsByFoodLogId[log.id]?.micronutrients ?? {},
     }));
-    const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson);
+    const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson, profile);
     const micronutrientTotals = sumMicronutrients(todayFoodLogsWithMicronutrients.map((log: any) => log.micronutrients));
     const weeklyMicronutrientTotals = sumMicronutrients(weekFoodLogsWithMicronutrients.map((log: any) => log.micronutrients));
     const micronutrientContext = {
@@ -2017,6 +2017,7 @@ export async function POST(req: Request) {
       todayTotals: micronutrientTotals,
       weeklyTotals: weeklyMicronutrientTotals,
       weeklyTargets: Object.fromEntries(Object.entries(micronutrientTargets).map(([key, value]) => [key, Number(value ?? 0) * 7])),
+      trackingGuidance: "Use weekly average progress for most vitamins/minerals. Use daily focus for Vitamin D, B12, iron, magnesium, calcium, and potassium. Consider age, gender, and weight; age/gender drive micronutrient targets, while weight is mainly useful for hydration, protein, and overall nutrition context.",
     };
     if (
       workoutPlanningActive &&
@@ -2201,9 +2202,11 @@ ${JSON.stringify({
   - For food logs, servingSize should be grams by default, for example "80 g oats", "150 g cooked rice", "100 g paneer", "120 g orange", or "250 g meal estimate". Avoid vague serving sizes like "1 cup", "1 medium", or "1 scoop" unless the user only gave that information; when using them, also estimate grams in the servingSize.
   - If the user says shorthand such as "I ate bf", "ate breakfast", "had lunch", or names a meal, treat it as a possible food log request. If the actual food is unclear, ask what foods and approximate grams they ate before logging.
   - If profile.micronutrientTrackingEnabled is true and you create_food_log, always include a reasonable micronutrients object using only context.micronutrients.nutrients keys. Do this for text food logs, food photos, and diet-plan meals.
-  - If a food has meaningful vitamins or minerals, mention one useful highlight and remaining target, such as "orange adds about 60 mg Vitamin C; around 30 mg remains today."
-  - If micronutrient tracking is enabled, use context.micronutrients.todayTotals/context.micronutrients.targets for daily questions and context.micronutrients.weeklyTotals/context.micronutrients.weeklyTargets for weekly questions.
-  - If the user reports body heat, pimples, acne flare-ups, mouth ulcers, fatigue, cramps, or similar symptoms, do not diagnose. Suggest hydration and food-based support first, check recent micronutrient gaps, and consider Vitamin C, Vitamin A, Vitamin E, zinc, magnesium, potassium, fiber, and water depending on context. If they explicitly ask you to adjust targets, use update_nutrition_targets conservatively and explain it is not medical advice.
+  - If a food has meaningful vitamins or minerals, mention one useful highlight. For most nutrients, frame progress as weekly average rather than "you must finish this today."
+  - If micronutrient tracking is enabled, use context.micronutrients.weeklyTotals/context.micronutrients.weeklyTargets as the default target view. Use todayTotals only for daily-focus nutrients: Vitamin D, B12, iron, magnesium, calcium, and potassium, or when the user explicitly asks about today.
+  - Personalize micronutrient target advice from profile age, gender, and weight. Age/gender should drive micronutrient targets; weight is mainly for hydration, protein, and broad nutrition context. Do not increase vitamin/mineral targets just because weight is higher.
+  - If suggesting target changes, stay conservative and explain they are nutrition tracking targets, not medical treatment. Do not recommend high-dose supplements without telling the user to confirm with a clinician or blood test.
+  - If the user reports body heat, pimples, acne flare-ups, mouth ulcers, fatigue, cramps, or similar symptoms, do not diagnose. Suggest hydration and food-based support first, check weekly micronutrient gaps, and consider Vitamin C, Vitamin A, Vitamin E, zinc, magnesium, potassium, fiber, and water depending on context. If they explicitly ask you to adjust targets, use update_nutrition_targets conservatively and explain it is not medical advice.
   - For severe, persistent, painful, infected, or sudden symptoms, advise consulting a qualified clinician.
 - If the user asks to log multiple workouts or create multiple workout days, complete all requested tasks. If an exercise is missing, create it first and continue the log/template action.
 - If the user asks to remove an exercise from a plan and does not provide a replacement, remove it and ask what they want to add instead. If they provide a replacement, remove and add in the same response.
@@ -2216,7 +2219,7 @@ ${JSON.stringify({
 - If the image has multiple possible foods, unclear portion size, hidden ingredients, or low confidence, ask for quantity/serving details instead of logging.
 - If you log food from an image, mention that calories/macros are estimates from the photo.
 - If profile.micronutrientTrackingEnabled is true, include reasonable micronutrient estimates in create_food_log.micronutrients for any food log or visible food. Use only keys from context.micronutrients.nutrients.
-- For micronutrient-enabled users, mention useful highlights in the response, such as "this orange gives about X mg vitamin C" and how much remains versus context.micronutrients.targets/context.micronutrients.todayTotals.
+- For micronutrient-enabled users, mention useful highlights in the response, such as "this orange gives about X mg vitamin C." Prefer weekly-average remaining/progress unless it is one of the daily-focus nutrients or the user asks about today.
 - If micronutrient tracking is disabled and the user asks for vitamin/mineral tracking, tell them to enable "Track vitamins & minerals" in Profile first.
 - A payment, receipt, bank, UPI, card, or wallet screenshot counts as a request to log a spend only if merchant/payee and amount are clear.
 - For spend screenshots, use create_spend_log when merchant/payee and amount are clear. Use INR for Indian rupees, USD only when dollars are visible or implied.
@@ -2395,6 +2398,7 @@ Available action examples:
         userWantsJointStrengthening: context.userWantsJointStrengthening,
         workoutFocusMuscles: context.profile?.workoutFocusMuscles,
         micronutrientTrackingEnabled: context.micronutrients.enabled,
+        profile: context.profile,
       });
       if (result) actionResults.push(result);
     }

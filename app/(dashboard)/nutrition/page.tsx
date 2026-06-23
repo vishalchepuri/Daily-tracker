@@ -54,14 +54,33 @@ function numericMicronutrientPayload(values: Record<string, string>) {
   );
 }
 
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(dateTimeInputToIso(dateKey, "12:00"));
+  date.setDate(date.getDate() + days);
+  return formatLocalDateInput(date);
+}
+
+function dateKeyFromValue(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return formatLocalDateInput(date);
+}
+
+function roundAmount(value: number, digits = 0) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
 export default function NutritionPage() {
   const [foodLogs, setFoodLogs] = useState<any[]>([]);
   const [weeklyFoodLogs, setWeeklyFoodLogs] = useState<any[]>([]);
+  const [monthlyFoodLogs, setMonthlyFoodLogs] = useState<any[]>([]);
   const [dietPlans, setDietPlans] = useState<any[]>([]);
   const [dietNextOffset, setDietNextOffset] = useState(0);
   const [dietHasMore, setDietHasMore] = useState(false);
   const [loadingMoreDietPlans, setLoadingMoreDietPlans] = useState(false);
   const [waterLogs, setWaterLogs] = useState<any[]>([]);
+  const [trackingWaterLogs, setTrackingWaterLogs] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [savingFood, setSavingFood] = useState(false);
   const [savingDiet, setSavingDiet] = useState(false);
@@ -88,6 +107,7 @@ export default function NutritionPage() {
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [foodIdeaFilter, setFoodIdeaFilter] = useState("all");
+  const [trackingRange, setTrackingRange] = useState<"week" | "month">("week");
   const [dietForm, setDietForm] = useState({
     name: "",
     goal: "muscle_gain",
@@ -112,6 +132,11 @@ export default function NutritionPage() {
       .then((data) => setWeeklyFoodLogs(data?.logs ?? []))
       .catch(console.error);
 
+    fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}&rangeDays=30`)
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setMonthlyFoodLogs(data?.logs ?? []))
+      .catch(console.error);
+
     fetch("/api/profile")
       .then((res) => res.ok ? res.json() : { profile: null })
       .then((profileData: any) => {
@@ -124,15 +149,20 @@ export default function NutritionPage() {
           targetFiber: String(profileData?.profile?.targetFiber ?? 30),
           targetWaterMl: String(profileData?.profile?.targetWaterMl ?? 3000),
           micronutrients: Object.fromEntries(
-            Object.entries(mergeWithDefaultMicronutrientTargets(profileData?.profile?.micronutrientTargetsJson)).map(([key, value]) => [key, String(value ?? "")])
+            Object.entries(mergeWithDefaultMicronutrientTargets(profileData?.profile?.micronutrientTargetsJson, profileData?.profile)).map(([key, value]) => [key, String(value ?? "")])
           ),
         });
       })
       .catch(console.error);
 
-    fetch("/api/water-logs")
+    fetch(`/api/water-logs?date=${encodeURIComponent(selectedDate)}`)
       .then((res) => res.ok ? res.json() : { logs: [] })
       .then((data) => setWaterLogs(data?.logs ?? []))
+      .catch(console.error);
+
+    fetch(`/api/water-logs?date=${encodeURIComponent(selectedDate)}&rangeDays=30`)
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setTrackingWaterLogs(data?.logs ?? []))
       .catch(console.error);
 
     fetch("/api/diet-plans?offset=0&limit=10")
@@ -427,7 +457,7 @@ export default function NutritionPage() {
       const res = await fetch("/api/water-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amountMl }),
+        body: JSON.stringify({ amountMl, date: selectedDate }),
       });
       if (!res.ok) {
         toast.error("Failed to log water");
@@ -514,30 +544,150 @@ export default function NutritionPage() {
   const waterTotal = (waterLogs ?? []).reduce((sum: number, log: any) => sum + (log?.amountMl ?? 0), 0);
   const targetWater = profile?.targetWaterMl ?? 3000;
   const micronutrientTrackingEnabled = Boolean(profile?.micronutrientTrackingEnabled);
-  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson);
+  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson, profile);
   const micronutrientTotals = sumMicronutrients((foodLogs ?? []).map((log: any) => log?.micronutrients));
   const weeklyMicronutrientTotals = sumMicronutrients((weeklyFoodLogs ?? []).map((log: any) => log?.micronutrients));
+  const micronutrientWindowDays = 7;
   const weeklyMicronutrientTargets = Object.fromEntries(
-    Object.entries(micronutrientTargets).map(([key, value]) => [key, Number(value ?? 0) * 7])
+    Object.entries(micronutrientTargets).map(([key, value]) => [key, Number(value ?? 0) * micronutrientWindowDays])
   );
   const micronutrientProgress = MICRONUTRIENTS
     .map((item) => {
       const target = micronutrientTargets[item.key] ?? item.target;
       const value = micronutrientTotals[item.key] ?? 0;
       const weeklyValue = weeklyMicronutrientTotals[item.key] ?? 0;
-      const weeklyTarget = Number(weeklyMicronutrientTargets[item.key] ?? target * 7);
+      const weeklyTarget = Number(weeklyMicronutrientTargets[item.key] ?? target * micronutrientWindowDays);
+      const weeklyAverage = weeklyValue / micronutrientWindowDays;
       return {
         ...item,
         value,
         target,
         weeklyValue,
         weeklyTarget,
+        weeklyAverage,
         left: Math.max(0, target - value),
+        averageLeft: Math.max(0, target - weeklyAverage),
         pct: target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0,
+        averagePct: target > 0 ? Math.min(100, Math.round((weeklyAverage / target) * 100)) : 0,
         weeklyPct: weeklyTarget > 0 ? Math.min(100, Math.round((weeklyValue / weeklyTarget) * 100)) : 0,
       };
     })
-    .sort((a, b) => b.left / Math.max(1, b.target) - a.left / Math.max(1, a.target));
+    .sort((a, b) => a.averagePct - b.averagePct);
+  const dailyFocusMicronutrients = micronutrientProgress
+    .filter((item) => item.cadence === "daily_focus")
+    .sort((a, b) => a.pct - b.pct);
+  const weeklyAverageMicronutrients = micronutrientProgress
+    .filter((item) => item.cadence === "weekly_average")
+    .sort((a, b) => a.averagePct - b.averagePct);
+  const trackingDayCount = trackingRange === "week" ? 7 : 30;
+  const trackingFoodLogs = trackingRange === "week" ? weeklyFoodLogs : monthlyFoodLogs;
+  const trackingSummary = useMemo(() => {
+    const dayMap: Record<string, { dateKey: string; label: string; calories: number; protein: number; carbs: number; fat: number; fiber: number; water: number; meals: number }> = {};
+    for (let i = trackingDayCount - 1; i >= 0; i -= 1) {
+      const dateKey = addDaysToDateKey(selectedDate, -i);
+      dayMap[dateKey] = {
+        dateKey,
+        label: formatAppDate(new Date(dateTimeInputToIso(dateKey, "12:00")), trackingRange === "week" ? { weekday: "short" } : { month: "short", day: "numeric" }),
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+        water: 0,
+        meals: 0,
+      };
+    }
+
+    for (const log of trackingFoodLogs ?? []) {
+      const key = dateKeyFromValue(log?.date);
+      if (!dayMap[key]) continue;
+      dayMap[key].calories += log?.calories ?? 0;
+      dayMap[key].protein += log?.protein ?? 0;
+      dayMap[key].carbs += log?.carbs ?? 0;
+      dayMap[key].fat += log?.fat ?? 0;
+      dayMap[key].fiber += log?.fiber ?? 0;
+      dayMap[key].meals += 1;
+    }
+
+    for (const log of trackingWaterLogs ?? []) {
+      const key = dateKeyFromValue(log?.date);
+      if (!dayMap[key]) continue;
+      dayMap[key].water += log?.amountMl ?? 0;
+    }
+
+    const days = Object.values(dayMap);
+    const totals = days.reduce(
+      (acc, day) => ({
+        calories: acc.calories + day.calories,
+        protein: acc.protein + day.protein,
+        carbs: acc.carbs + day.carbs,
+        fat: acc.fat + day.fat,
+        fiber: acc.fiber + day.fiber,
+        water: acc.water + day.water,
+        meals: acc.meals + day.meals,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, water: 0, meals: 0 }
+    );
+    const averages = {
+      calories: totals.calories / trackingDayCount,
+      protein: totals.protein / trackingDayCount,
+      carbs: totals.carbs / trackingDayCount,
+      fat: totals.fat / trackingDayCount,
+      fiber: totals.fiber / trackingDayCount,
+      water: totals.water / trackingDayCount,
+    };
+    const targetTotals = {
+      calories: targetCal * trackingDayCount,
+      protein: targetProtein * trackingDayCount,
+      carbs: targetCarbs * trackingDayCount,
+      fat: targetFat * trackingDayCount,
+      fiber: targetFiber * trackingDayCount,
+      water: targetWater * trackingDayCount,
+    };
+    const targetDays = {
+      calories: days.filter((day) => day.calories >= targetCal * 0.9 && day.calories <= targetCal * 1.1).length,
+      protein: days.filter((day) => day.protein >= targetProtein * 0.9).length,
+      fiber: days.filter((day) => day.fiber >= targetFiber * 0.9).length,
+      water: days.filter((day) => day.water >= targetWater * 0.9).length,
+    };
+    const micronutrientRangeTotals = sumMicronutrients((trackingFoodLogs ?? []).map((log: any) => log?.micronutrients));
+    const micronutrients = MICRONUTRIENTS
+      .map((item) => {
+        const target = micronutrientTargets[item.key] ?? item.target;
+        const average = (micronutrientRangeTotals[item.key] ?? 0) / trackingDayCount;
+        return {
+          ...item,
+          average,
+          target,
+          percent: target > 0 ? Math.min(100, Math.round((average / target) * 100)) : 0,
+          missingAverage: Math.max(0, target - average),
+        };
+      })
+      .sort((a, b) => a.percent - b.percent);
+    return {
+      days,
+      totals,
+      averages,
+      targetTotals,
+      targetDays,
+      micronutrients,
+      weakMicronutrients: micronutrients.filter((item) => item.percent < 80).slice(0, 4),
+      maxDayCalories: Math.max(targetCal, ...days.map((day) => day.calories), 1),
+    };
+  }, [
+    trackingDayCount,
+    trackingFoodLogs,
+    trackingRange,
+    trackingWaterLogs,
+    selectedDate,
+    targetCal,
+    targetProtein,
+    targetCarbs,
+    targetFat,
+    targetFiber,
+    targetWater,
+    micronutrientTargets,
+  ]);
   const remaining = {
     calories: Math.max(0, targetCal - totals.calories),
     protein: Math.max(0, targetProtein - totals.protein),
@@ -614,7 +764,7 @@ export default function NutritionPage() {
                 <div className="mt-4 space-y-3">
                   <div>
                     <p className="text-sm font-medium">Vitamin & mineral targets</p>
-                    <p className="text-xs text-muted-foreground">These detailed targets are used for daily remaining amounts and agent food-photo estimates.</p>
+                    <p className="text-xs text-muted-foreground">Most targets are tracked as weekly averages. Daily focus is reserved for nutrients that are worth watching more closely.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {MICRONUTRIENTS.map((item) => (
@@ -837,8 +987,148 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
+      <FadeIn delay={0.12}>
+        <Card className="max-w-full overflow-hidden rounded-[26px]">
+          <CardHeader className="pb-3">
+            <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                  Nutrition Trends
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Track consistency by weekly or monthly averages.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted/40 p-1">
+                {[
+                  { value: "week", label: "Week" },
+                  { value: "month", label: "Month" },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setTrackingRange(item.value as "week" | "month")}
+                    className={`h-10 rounded-xl px-4 text-sm font-semibold transition active:scale-[0.97] ${
+                      trackingRange === item.value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                { label: "Avg calories", value: `${roundAmount(trackingSummary.averages.calories)} kcal`, target: targetCal, total: trackingSummary.totals.calories, targetTotal: trackingSummary.targetTotals.calories, color: "text-orange-400" },
+                { label: "Avg protein", value: `${roundAmount(trackingSummary.averages.protein)} g`, target: targetProtein, total: trackingSummary.totals.protein, targetTotal: trackingSummary.targetTotals.protein, color: "text-blue-400" },
+                { label: "Avg fiber", value: `${roundAmount(trackingSummary.averages.fiber)} g`, target: targetFiber, total: trackingSummary.totals.fiber, targetTotal: trackingSummary.targetTotals.fiber, color: "text-amber-400" },
+                { label: "Avg water", value: `${roundAmount(trackingSummary.averages.water)} ml`, target: targetWater, total: trackingSummary.totals.water, targetTotal: trackingSummary.targetTotals.water, color: "text-cyan-400" },
+              ].map((item) => {
+                const pct = item.targetTotal > 0 ? Math.min(100, Math.round((item.total / item.targetTotal) * 100)) : 0;
+                return (
+                  <div key={item.label} className="min-w-0 rounded-[20px] bg-muted/35 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+                    <p className={`mt-1 break-words font-mono text-lg font-bold ${item.color}`}>{item.value}</p>
+                    <div className="mt-3 space-y-1.5">
+                      <Progress value={pct} className="h-2" />
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {pct}% of {trackingRange === "week" ? "weekly" : "monthly"} target
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="rounded-[22px] border border-border/70 bg-background/45 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Target hit days</p>
+                    <p className="text-xs text-muted-foreground">Out of {trackingDayCount} days</p>
+                  </div>
+                  <Badge variant="secondary">{trackingSummary.totals.meals} meals</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "Calories", value: trackingSummary.targetDays.calories },
+                    { label: "Protein", value: trackingSummary.targetDays.protein },
+                    { label: "Fiber", value: trackingSummary.targetDays.fiber },
+                    { label: "Water", value: trackingSummary.targetDays.water },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl bg-muted/35 p-3">
+                      <p className="text-xs text-muted-foreground">{item.label}</p>
+                      <p className="mt-1 font-mono text-xl font-bold">{item.value}/{trackingDayCount}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[22px] border border-border/70 bg-background/45 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Daily calorie pattern</p>
+                    <p className="text-xs text-muted-foreground">{trackingRange === "week" ? "Last 7 days" : "Last 30 days"} ending {targetDateLabel}</p>
+                  </div>
+                  <Badge variant="outline">Target {Math.round(targetCal)}</Badge>
+                </div>
+                <div className={`grid gap-1.5 ${trackingRange === "week" ? "grid-cols-7" : "grid-cols-10"}`}>
+                  {trackingSummary.days.map((day) => {
+                    const height = Math.max(8, Math.min(72, (day.calories / trackingSummary.maxDayCalories) * 72));
+                    const closeToTarget = day.calories >= targetCal * 0.9 && day.calories <= targetCal * 1.1;
+                    return (
+                      <div key={day.dateKey} className="min-w-0">
+                        <div className="flex h-20 items-end justify-center rounded-xl bg-muted/35 px-1 py-1.5">
+                          <div
+                            className={`w-full rounded-full ${closeToTarget ? "bg-primary" : "bg-primary/45"}`}
+                            style={{ height: `${height}px` }}
+                            title={`${day.label}: ${Math.round(day.calories)} kcal`}
+                          />
+                        </div>
+                        <p className="mt-1 truncate text-center text-[10px] text-muted-foreground">{day.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {micronutrientTrackingEnabled && (
+              <div className="rounded-[22px] border border-orange-500/20 bg-orange-500/5 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Vitamin & mineral gaps</p>
+                    <p className="text-xs text-muted-foreground">Average per day across this {trackingRange === "week" ? "week" : "month"}</p>
+                  </div>
+                  <Badge variant="secondary">{trackingRange === "week" ? "7-day" : "30-day"}</Badge>
+                </div>
+                {trackingSummary.weakMicronutrients.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {trackingSummary.weakMicronutrients.map((item) => (
+                      <div key={item.key} className="rounded-2xl bg-background/60 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-medium">{item.label}</p>
+                          <span className="font-mono text-xs text-orange-300">{item.percent}%</span>
+                        </div>
+                        <Progress value={item.percent} className="mt-2 h-2" />
+                        <p className="mt-2 font-mono text-xs text-muted-foreground">
+                          Avg {roundAmount(item.average, 1)} / {item.target} {item.unit}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-2xl bg-primary/10 p-3 text-sm text-primary">Vitamin and mineral averages look healthy for this range.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
       {micronutrientTrackingEnabled && (
-        <FadeIn delay={0.12}>
+        <FadeIn delay={0.16}>
           <Card className="max-w-full overflow-hidden rounded-[26px] border-orange-500/20 bg-orange-500/5">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
@@ -847,28 +1137,53 @@ export default function NutritionPage() {
                     <Sparkles className="h-5 w-5 text-orange-400" />
                     Vitamins & Minerals
                   </CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">Daily gaps and weekly progress from logged foods.</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Use weekly averages for most nutrients. Daily focus is only for the ones worth watching more consistently.</p>
                 </div>
-                <Badge variant="secondary" className="shrink-0">7 days</Badge>
+                <Badge variant="secondary" className="shrink-0">7-day avg</Badge>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {micronutrientProgress.map((item) => {
-                  return (
+            <CardContent className="space-y-5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">Daily focus</p>
+                  <span className="text-xs text-muted-foreground">Today vs target</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {dailyFocusMicronutrients.map((item) => (
                     <div key={item.key} className="min-w-0 rounded-[20px] bg-background/70 p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <span className="min-w-0 truncate text-sm font-medium">{item.label}</span>
-                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{Math.round(item.left * 10) / 10} {item.unit} left</span>
+                        <span className="shrink-0 rounded-full bg-orange-500/10 px-2 py-0.5 font-mono text-xs text-orange-200">{item.pct}%</span>
                       </div>
                       <Progress value={item.pct} className="h-2" />
                       <div className="mt-2 flex min-w-0 items-center justify-between gap-2 font-mono text-xs text-muted-foreground">
                         <span className="min-w-0 truncate">{Math.round(item.value * 10) / 10} / {item.target} {item.unit}</span>
+                        <span className="shrink-0">{Math.round(item.left * 10) / 10} left</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">Weekly average target</p>
+                  <span className="text-xs text-muted-foreground">Avg/day over 7 days</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {weeklyAverageMicronutrients.map((item) => (
+                    <div key={item.key} className="min-w-0 rounded-[20px] bg-background/70 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium">{item.label}</span>
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">{item.averagePct}%</span>
+                      </div>
+                      <Progress value={item.averagePct} className="h-2" />
+                      <div className="mt-2 flex min-w-0 items-center justify-between gap-2 font-mono text-xs text-muted-foreground">
+                        <span className="min-w-0 truncate">Avg {Math.round(item.weeklyAverage * 10) / 10} / {item.target} {item.unit}</span>
                         <span className="shrink-0">Week {item.weeklyPct}%</span>
                       </div>
                     </div>
-                  );
-                })}
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>

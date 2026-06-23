@@ -27,7 +27,7 @@ interface DashboardData {
   todayMedicationLogs?: any[];
   micronutrients?: {
     enabled: boolean;
-    low: Array<{ key: string; label: string; unit: string; value: number; target: number; remaining: number; percent: number }>;
+    low: Array<{ key: string; label: string; unit: string; value: number; target: number; remaining: number; percent: number; scope?: string }>;
   };
   weeklyTrends?: { date: string; fullDate: string; calories: number; protein: number; water: number }[];
 }
@@ -439,7 +439,7 @@ export default function DashboardPage() {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-semibold">Vitamins & Minerals</p>
-                    <p className="text-xs text-muted-foreground">Daily gaps based on today&apos;s food logs</p>
+                    <p className="text-xs text-muted-foreground">Weekly averages first, daily focus only where useful</p>
                   </div>
                   <Link href="/nutrition" className="text-xs font-medium text-primary hover:underline">
                     Open Nutrition
@@ -453,7 +453,7 @@ export default function DashboardPage() {
                         <div key={item.key} className="space-y-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate text-sm font-medium">{item.label}</span>
-                            <span className="font-mono text-xs text-amber-400">{pct}%</span>
+                            <span className="font-mono text-xs text-amber-400">{item.scope ?? "Avg"} {pct}%</span>
                           </div>
                           <Progress value={pct} className="h-2" />
                           <p className="text-xs text-muted-foreground">
@@ -462,7 +462,7 @@ export default function DashboardPage() {
                             {Math.round((item.target ?? 0) * 10) / 10}{item.unit}
                           </p>
                           <p className="text-[11px] text-amber-300">
-                            Need {Math.round((item.remaining ?? 0) * 10) / 10}{item.unit} more
+                            Need {Math.round((item.remaining ?? 0) * 10) / 10}{item.unit} more {item.scope === "Today" ? "today" : "per day avg"}
                           </p>
                         </div>
                       );
@@ -470,7 +470,7 @@ export default function DashboardPage() {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-sm text-primary">
-                    Vitamin and mineral targets look healthy today.
+                    Vitamin and mineral averages look healthy.
                   </div>
                 )}
               </div>
