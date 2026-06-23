@@ -711,6 +711,7 @@ export default function SpendsPage() {
   };
 
   const deleteSpend = async (id: string) => {
+    if (!window.confirm("Delete this spend? Any linked lend/borrow entries for it may also be removed. This cannot be undone.")) return;
     try {
       const res = await fetch(`/api/spends?id=${id}`, { method: "DELETE" });
       const data = await res.json();
@@ -844,6 +845,7 @@ export default function SpendsPage() {
   };
 
   const deleteBank = async (id: string) => {
+    if (!window.confirm("Delete this bank account? This cannot be undone.")) return;
     try {
       await fetch(`/api/bank-accounts?id=${id}`, { method: "DELETE" });
       toast.success("Bank account removed");
@@ -895,6 +897,7 @@ export default function SpendsPage() {
   };
 
   const deleteCard = async (id: string) => {
+    if (!window.confirm("Delete this credit card? This cannot be undone.")) return;
     try {
       await fetch(`/api/credit-cards?id=${id}`, { method: "DELETE" });
       toast.success("Card removed");
@@ -1044,6 +1047,7 @@ export default function SpendsPage() {
   };
 
   const deleteMoneyLink = async (id: string) => {
+    if (!window.confirm("Delete this lend/borrow entry? This cannot be undone.")) return;
     try {
       await fetch(`/api/money-links?id=${id}`, { method: "DELETE" });
       toast.success("Entry removed");

@@ -334,8 +334,9 @@ export default function RemindersPage() {
     }
   };
 
-  const deleteReminder = async (id: string) => {
-    if (pendingReminderActions[id]) return;
+  const deleteReminder = async (id: string, title?: string) => {
+    if (pendingReminderActions[id]) return false;
+    if (!window.confirm(`Delete ${title ? `"${title}"` : "this reminder"}? This cannot be undone.`)) return false;
     const previousReminders = reminders;
     setReminderAction(id, "delete");
     setReminders((current) => current.filter((reminder) => reminder.id !== id));
@@ -345,12 +346,14 @@ export default function RemindersPage() {
         const data = await res.json().catch(() => ({}));
         setReminders(previousReminders);
         toast.error(data?.error ?? "Failed to delete reminder");
-        return;
+        return false;
       }
       toast.success("Reminder deleted");
+      return true;
     } catch {
       setReminders(previousReminders);
       toast.error("Failed to delete reminder");
+      return false;
     } finally {
       setReminderAction(id, null);
     }
@@ -358,8 +361,8 @@ export default function RemindersPage() {
 
   const deleteReminderFromSheet = async () => {
     if (!reminderForm.id) return;
-    setReminderOpen(false);
-    await deleteReminder(reminderForm.id);
+    const deleted = await deleteReminder(reminderForm.id, reminderForm.title);
+    if (deleted) setReminderOpen(false);
   };
 
   const saveList = async () => {
@@ -395,6 +398,7 @@ export default function RemindersPage() {
 
   const deleteList = async (list: any) => {
     if (!list?.id || deletingListId) return;
+    if (!window.confirm(`Delete the "${list.name}" list? Reminders in it will stay, but the list will be removed.`)) return;
     setDeletingListId(list.id);
     const previousLists = lists;
     const previousFilter = filter;
@@ -631,7 +635,7 @@ export default function RemindersPage() {
                                 </>
                               )}
                               <Button variant="outline" size="sm" onClick={() => openEditReminder(item)} disabled={isBusy} className="rounded-full active:scale-95"><Pencil className="mr-1 h-3 w-3" />Edit</Button>
-                              <Button variant="outline" size="sm" onClick={() => deleteReminder(item.id)} loading={isDeleting} disabled={isBusy && !isDeleting} className="rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 active:scale-95"><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
+                              <Button variant="outline" size="sm" onClick={() => deleteReminder(item.id, item.title)} loading={isDeleting} disabled={isBusy && !isDeleting} className="rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 active:scale-95"><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
                             </div>
                           </div>
                         )}

@@ -96,7 +96,7 @@ async function createAiExercises(muscleGroup: string, currentExercise: any, used
         {
           role: "system",
           content:
-            "You are a practical strength coach for Indian commercial gyms and Cult-style gyms. Return ONLY JSON. Generate 10 high-quality replacement exercises ranked best first. Use only these muscle groups: chest, back, shoulders, legs, arms, core. Replacements must train the same main muscle but should not be near-duplicates of the current exercise. Prefer common equipment: dumbbells, barbells, bench, cable station, lat pulldown, seated row, leg press, leg extension, leg curl, treadmill/cycle/cross-trainer, bodyweight, and mat movements. Avoid uncommon/specialty machines such as hack squat, pendulum squat, reverse pec deck, machine lateral raise, glute drive machine, assisted dip/pull-up machine, landmine setup, and specialty T-bar row unless the current exercise clearly uses that exact equipment. If a machine may be unavailable, include a fallback in description or formTips, not in the name. Make every option clearly different, practical, and useful for a normal Indian gym user.",
+            "You are a practical strength coach for Indian commercial gyms and Cult-style gyms. Return ONLY JSON. Generate exactly 10 high-quality replacement exercises ranked best first. Use only these muscle groups: chest, back, shoulders, legs, arms, core. Replacements must train the same main muscle but should not be near-duplicates of the current exercise or each other. Prefer common equipment: dumbbells, barbells, bench, cable station, lat pulldown, seated row, leg press, leg extension, leg curl, treadmill/cycle/cross-trainer, bodyweight, and mat movements. Avoid uncommon/specialty machines such as hack squat, pendulum squat, reverse pec deck, machine lateral raise, glute drive machine, assisted dip/pull-up machine, landmine setup, and specialty T-bar row unless the current exercise clearly uses that exact equipment. If a machine may be unavailable, include a fallback in description or formTips, not in the name. Include pain-aware cues when useful, for example neutral grip, pain-free range, slow tempo, or lighter load. Make every option clearly different, practical, and useful for a normal Indian gym user.",
         },
         {
           role: "user",
@@ -196,7 +196,7 @@ export async function POST(req: Request) {
     if (!shouldUseAi && bestLibrary) {
       return NextResponse.json({
         exercise: bestLibrary.exercise,
-        options: rankedLibrary.slice(0, 8).map((item) => item.exercise),
+        options: rankedLibrary.slice(0, 10).map((item) => item.exercise),
         source: bestLibrary.exercise.status === "pending" ? "pending" : "library",
         reason: "Matched by muscle, common equipment, and workout context.",
       });
@@ -215,7 +215,7 @@ export async function POST(req: Request) {
     if (best) {
       return NextResponse.json({
         exercise: best.exercise,
-        options: candidates.slice(0, 8).map((item) => item.exercise),
+        options: candidates.slice(0, 10).map((item) => item.exercise),
         source: best.exercise.status === "pending" ? "ai_pending" : "library",
         reason: best.exercise.status === "pending" ? "Generated a new India-friendly option for admin approval." : "Selected from library with AI-backed ranking.",
       });

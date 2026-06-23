@@ -406,7 +406,8 @@ export default function NutritionPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, foodName?: string) => {
+    if (!window.confirm(`Delete ${foodName ? `"${foodName}"` : "this food log"}? This cannot be undone.`)) return;
     try {
       await fetch(`/api/food-logs?id=${id}`, { method: "DELETE" });
       toast.success("Removed");
@@ -442,6 +443,7 @@ export default function NutritionPage() {
   };
 
   const handleDeleteWater = async (id: string) => {
+    if (!window.confirm("Delete this water log? This cannot be undone.")) return;
     try {
       await fetch(`/api/water-logs?id=${id}`, { method: "DELETE" });
       toast.success("Water removed");
@@ -518,14 +520,24 @@ export default function NutritionPage() {
   const weeklyMicronutrientTargets = Object.fromEntries(
     Object.entries(micronutrientTargets).map(([key, value]) => [key, Number(value ?? 0) * 7])
   );
-  const topMicronutrientGaps = MICRONUTRIENTS
+  const micronutrientProgress = MICRONUTRIENTS
     .map((item) => {
       const target = micronutrientTargets[item.key] ?? item.target;
       const value = micronutrientTotals[item.key] ?? 0;
-      return { ...item, value, target, left: Math.max(0, target - value), pct: target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0 };
+      const weeklyValue = weeklyMicronutrientTotals[item.key] ?? 0;
+      const weeklyTarget = Number(weeklyMicronutrientTargets[item.key] ?? target * 7);
+      return {
+        ...item,
+        value,
+        target,
+        weeklyValue,
+        weeklyTarget,
+        left: Math.max(0, target - value),
+        pct: target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0,
+        weeklyPct: weeklyTarget > 0 ? Math.min(100, Math.round((weeklyValue / weeklyTarget) * 100)) : 0,
+      };
     })
-    .sort((a, b) => b.left / Math.max(1, b.target) - a.left / Math.max(1, a.target))
-    .slice(0, 4);
+    .sort((a, b) => b.left / Math.max(1, b.target) - a.left / Math.max(1, a.target));
   const remaining = {
     calories: Math.max(0, targetCal - totals.calories),
     protein: Math.max(0, targetProtein - totals.protein),
@@ -565,7 +577,7 @@ export default function NutritionPage() {
   };
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6">
       <FadeIn>
         <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
           <div className="hidden min-w-0 sm:block">
@@ -738,7 +750,7 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
-      <Tabs defaultValue="tracker" className="space-y-4">
+      <Tabs defaultValue="tracker" className="min-w-0 space-y-4 overflow-x-hidden">
         <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-muted/30 p-1 sm:inline-grid sm:w-auto">
           <TabsTrigger value="tracker" className="h-11 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Tracker</TabsTrigger>
           <TabsTrigger value="diet" className="h-11 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Diet</TabsTrigger>
@@ -827,7 +839,7 @@ export default function NutritionPage() {
 
       {micronutrientTrackingEnabled && (
         <FadeIn delay={0.12}>
-          <Card className="rounded-[26px] border-orange-500/20 bg-orange-500/5">
+          <Card className="max-w-full overflow-hidden rounded-[26px] border-orange-500/20 bg-orange-500/5">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -841,39 +853,18 @@ export default function NutritionPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {topMicronutrientGaps.map((item) => (
-                  <div key={item.key} className="rounded-[20px] border border-orange-500/15 bg-background/75 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold">{item.label}</span>
-                      <span className="font-mono text-xs text-orange-300">{Math.round(item.left * 10) / 10} {item.unit} left</span>
-                    </div>
-                    <Progress value={item.pct} className="h-2" />
-                    <p className="mt-2 font-mono text-xs text-muted-foreground">
-                      {Math.round(item.value * 10) / 10} / {item.target} {item.unit} today
-                    </p>
-                  </div>
-                ))}
-              </div>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {MICRONUTRIENTS.map((item) => {
-                  const value = micronutrientTotals[item.key] ?? 0;
-                  const target = micronutrientTargets[item.key] ?? item.target;
-                  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
-                  const left = Math.max(0, target - value);
-                  const weeklyValue = weeklyMicronutrientTotals[item.key] ?? 0;
-                  const weeklyTarget = Number(weeklyMicronutrientTargets[item.key] ?? target * 7);
-                  const weeklyPct = weeklyTarget > 0 ? Math.min(100, Math.round((weeklyValue / weeklyTarget) * 100)) : 0;
+                {micronutrientProgress.map((item) => {
                   return (
-                    <div key={item.key} className="rounded-[20px] bg-background/70 p-3">
+                    <div key={item.key} className="min-w-0 rounded-[20px] bg-background/70 p-3">
                       <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium">{item.label}</span>
-                        <span className="font-mono text-xs text-muted-foreground">{Math.round(left * 10) / 10} {item.unit} left</span>
+                        <span className="min-w-0 truncate text-sm font-medium">{item.label}</span>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">{Math.round(item.left * 10) / 10} {item.unit} left</span>
                       </div>
-                      <Progress value={pct} className="h-2" />
-                      <div className="mt-2 flex items-center justify-between gap-2 font-mono text-xs text-muted-foreground">
-                        <span>{Math.round(value * 10) / 10} / {target} {item.unit}</span>
-                        <span>Week {weeklyPct}%</span>
+                      <Progress value={item.pct} className="h-2" />
+                      <div className="mt-2 flex min-w-0 items-center justify-between gap-2 font-mono text-xs text-muted-foreground">
+                        <span className="min-w-0 truncate">{Math.round(item.value * 10) / 10} / {item.target} {item.unit}</span>
+                        <span className="shrink-0">Week {item.weeklyPct}%</span>
                       </div>
                     </div>
                   );
@@ -964,7 +955,7 @@ export default function NutritionPage() {
                               <button onClick={() => openEditDialog(log)} className="rounded-md p-1 text-primary hover:bg-background" aria-label="Edit food">
                                 <Pencil className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleDelete(log?.id)} className="rounded-md p-1 text-destructive hover:bg-background" aria-label="Delete food">
+                              <button onClick={() => handleDelete(log?.id, log?.foodName)} className="rounded-md p-1 text-destructive hover:bg-background" aria-label="Delete food">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
@@ -1062,12 +1053,12 @@ export default function NutritionPage() {
         </TabsContent>
 
         <TabsContent value="diet" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="grid min-w-0 gap-3 sm:flex sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h3 className="text-lg font-semibold">Diet Plans</h3>
               <p className="text-sm text-muted-foreground">Create meal plans for breakfast, snacks, lunch, and dinner.</p>
             </div>
-            <Button onClick={() => openDietDialog()} className="h-11 rounded-2xl">
+            <Button onClick={() => openDietDialog()} className="h-11 w-full rounded-2xl sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />Add Diet
             </Button>
           </div>
@@ -1084,14 +1075,14 @@ export default function NutritionPage() {
                 {dietPlans.map((plan) => {
                   const meals = parseDietMeals(plan);
                   return (
-                    <Card key={plan.id} className="rounded-[26px]">
+                    <Card key={plan.id} className="max-w-full overflow-hidden rounded-[26px]">
                     <CardHeader>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div className="grid min-w-0 gap-3 sm:flex sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <CardTitle className="text-lg">{plan.name}</CardTitle>
                           {plan.goal && <p className="text-sm text-muted-foreground capitalize">{plan.goal.replace(/_/g, " ")}</p>}
                         </div>
-                        <div className="flex gap-1">
+                        <div className="flex flex-wrap gap-1">
                           <Button variant="outline" size="sm" onClick={() => handleApplyDiet(plan)} className="gap-1 rounded-full text-xs">
                             <CalendarCheck className="w-3.5 h-3.5" />
                             Apply Today

@@ -261,6 +261,7 @@ export default function YtSummaryPage() {
   };
 
   const removeSaved = async (vid: string) => {
+    if (!window.confirm("Delete this saved learning item? This cannot be undone.")) return;
     try {
       const res = await fetch(`/api/youtube/learning?videoId=${encodeURIComponent(vid)}`, { method: "DELETE" });
       const data = await res.json();

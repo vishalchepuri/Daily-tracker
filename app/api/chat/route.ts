@@ -2134,9 +2134,11 @@ Rules:
   - If focus includes belly/stomach/waist, normalize it to core and explain that targeted fat loss is not physiologically guaranteed, while training core and using cardio/nutrition to support overall fat loss.
 - Warm-up and stretch rules for workout plans:
   - Every saved workout template must include warmups and stretches.
-  - Warmups should usually include 5-10 minutes of light cardio plus dynamic mobility for that day's joints/muscles.
-  - Stretches/cooldown should usually include 3-5 minutes easy cooldown plus 30-45 seconds pain-free stretching for the trained muscles.
-  - If the user has joint pain or injury limitations, make warmups specific and gentle, and do not prescribe painful stretches.
+  - Warmups should be specific to the day, not generic filler: 5-10 minutes of treadmill/cycle/cross-trainer plus 2-4 dynamic drills for the exact joints/muscles being trained.
+  - For gym plans, include 1-2 ramp-up sets before the first heavy compound when appropriate.
+  - Stretches/cooldown should include 3-5 minutes easy cooldown plus 2-4 pain-free stretches for the trained muscles, usually 30-45 seconds each.
+  - If the user has joint pain or injury limitations, make warmups specific, gentle, and rehab-aware. Use pain-free mobility/isometrics and do not prescribe painful stretches.
+  - If the user says an exercise hurts or reports pain, suggest safer replacements first and adjust warmups/stretches before increasing load.
   - Do not count warmups or stretches as the required 2 strength exercises per muscle; they are separate prep/recovery items.
 - Exercise selection rules for workout plans:
   - Keep workout volume recoverable. Do not create marathon sessions.
