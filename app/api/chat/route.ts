@@ -123,6 +123,71 @@ function correctWorkoutPlanSaveMessage(content: string, actionResults: AgentActi
   return `${correction}\n\n${content}`;
 }
 
+function actionProgressLabel(action: AgentAction, index: number, total: number) {
+  if (action.type === "create_workout_template") return `Saving workout day ${index} of ${total}: ${action.name}`;
+  if (action.type === "create_food_log") return `Saving food log ${index} of ${total}: ${action.foodName}`;
+  if (action.type === "create_reminder") return `Saving reminder ${index} of ${total}: ${action.title}`;
+  if (action.type === "complete_reminder") return `Completing reminder ${index} of ${total}...`;
+  if (action.type === "create_spend_log") return `Saving spend ${index} of ${total}: ${action.merchant}`;
+  if (action.type === "create_money_link") return `Saving lend/borrow entry ${index} of ${total}`;
+  if (action.type === "create_workout_log") return `Saving workout history ${index} of ${total}`;
+  if (action.type === "update_workout_focus") return "Saving workout focus...";
+  if (action.type === "update_workout_training_style") return "Saving workout style...";
+  if (action.type.startsWith("update_")) return "Updating your profile memory...";
+  return `Saving action ${index} of ${total}...`;
+}
+
+function parseClaimedWorkoutDays(content: string) {
+  const matches = [...content.matchAll(/\b(\d{1,2})\s*[- ]?\s*day\b/gi)];
+  const values = matches.map((match) => Number(match[1])).filter((value) => Number.isFinite(value) && value > 0);
+  return values.length ? Math.max(...values) : null;
+}
+
+async function validateWorkoutTemplateActionResults(userId: string, initialContent: string, actions: AgentAction[], actionResults: AgentActionResult[]) {
+  const plannedWorkoutActions = actions.filter((action) => action.type === "create_workout_template");
+  const createdWorkoutResults = actionResults.filter(
+    (result) => result.type === "create_workout_template" && /^Created\s+/i.test(result.label)
+  );
+  const skippedWorkoutResults = actionResults.filter(
+    (result) => result.type === "create_workout_template" && isSkippedActionResult(result)
+  );
+
+  if (plannedWorkoutActions.length === 0 && createdWorkoutResults.length === 0 && skippedWorkoutResults.length === 0) {
+    return initialContent;
+  }
+
+  const createdIds = createdWorkoutResults.map((result) => result.id).filter(Boolean);
+  const savedTemplates = createdIds.length
+    ? await prisma.workoutTemplate.findMany({
+        where: { userId, id: { in: createdIds } },
+        select: { id: true, name: true },
+      })
+    : [];
+
+  const savedCount = savedTemplates.length;
+  const claimedDays = parseClaimedWorkoutDays(initialContent);
+  const expectedDays = Math.max(plannedWorkoutActions.length, claimedDays ?? 0);
+  const blockedCount = Math.max(skippedWorkoutResults.length, plannedWorkoutActions.length - savedCount);
+
+  if (expectedDays > 0 && savedCount === expectedDays && skippedWorkoutResults.length === 0) return initialContent;
+  if (savedCount === createdWorkoutResults.length && skippedWorkoutResults.length === 0 && (!claimedDays || claimedDays === savedCount)) return initialContent;
+
+  const savedText = savedCount === 1 ? "1 workout day is saved" : `${savedCount} workout days are saved`;
+  const expectedText = expectedDays > savedCount ? ` out of ${expectedDays} planned days` : "";
+  const blockedText = blockedCount > 0
+    ? blockedCount === 1
+      ? " 1 day still needs attention."
+      : ` ${blockedCount} days still need attention.`
+    : "";
+  const correction = `Done - I verified the database: ${savedText}${expectedText}.${blockedText}`;
+
+  if (/^Done\b[^\n]*/i.test(initialContent)) {
+    return initialContent.replace(/^Done\b[^\n]*/i, correction);
+  }
+
+  return `${correction}\n\n${initialContent}`;
+}
+
 type AgentAction =
   | {
       type: "create_exercise";
@@ -2641,7 +2706,9 @@ Available action examples:
         let undoActions: Array<{ id: string; label: string; actionLabel: string }> = [];
         try {
           const actionResults: AgentActionResult[] = [];
-          for (const action of actions) {
+          const totalActions = actions.length;
+          for (const [actionIndex, action] of actions.entries()) {
+            await writeSse(controller, { status: actionProgressLabel(action, actionIndex + 1, totalActions) });
             const result = await executeAgentAction(userId, action, message, {
               healthLimitations: context.profile?.healthLimitations,
               userWantsJointStrengthening: context.userWantsJointStrengthening,
@@ -2651,10 +2718,14 @@ Available action examples:
             });
             if (result) actionResults.push(result);
           }
+          if (actions.length > 0) {
+            await writeSse(controller, { status: "Verifying saved changes..." });
+          }
           const inferredFriendLinks = await createMissingFriendMoneyLinks(userId, message, actions);
           actionResults.push(...inferredFriendLinks);
 
-          const correctedInitialContent = correctWorkoutPlanSaveMessage(initialContent, actionResults);
+          const checkedInitialContent = await validateWorkoutTemplateActionResults(userId, initialContent, actions, actionResults);
+          const correctedInitialContent = correctWorkoutPlanSaveMessage(checkedInitialContent, actionResults);
           const actionSummary = formatActionResultsSummary(actionResults);
           fullContent = `${correctedInitialContent}${actionSummary}`;
           undoActions = actionResults

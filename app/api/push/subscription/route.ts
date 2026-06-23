@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getWebPushConfigStatus, isWebPushConfigured } from "@/lib/web-push";
+import { getWebPushConfigStatus, isWebPushConfigured, pruneStalePushSubscriptions } from "@/lib/web-push";
 import { DEFAULT_TIME_ZONE, normalizeTimeZone } from "@/lib/local-dates";
 import { createHash } from "crypto";
 
@@ -59,6 +59,7 @@ export async function GET(req: Request) {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const currentEndpoint = String(req.headers.get("x-dayza-push-endpoint") ?? "").trim();
+    await pruneStalePushSubscriptions(user.id);
 
     const [subscriptions, currentSubscription, profile] = await Promise.all([
       prisma.webPushSubscription.findMany({

@@ -143,7 +143,11 @@ export default function ChatPage() {
     let index = 0;
     const interval = window.setInterval(() => {
       index = (index + 1) % steps.length;
-      setAgentStatus((current) => current === "Writing response..." ? current : steps[index]);
+      setAgentStatus((current) =>
+        current === "Writing response..." || current.startsWith("Saving ") || current.startsWith("Verifying ")
+          ? current
+          : steps[index]
+      );
     }, 2200);
     return () => window.clearInterval(interval);
   }, [streaming]);
@@ -249,6 +253,9 @@ export default function ChatPage() {
             if (data === "[DONE]") { setStreaming(false); return; }
             try {
               const parsed = JSON.parse(data);
+              if (parsed?.status) {
+                setAgentStatus(String(parsed.status));
+              }
               if (parsed?.content) {
                 setAgentStatus("Writing response...");
                 setMessages(prev => {

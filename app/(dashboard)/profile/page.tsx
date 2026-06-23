@@ -777,47 +777,15 @@ export default function ProfilePage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div><Label>Goal Outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Fat loss, muscle gain..." /></div>
-                <div><Label>Timeline (days)</Label><Input type="number" min="1" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="56" /></div>
-                <div><Label>Target Weight (kg)</Label><Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Optional" /></div>
               </div>
+              <button
+                type="button"
+                className="mt-4 w-full rounded-2xl border border-border/70 bg-muted/20 p-3 text-left text-sm text-muted-foreground transition active:scale-[0.99]"
+                onClick={() => setActiveTab("memory")}
+              >
+                Advanced workout focus, allergies, timeline, and nutrition depth are in Agent Memory.
+              </button>
             </div>
-
-            <div className={PROFILE_PANEL_CLASS}>
-              <p className="mb-3 text-sm font-semibold">Agent Memory</p>
-              <div className="grid grid-cols-1 gap-3">
-                <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, knee pain, shoulder surgery..." /></div>
-                <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, peanuts, lactose..." /></div>
-                <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="core, legs, glutes, chest..." /></div>
-                <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="fat_loss, muscle_gain, cardio..." /></div>
-                <div>
-                  <Label>Workout style</Label>
-                  <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
-                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
-                      <SelectItem value="machines">Machines</SelectItem>
-                      <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
-                      <SelectItem value="mixed">Mixed</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </div>
-
-            <label className="flex items-start gap-3 rounded-[22px] border border-orange-500/20 bg-orange-500/5 p-4 active:scale-[0.99]">
-              <Checkbox
-                checked={form.micronutrientTrackingEnabled}
-                onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="block text-sm font-semibold">Track vitamins & minerals</span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Adds detailed micronutrient targets and food-photo estimates in Nutrition.
-                </span>
-              </span>
-            </label>
             <Button className="h-12 w-full rounded-2xl" onClick={handleSave} loading={saving}><Save className="mr-2 h-4 w-4" />Save Profile</Button>
           </CardContent>
         </Card>
