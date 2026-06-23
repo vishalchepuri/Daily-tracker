@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { AlertCircle, Banknote, CalendarClock, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards } from "lucide-react";
+import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { pruneFirestoreChatRetention } from "@/lib/firestore-chat";
@@ -121,6 +121,28 @@ export default async function AdminPage() {
     user._count.medications +
     user._count.progressEntries
   ), 0);
+  const adminFocusItems = [
+    {
+      label: "Exercise approvals",
+      detail: pendingExercises.length > 0 ? `${pendingExercises.length} pending exercise submissions` : "No pending exercise submissions",
+      healthy: pendingExercises.length === 0,
+    },
+    {
+      label: "Issue queue",
+      detail: openIssues > 0 ? `${openIssues} open issue reports need review` : "No open issue reports",
+      healthy: openIssues === 0,
+    },
+    {
+      label: "Profile readiness",
+      detail: `${profileUsers} of ${users.length} users have complete basic profiles`,
+      healthy: users.length === 0 || profileUsers / Math.max(1, users.length) >= 0.8,
+    },
+    {
+      label: "Notification readiness",
+      detail: `${telegramUsers} users have Telegram enabled`,
+      healthy: telegramUsers > 0 || users.length === 0,
+    },
+  ];
   return (
     <div className="space-y-5">
       <div className="hidden sm:block">
@@ -147,6 +169,30 @@ export default async function AdminPage() {
         <AdminMetric title="Money links" value={formatInr(moneyLinkTotals._sum.amount)} detail={`${formatNumber(moneyLinkTotals._count.id)} unsettled`} icon={Banknote} compact />
         <AdminMetric title="Exercise approvals" value={formatNumber(pendingExercises.length)} detail="waiting for review" icon={Dumbbell} compact />
       </div>
+
+      <Card className="rounded-[28px] border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            Production Focus
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {adminFocusItems.map((item) => (
+            <div key={item.label} className="rounded-[22px] border border-border/70 bg-background/60 p-3">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 rounded-2xl p-2 ${item.healthy ? "bg-primary/10 text-primary" : "bg-amber-500/10 text-amber-400"}`}>
+                  {item.healthy ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
         <AdminReviewQueue />

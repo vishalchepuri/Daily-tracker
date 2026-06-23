@@ -70,6 +70,10 @@ const learningStatuses = [
   { value: "completed", label: "Completed" },
 ] as const;
 
+const YT_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
+const YT_PANEL_CLASS = "rounded-[24px] border border-border/70 bg-background/55";
+const YT_INPUT_CLASS = "h-11 rounded-2xl border-border/70 bg-background/80 px-3 text-sm";
+
 interface SavedSummary {
   id?: string;
   videoId: string;
@@ -423,7 +427,7 @@ export default function YtSummaryPage() {
   if (needsConnection) {
     return (
       <div className="flex min-h-[60svh] items-center justify-center">
-        <Card className="max-w-xl border-primary/30">
+        <Card className={`${YT_CARD_CLASS} max-w-xl border-primary/30`}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Youtube className="h-6 w-6 text-red-500" />
@@ -434,7 +438,7 @@ export default function YtSummaryPage() {
             <p className="text-sm text-muted-foreground">
               Sign in with Google again so Dayza can read your YouTube subscriptions and show videos to summarize.
             </p>
-            <Button onClick={connectYoutube} className="w-full" loading={connectingYoutube} disabled={connectingYoutube}>
+            <Button onClick={connectYoutube} className="h-12 w-full rounded-2xl" loading={connectingYoutube} disabled={connectingYoutube}>
               Connect YouTube with Google
             </Button>
           </CardContent>
@@ -446,7 +450,7 @@ export default function YtSummaryPage() {
   const feedContent = (
     <div className="space-y-4">
       {importHealth?.youtube && (
-        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm ${importHealth.youtube.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}`}>
+        <div className={`flex flex-wrap items-center justify-between gap-2 rounded-[22px] border px-3 py-2 text-sm ${importHealth.youtube.needsReconnect ? "border-amber-500/40 bg-amber-500/10" : "border-primary/20 bg-primary/5"}`}>
           <div className="flex min-w-0 items-center gap-2">
             {importHealth.youtube.needsReconnect ? <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" /> : <Youtube className="h-4 w-4 shrink-0 text-primary" />}
             <div className="min-w-0">
@@ -462,7 +466,7 @@ export default function YtSummaryPage() {
       )}
 
       {youtubeError && (
-        <Card className="border-amber-500/40 bg-amber-500/10">
+        <Card className={`${YT_CARD_CLASS} border-amber-500/40 bg-amber-500/10`}>
           <CardContent className="flex flex-col gap-3 p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
             <p className="text-amber-100">{youtubeError.message}</p>
             {youtubeError.actionUrl && (
@@ -475,7 +479,7 @@ export default function YtSummaryPage() {
       )}
 
       <div className="grid gap-4 xl:grid-cols-[18rem_1fr]">
-        <Card>
+        <Card className={YT_CARD_CLASS}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Youtube className="h-5 w-5 text-red-500" />
@@ -488,7 +492,7 @@ export default function YtSummaryPage() {
             ) : subscriptions.length === 0 ? (
               <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">No subscriptions found.</div>
             ) : (
-              <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 ios-scroll sm:max-h-[32rem]">
+              <div className="grid gap-2">
                 <button
                   type="button"
                   onClick={() => {
@@ -497,7 +501,7 @@ export default function YtSummaryPage() {
                     setSummary("");
                     setSource("");
                   }}
-                  className={`grid grid-cols-[3rem_1fr] items-center gap-3 rounded-lg p-2 text-left transition hover:bg-muted ${!selectedChannel ? "bg-primary/10 text-primary" : "bg-muted/35"}`}
+                  className={`grid grid-cols-[3rem_1fr] items-center gap-3 rounded-[20px] p-2 text-left transition active:scale-[0.99] hover:bg-muted ${!selectedChannel ? "bg-primary/10 text-primary" : "bg-muted/35"}`}
                 >
                   <div className="flex h-12 w-12 items-center justify-center rounded-md bg-red-500/10 text-red-500">
                     <Youtube className="h-5 w-5" />
@@ -512,7 +516,7 @@ export default function YtSummaryPage() {
                     key={channel.id}
                     type="button"
                     onClick={() => loadVideos(channel)}
-                    className={`grid grid-cols-[3rem_1fr] items-center gap-3 rounded-lg p-2 text-left transition hover:bg-muted ${selectedChannel?.channelId === channel.channelId ? "bg-primary/10 text-primary" : "bg-muted/35"}`}
+                    className={`grid grid-cols-[3rem_1fr] items-center gap-3 rounded-[20px] p-2 text-left transition active:scale-[0.99] hover:bg-muted ${selectedChannel?.channelId === channel.channelId ? "bg-primary/10 text-primary" : "bg-muted/35"}`}
                   >
                     {channel.thumbnail ? <img src={channel.thumbnail} alt="" className="h-12 w-12 rounded-md object-cover" /> : <div className="h-12 w-12 rounded-md bg-muted" />}
                     <div className="min-w-0">
@@ -527,7 +531,7 @@ export default function YtSummaryPage() {
         </Card>
 
         <div className="grid gap-4 xl:grid-cols-[1fr_24rem]">
-          <Card>
+          <Card className={YT_CARD_CLASS}>
             <CardHeader>
               <div className="grid gap-2 sm:flex sm:items-center sm:justify-between">
                 <CardTitle className="flex min-w-0 items-center gap-2">
@@ -549,13 +553,13 @@ export default function YtSummaryPage() {
               ) : visibleVideos.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No recent videos found.</div>
               ) : (
-                <div className="grid max-h-[34rem] gap-3 overflow-y-auto pr-1 md:grid-cols-2 xl:max-h-none xl:overflow-visible xl:pr-0">
+                <div className="grid gap-3 md:grid-cols-2">
                   {visibleVideos.map((video) => (
                     <button
                       key={video.id}
                       type="button"
                       onClick={() => summarizeVideo(video)}
-                      className={`overflow-hidden rounded-lg border bg-muted/30 text-left transition hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}
+                      className={`overflow-hidden rounded-[24px] border bg-muted/30 text-left transition active:scale-[0.99] hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}
                     >
                       {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}
                       <div className="space-y-2 p-3">
@@ -591,7 +595,7 @@ export default function YtSummaryPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={YT_CARD_CLASS}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
@@ -600,7 +604,7 @@ export default function YtSummaryPage() {
             </CardHeader>
             <CardContent>
               {!selectedVideo ? (
-                <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">Click a video to generate a summary and save your notes.</div>
+                <div className="rounded-[22px] border border-dashed p-6 text-sm text-muted-foreground">Click a video to generate a summary and save your notes.</div>
               ) : summarizing ? (
                 <div className="space-y-3">
                   <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
@@ -613,7 +617,7 @@ export default function YtSummaryPage() {
                     <p className="text-sm font-semibold">{selectedVideo.title}</p>
                     {source && <p className="mt-1 text-xs text-muted-foreground">Summary source: {source}</p>}
                   </div>
-                  <div className="whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+                  <div className="whitespace-pre-wrap rounded-[22px] bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                     {summary || "No summary yet."}
                   </div>
 
@@ -624,7 +628,7 @@ export default function YtSummaryPage() {
                           <div className="space-y-1.5">
                             <Label>Category</Label>
                             <Select value={learningForm.category} onValueChange={(value) => setLearningForm((prev) => ({ ...prev, category: value }))}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectTrigger className={YT_INPUT_CLASS}><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 {learningCategories.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
                               </SelectContent>
@@ -633,7 +637,7 @@ export default function YtSummaryPage() {
                           <div className="space-y-1.5">
                             <Label>Status</Label>
                             <Select value={learningForm.status} onValueChange={(value) => setLearningForm((prev) => ({ ...prev, status: value }))}>
-                              <SelectTrigger><SelectValue /></SelectTrigger>
+                              <SelectTrigger className={YT_INPUT_CLASS}><SelectValue /></SelectTrigger>
                               <SelectContent>
                                 {learningStatuses.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
                               </SelectContent>
@@ -646,7 +650,7 @@ export default function YtSummaryPage() {
                           <Textarea
                             value={learningForm.takeawaysText}
                             onChange={(event) => setLearningForm((prev) => ({ ...prev, takeawaysText: event.target.value }))}
-                            className="min-h-[110px]"
+                            className="min-h-[110px] rounded-2xl border-border/70 bg-background/80"
                             placeholder="One takeaway per line"
                           />
                         </div>
@@ -656,7 +660,7 @@ export default function YtSummaryPage() {
                           <Textarea
                             value={learningForm.notes}
                             onChange={(event) => setLearningForm((prev) => ({ ...prev, notes: event.target.value }))}
-                            className="min-h-[90px]"
+                            className="min-h-[90px] rounded-2xl border-border/70 bg-background/80"
                             placeholder="Why this matters, what to revisit, what felt useful..."
                           />
                         </div>
@@ -666,6 +670,7 @@ export default function YtSummaryPage() {
                           <Input
                             value={learningForm.nextAction}
                             onChange={(event) => setLearningForm((prev) => ({ ...prev, nextAction: event.target.value }))}
+                            className={YT_INPUT_CLASS}
                             placeholder="Example: Try this workflow tomorrow morning"
                           />
                         </div>
@@ -694,14 +699,14 @@ export default function YtSummaryPage() {
 
   const savedContent = (
     <div className="space-y-3">
-      <Card>
+      <Card className={YT_CARD_CLASS}>
         <CardContent className="p-4">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={savedSearch}
               onChange={(event) => setSavedSearch(event.target.value)}
-              className="pl-9"
+              className={`${YT_INPUT_CLASS} pl-9`}
               placeholder="Search saved learning, notes, next actions..."
             />
           </div>
@@ -709,7 +714,7 @@ export default function YtSummaryPage() {
       </Card>
 
       {filteredSavedSummaries.length === 0 ? (
-        <Card>
+        <Card className={YT_CARD_CLASS}>
           <CardContent className="flex flex-col items-center py-12 text-center text-muted-foreground">
             <Bookmark className="mb-3 h-10 w-10 text-muted-foreground/30" />
             <p className="font-semibold text-foreground">{savedSummaries.length === 0 ? "No saved learning yet" : "No matches found"}</p>
@@ -718,12 +723,12 @@ export default function YtSummaryPage() {
         </Card>
       ) : (
         filteredSavedSummaries.map((saved) => (
-          <Card key={saved.videoId}>
+          <Card key={saved.videoId} className={YT_CARD_CLASS}>
             <CardContent className="space-y-3 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="line-clamp-2 text-sm font-semibold">{saved.title}</p>
-                  <p className="text-xs text-muted-foreground">{saved.channelTitle} · Saved {formatAppDate(saved.savedAt, { day: "2-digit", month: "short", year: "numeric" })}</p>
+                  <p className="text-xs text-muted-foreground">{saved.channelTitle} - Saved {formatAppDate(saved.savedAt, { day: "2-digit", month: "short", year: "numeric" })}</p>
                 </div>
                 <button type="button" onClick={() => removeSaved(saved.videoId)} className="shrink-0 text-muted-foreground transition-colors hover:text-destructive">
                   <Trash2 className="h-4 w-4" />
@@ -737,7 +742,7 @@ export default function YtSummaryPage() {
               </div>
 
               {saved.takeaways && saved.takeaways.length > 0 && (
-                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <div className={`${YT_PANEL_CLASS} p-3`}>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Takeaways</p>
                   <ul className="space-y-1 text-xs leading-relaxed text-muted-foreground">
                     {saved.takeaways.map((item, index) => <li key={`${saved.videoId}-${index}`}>- {item}</li>)}
@@ -746,20 +751,20 @@ export default function YtSummaryPage() {
               )}
 
               {saved.notes && (
-                <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <div className={`${YT_PANEL_CLASS} p-3`}>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Notes</p>
                   <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{saved.notes}</p>
                 </div>
               )}
 
               {saved.nextAction && (
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-3">
+                <div className="rounded-[22px] border border-primary/20 bg-primary/5 p-3">
                   <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-primary">Next action</p>
                   <p className="text-sm text-foreground">{saved.nextAction}</p>
                 </div>
               )}
 
-              <div className="max-h-56 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+              <div className="whitespace-pre-wrap rounded-[22px] bg-muted/35 p-3 text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                 {saved.summary}
               </div>
             </CardContent>
@@ -770,25 +775,25 @@ export default function YtSummaryPage() {
   );
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6">
       <FadeIn>
         <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
           <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
             <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, with notes, reminders, and saved takeaways.</p>
           </div>
-          <Button variant="outline" onClick={loadSubscriptionFeed} disabled={loadingSubscriptions || loadingVideos}>
+          <Button variant="outline" className="h-11 rounded-2xl" onClick={loadSubscriptionFeed} disabled={loadingSubscriptions || loadingVideos}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
             Refresh
           </Button>
         </div>
       </FadeIn>
 
-      <div className="flex gap-2">
-        <Button variant={activeTab === "feed" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("feed")}>
+      <div className="grid grid-cols-2 gap-2 rounded-2xl bg-muted/30 p-1 sm:inline-grid sm:w-auto">
+        <Button variant={activeTab === "feed" ? "default" : "ghost"} size="sm" className="h-10 rounded-xl" onClick={() => setActiveTab("feed")}>
           Feed <Badge variant="secondary" className="ml-1.5">{videos.length}</Badge>
         </Button>
-        <Button variant={activeTab === "saved" ? "default" : "outline"} size="sm" onClick={() => setActiveTab("saved")}>
+        <Button variant={activeTab === "saved" ? "default" : "ghost"} size="sm" className="h-10 rounded-xl" onClick={() => setActiveTab("saved")}>
           <Bookmark className="mr-1 h-3.5 w-3.5" />Saved <Badge variant="outline" className="ml-1.5">{savedSummaries.length}</Badge>
         </Button>
       </div>
