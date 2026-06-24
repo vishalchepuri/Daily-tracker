@@ -83,6 +83,7 @@ export default function GmailTrackerPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [query, setQuery] = useState("newer_than:45d -category:promotions");
+  const [selectedDate, setSelectedDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -102,10 +103,12 @@ export default function GmailTrackerPage() {
 
   const highPriorityCount = items.filter((item) => item.importance === "high").length;
 
-  async function loadTracked() {
+  async function loadTracked(dateOverride?: string) {
     setLoading(true);
     try {
+      const activeDate = dateOverride ?? selectedDate;
       const params = new URLSearchParams({ limit: "80" });
+      if (activeDate) params.set("date", activeDate);
       const res = await fetch(`/api/gmail/tracker?${params.toString()}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? "Could not load Gmail tracker");
@@ -125,7 +128,7 @@ export default function GmailTrackerPage() {
       const res = await fetch("/api/gmail/tracker", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, limit: 60 }),
+        body: JSON.stringify({ query, date: selectedDate || null, limit: 60 }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -213,14 +216,36 @@ export default function GmailTrackerPage() {
             <Search className="h-3.5 w-3.5" />
             Gmail search
           </div>
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="newer_than:45d -category:promotions"
-            className="h-11 rounded-2xl"
-          />
+          <div className="grid gap-2 sm:grid-cols-[1fr_12rem_auto_auto]">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="newer_than:45d -category:promotions"
+              className="h-11 rounded-2xl"
+            />
+            <Input
+              type="date"
+              value={selectedDate}
+              onChange={(event) => setSelectedDate(event.target.value)}
+              className="h-11 rounded-2xl"
+            />
+            <Button type="button" onClick={syncGmail} loading={syncing} className="h-11 rounded-2xl">
+              Get
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setSelectedDate("");
+                void loadTracked("");
+              }}
+              className="h-11 rounded-2xl"
+            >
+              Clear
+            </Button>
+          </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Dayza reads recent headers and snippets only. Use Gmail search syntax to narrow this, for example `from:bank newer_than:30d`.
+            Dayza reads recent headers and snippets only. Pick a date to fetch only that day, or use Gmail search syntax like `from:bank newer_than:30d`.
           </p>
         </div>
 

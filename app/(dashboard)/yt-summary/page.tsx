@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Bookmark,
   BookmarkCheck,
+  CalendarDays,
   ListTodo,
   NotebookText,
   PlayCircle,
@@ -127,6 +128,8 @@ export default function YtSummaryPage() {
   const [importHealth, setImportHealth] = useState<any>(null);
   const [connectingYoutube, setConnectingYoutube] = useState(false);
   const [savedSearch, setSavedSearch] = useState("");
+  const [feedDate, setFeedDate] = useState("");
+  const [contentKind, setContentKind] = useState("all");
   const [savingLearning, setSavingLearning] = useState(false);
   const [creatingReminder, setCreatingReminder] = useState(false);
   const [learningForm, setLearningForm] = useState({
@@ -143,11 +146,14 @@ export default function YtSummaryPage() {
     return fallback;
   };
 
-  const loadSubscriptionFeed = async () => {
+  const loadSubscriptionFeed = async (dateOverride?: string) => {
     setLoadingSubscriptions(true);
     setLoadingVideos(true);
     try {
-      const res = await fetch("/api/youtube/feed");
+      const activeDate = dateOverride ?? feedDate;
+      const params = new URLSearchParams();
+      if (activeDate) params.set("date", activeDate);
+      const res = await fetch(`/api/youtube/feed${params.toString() ? `?${params.toString()}` : ""}`);
       const data = await res.json();
       if (!res.ok) {
         setNeedsConnection(Boolean(data?.needsConnection));
@@ -370,9 +376,10 @@ export default function YtSummaryPage() {
   };
 
   const visibleVideos = useMemo(() => {
-    const list = selectedChannel ? videos.filter((video) => video.channelId === selectedChannel.channelId) : videos;
+    let list = selectedChannel ? videos.filter((video) => video.channelId === selectedChannel.channelId) : videos;
+    if (contentKind !== "all") list = list.filter((video) => video.kind === contentKind);
     return [...list].sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
-  }, [selectedChannel, videos]);
+  }, [contentKind, selectedChannel, videos]);
 
   const filteredSavedSummaries = useMemo(() => {
     const query = savedSearch.trim().toLowerCase();
@@ -477,6 +484,59 @@ export default function YtSummaryPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card className={YT_CARD_CLASS}>
+        <CardContent className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_auto_auto] sm:items-end">
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                Published date
+              </Label>
+              <Input
+                type="date"
+                value={feedDate}
+                onChange={(event) => setFeedDate(event.target.value)}
+                className={YT_INPUT_CLASS}
+              />
+            </div>
+            <Button type="button" onClick={() => loadSubscriptionFeed()} loading={loadingVideos} className="h-11 rounded-2xl">
+              Get date
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setFeedDate("");
+                void loadSubscriptionFeed("");
+              }}
+              className="h-11 rounded-2xl"
+            >
+              Clear
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { value: "all", label: "All" },
+              { value: "video", label: "Videos" },
+              { value: "short", label: "Shorts" },
+            ].map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => setContentKind(item.value)}
+                className={`h-10 rounded-2xl border px-3 text-sm font-semibold transition active:scale-[0.98] ${
+                  contentKind === item.value
+                    ? "border-primary/50 bg-primary/15 text-primary"
+                    : "border-border bg-background/70 text-muted-foreground"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-[18rem_1fr]">
         <Card className={YT_CARD_CLASS}>
@@ -782,7 +842,7 @@ export default function YtSummaryPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
             <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, with notes, reminders, and saved takeaways.</p>
           </div>
-          <Button variant="outline" className="h-11 rounded-2xl" onClick={loadSubscriptionFeed} disabled={loadingSubscriptions || loadingVideos}>
+          <Button variant="outline" className="h-11 rounded-2xl" onClick={() => loadSubscriptionFeed()} disabled={loadingSubscriptions || loadingVideos}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
             Refresh
           </Button>

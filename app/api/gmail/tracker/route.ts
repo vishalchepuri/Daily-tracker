@@ -10,6 +10,20 @@ import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DEFAULT_QUERY = "newer_than:45d -category:promotions";
 const MAX_SYNC_EMAILS = 60;
+const VALID_GMAIL_CATEGORIES = new Set([
+  "bills",
+  "finance",
+  "orders",
+  "travel",
+  "health",
+  "work",
+  "security",
+  "subscriptions",
+  "social",
+  "updates",
+  "personal",
+  "other",
+]);
 
 const categoryRules = [
   {
@@ -92,6 +106,101 @@ function classifyMessage(input: { subject: string; from: string; snippet: string
   return { category, importance };
 }
 
+function cleanAiJson(value: string) {
+  return value.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/, "").trim();
+}
+
+function normalizeCategory(value: any) {
+  const category = String(value ?? "").trim().toLowerCase();
+  return VALID_GMAIL_CATEGORIES.has(category) ? category : "other";
+}
+
+function normalizeImportance(value: any) {
+  const importance = String(value ?? "").trim().toLowerCase();
+  return ["high", "medium", "low"].includes(importance) ? importance : "medium";
+}
+
+async function aiClassifyMessages(messages: Array<{ id: string; subject: string; from: string; snippet: string; labelIds: string[] }>) {
+  if (!process.env.ABACUSAI_API_KEY || messages.length === 0) return new Map<string, { category: string; importance: string }>();
+  try {
+    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        max_tokens: 3000,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify Gmail metadata for a personal life dashboard. Use the subject, sender, snippet, and labels. Do not need full email body. Return ONLY JSON array. Category must be one of: bills, finance, orders, travel, health, work, security, subscriptions, social, updates, personal, other. Importance must be high, medium, or low. High means action is likely needed, due date/security/work/bill/travel change. Low means newsletters/promotions/general updates.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              messages.map((message) => ({
+                id: message.id,
+                subject: message.subject,
+                from: message.from,
+                snippet: message.snippet,
+                labels: message.labelIds,
+              }))
+            ),
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return new Map();
+    const data = await response.json().catch(() => ({}));
+    const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]"));
+    if (!Array.isArray(parsed)) return new Map();
+    const entries: Array<[string, { category: string; importance: string }]> = parsed
+        .map((item: any) => [
+          String(item?.id ?? ""),
+          { category: normalizeCategory(item?.category), importance: normalizeImportance(item?.importance) },
+        ] as [string, { category: string; importance: string }])
+        .filter(([id]: [string, { category: string; importance: string }]) => Boolean(id));
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function gmailDate(value?: string) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  return value.replace(/-/g, "/");
+}
+
+function appDateKey(value?: string | null) {
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function buildGmailQuery(baseQuery: string, date?: string) {
+  const dateToken = gmailDate(date);
+  if (!dateToken) return baseQuery;
+  const nextDateToken = addDays(new Date(`${date}T00:00:00.000Z`), 1).toISOString().slice(0, 10).replace(/-/g, "/");
+  const cleaned = baseQuery.replace(/\bafter:\S+/gi, "").replace(/\bbefore:\S+/gi, "").replace(/\s+/g, " ").trim();
+  return `${cleaned} after:${dateToken} before:${nextDateToken}`.trim();
+}
+
 function summarizeCounts(items: any[]) {
   return items.reduce<Record<string, number>>((acc, item) => {
     const key = String(item.category ?? "other");
@@ -165,7 +274,9 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const limit = Number(url.searchParams.get("limit") ?? 60);
   const category = url.searchParams.get("category") ?? "all";
-  const items = await listGmailTrackedMessages(user.id, { limit, category });
+  const date = url.searchParams.get("date") ?? "";
+  const items = (await listGmailTrackedMessages(user.id, { limit, category }))
+    .filter((item) => !date || appDateKey(item.internalDate) === date);
   return NextResponse.json({
     items,
     groupedCounts: summarizeCounts(items),
@@ -187,7 +298,9 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const limit = Math.min(Math.max(Number(body?.limit ?? MAX_SYNC_EMAILS), 1), MAX_SYNC_EMAILS);
-    const query = trimText(String(body?.query || DEFAULT_QUERY), 120);
+    const date = String(body?.date ?? "").trim();
+    const baseQuery = trimText(String(body?.query || DEFAULT_QUERY), 160);
+    const query = buildGmailQuery(baseQuery, date);
 
     let account: any = await findGmailAccount(user.id);
     if (!account?.access_token || !hasScope(account.scope)) {
@@ -232,7 +345,7 @@ export async function POST(req: Request) {
 
     const listData = await listRes.json();
     const messages = (listData.messages ?? []).slice(0, limit);
-    const syncedItems: any[] = [];
+    const metadataRows: any[] = [];
     let scanned = 0;
     let skipped = 0;
 
@@ -254,30 +367,50 @@ export async function POST(req: Request) {
       const from = trimText(findHeader(metadata.payload?.headers, "from"), 180);
       const labelIds = Array.isArray(metadata.labelIds) ? metadata.labelIds.map(String) : [];
       const snippet = trimText(metadata.snippet ?? "", 260);
-      const classified = classifyMessage({ subject, from, snippet, labelIds });
-
-      const item = await upsertGmailTrackedMessage(user.id, message.id, {
-        threadId: metadata.threadId ?? message.threadId ?? null,
+      const fallbackClassification = classifyMessage({ subject, from, snippet, labelIds });
+      metadataRows.push({
+        id: message.id,
+        message,
+        metadata,
+        subject,
         from,
         fromEmail: extractEmail(from),
-        subject,
-        snippet,
         labelIds,
-        hasAttachments: hasAttachments(metadata.payload),
-        internalDate: metadata.internalDate ? Number(metadata.internalDate) : Date.now(),
+        snippet,
+        fallbackClassification,
+      });
+    }
+
+    const aiClassifications = await aiClassifyMessages(metadataRows);
+    const syncedItems: any[] = [];
+
+    for (const row of metadataRows) {
+      const classified = aiClassifications.get(row.id) ?? row.fallbackClassification;
+      const item = await upsertGmailTrackedMessage(user.id, row.id, {
+        threadId: row.metadata.threadId ?? row.message.threadId ?? null,
+        from: row.from,
+        fromEmail: row.fromEmail,
+        subject: row.subject,
+        snippet: row.snippet,
+        labelIds: row.labelIds,
+        hasAttachments: hasAttachments(row.metadata.payload),
+        internalDate: row.metadata.internalDate ? Number(row.metadata.internalDate) : Date.now(),
         category: classified.category,
         importance: classified.importance,
       });
       syncedItems.push(item);
     }
 
-    const items = await listGmailTrackedMessages(user.id, { limit: Math.max(limit, 60) });
+    const items = date
+      ? syncedItems.sort((a, b) => new Date(b.internalDate ?? 0).getTime() - new Date(a.internalDate ?? 0).getTime())
+      : await listGmailTrackedMessages(user.id, { limit: Math.max(limit, 60) });
     return NextResponse.json({
       summary: {
         scanned,
         synced: syncedItems.length,
         skipped,
         query,
+        date: date || null,
         limit,
       },
       items,
