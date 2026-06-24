@@ -83,10 +83,10 @@ const PROFILE_SECTION_OPTIONS = [
   { value: "danger", label: "Privacy & Data", detail: "Reset feature data or delete the account.", icon: Trash2, group: "Support" },
 ] as const;
 
-const PROFILE_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
-const PROFILE_PANEL_CLASS = "rounded-[24px] border border-border/70 bg-background/55 p-4";
-const PROFILE_INPUT_CLASS = "mt-2 h-12 rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
-const PROFILE_SELECT_CLASS = "mt-2 h-12 rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
+const PROFILE_CARD_CLASS = "max-w-full overflow-hidden rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
+const PROFILE_PANEL_CLASS = "min-w-0 rounded-[24px] border border-border/70 bg-background/55 p-4";
+const PROFILE_INPUT_CLASS = "mt-2 h-12 max-w-full rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
+const PROFILE_SELECT_CLASS = "mt-2 h-12 max-w-full rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
 
 type PushDevice = {
   id: string;
@@ -100,6 +100,17 @@ type PushDevice = {
   lastUsedAt?: string | null;
 };
 
+type PushHistoryItem = {
+  id: string;
+  deviceId?: string | null;
+  kind: string;
+  title: string;
+  body?: string | null;
+  status: string;
+  error?: string | null;
+  createdAt: string;
+};
+
 function formatDeviceDate(value?: string | null) {
   if (!value) return "Never";
   const date = new Date(value);
@@ -110,6 +121,14 @@ function formatDeviceDate(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function pushStatusLabel(status: string) {
+  if (status === "sent") return "Sent";
+  if (status === "removed") return "Removed expired device";
+  if (status === "failed") return "Failed";
+  if (status === "no_devices") return "No devices";
+  return status.replace(/_/g, " ");
 }
 
 export default function ProfilePage() {
@@ -130,6 +149,8 @@ export default function ProfilePage() {
   const [pushLoading, setPushLoading] = useState(false);
   const [pushSending, setPushSending] = useState(false);
   const [pushDevices, setPushDevices] = useState<PushDevice[]>([]);
+  const [pushHistory, setPushHistory] = useState<PushHistoryItem[]>([]);
+  const [pushHistoryLoading, setPushHistoryLoading] = useState(false);
   const [deletingPushDeviceId, setDeletingPushDeviceId] = useState<string | null>(null);
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [cleaningRetention, setCleaningRetention] = useState(false);
@@ -197,6 +218,20 @@ export default function ProfilePage() {
     }
   }, []);
 
+  const loadPushHistory = useCallback(async () => {
+    setPushHistoryLoading(true);
+    try {
+      const res = await fetch("/api/push/history?limit=20");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Failed to load notification history");
+      setPushHistory(Array.isArray(data?.items) ? data.items : []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setPushHistoryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
     if (tab && ["profile", "memory", "review", "report", "progress", "activity", "notifications", "integrations", "danger"].includes(tab)) {
@@ -239,6 +274,7 @@ export default function ProfilePage() {
       });
     }).catch(console.error);
     loadPushStatus();
+    loadPushHistory();
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
       setActivityCounts(d?.counts ?? {});
@@ -518,6 +554,7 @@ export default function ProfilePage() {
         }));
       }
       await loadPushStatus();
+      await loadPushHistory();
       if (!data?.sent) {
         toast.error("No active device subscription found. Tap Enable again on this device.");
         return;
@@ -568,6 +605,7 @@ export default function ProfilePage() {
         toast.error(data?.error ?? "Failed to send push reminders");
         return;
       }
+      await loadPushHistory();
       toast.success(data?.sent ? `Sent ${data.sent} push notification(s)` : "No due reminders to send");
     } catch {
       toast.error("Failed to send push reminders");
@@ -671,7 +709,7 @@ export default function ProfilePage() {
   ];
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6">
       <FadeIn className="hidden sm:block">
         <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Profile & Goals</h2>
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
@@ -699,7 +737,7 @@ export default function ProfilePage() {
         </FadeIn>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full max-w-full space-y-4 overflow-x-hidden">
         {activeTab !== "profile" && activeSection && (
           <FadeIn delay={0.02}>
             <div className="rounded-[28px] border border-border/70 bg-card/85 p-3 shadow-sm shadow-black/10">
@@ -1261,6 +1299,56 @@ export default function ProfilePage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+            <div className="rounded-[24px] border border-border/70 bg-background/55 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Delivery History</p>
+                  <p className="text-xs text-muted-foreground">Recent notification attempts by device and type.</p>
+                </div>
+                <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={loadPushHistory} loading={pushHistoryLoading}>
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  Refresh
+                </Button>
+              </div>
+              {pushHistoryLoading && pushHistory.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  Loading delivery history...
+                </div>
+              ) : pushHistory.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  No notification attempts yet. Send a test notification to create the first entry.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {pushHistory.map((item) => {
+                    const isSent = item.status === "sent";
+                    const isFailed = item.status === "failed";
+                    const StatusIcon = isSent ? CheckCircle2 : isFailed ? XCircle : Clock3;
+                    return (
+                      <div key={item.id} className="rounded-[22px] border border-border/70 bg-muted/20 p-3">
+                        <div className="flex items-start gap-3">
+                          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${isSent ? "bg-primary/10 text-primary" : isFailed ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-500"}`}>
+                            <StatusIcon className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+                              <Badge variant={isSent ? "secondary" : isFailed ? "destructive" : "outline"}>{pushStatusLabel(item.status)}</Badge>
+                              {item.deviceId && <Badge variant="outline">ID {item.deviceId}</Badge>}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              <span className="capitalize">{item.kind.replace(/_/g, " ")}</span>
+                              <span>{formatDeviceDate(item.createdAt)}</span>
+                            </div>
+                            {item.error && <p className="mt-2 line-clamp-2 text-xs text-destructive">{item.error}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -238,7 +238,7 @@ export default function GmailTrackerPage() {
             </Button>
             <Button onClick={syncGmail} loading={syncing} className="h-11 rounded-2xl">
               <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-              Sync latest
+              Sync range
             </Button>
             <Button
               type="button"
@@ -289,7 +289,7 @@ export default function GmailTrackerPage() {
             </Button>
           </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Dayza reads recent headers and snippets only. Pick a start date to fetch emails from that date through today. Start date can be up to 15 days old.
+            Dayza reads recent headers and snippets only. {startDate ? `Selected range: ${startDate} through today.` : "No start date selected, so Dayza uses the Gmail query above."} Start date can be up to 15 days old.
           </p>
         </div>
 

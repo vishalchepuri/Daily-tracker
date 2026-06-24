@@ -492,7 +492,7 @@ export default function YtSummaryPage() {
 
       <Card className={YT_CARD_CLASS}>
         <CardContent className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[1fr_auto] lg:items-end">
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_auto_auto] sm:items-end">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,16rem)_auto_auto_auto] sm:items-end">
             <div className="space-y-1.5">
               <Label className="flex items-center gap-2 text-xs text-muted-foreground">
                 <CalendarDays className="h-4 w-4 text-primary" />
@@ -506,7 +506,10 @@ export default function YtSummaryPage() {
               />
             </div>
             <Button type="button" onClick={() => loadSubscriptionFeed()} loading={loadingVideos} className="h-11 rounded-2xl">
-              Get date
+              Load date
+            </Button>
+            <Button type="button" variant="outline" onClick={() => loadSubscriptionFeed(undefined, true)} loading={loadingVideos} className="h-11 rounded-2xl">
+              Refresh
             </Button>
             <Button
               type="button"
@@ -522,7 +525,7 @@ export default function YtSummaryPage() {
           </div>
           {feedCachedAt && (
             <p className="text-xs leading-relaxed text-muted-foreground">
-              {feedFromCache ? "Using saved YouTube feed" : "Saved YouTube feed"} from {formatAppDate(feedCachedAt, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}. Use Refresh for fresh YouTube data.
+              {feedFromCache ? "Using saved YouTube feed" : "Saved YouTube feed"} for {feedDate || "latest subscriptions"} from {formatAppDate(feedCachedAt, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}. Refresh gets fresh YouTube data.
             </p>
           )}
           <div className="grid grid-cols-3 gap-2">

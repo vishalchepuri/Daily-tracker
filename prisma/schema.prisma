@@ -31,6 +31,7 @@ model User {
   reminderLists ReminderList[]
   reminders     Reminder[]
   webPushSubscriptions WebPushSubscription[]
+  pushNotificationLogs PushNotificationLog[]
   medications   Medication[]
   medicationLogs MedicationLog[]
   submittedExercises Exercise[] @relation("SubmittedExercises")
@@ -399,6 +400,23 @@ model WebPushSubscription {
   updatedAt      DateTime @updatedAt
   lastUsedAt     DateTime?
   @@index([userId, updatedAt])
+}
+
+model PushNotificationLog {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId String?
+  deviceId       String?
+  kind           String   @default("general")
+  title          String
+  body           String?
+  status         String
+  error          String?
+  endpointHash   String?
+  createdAt      DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
 }
 
 model Medication {
