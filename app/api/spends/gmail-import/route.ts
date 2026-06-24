@@ -289,17 +289,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your session is no longer valid. Please sign in again." }, { status: 401 });
     }
 
-    let account = email
-      ? await prisma.account.findFirst({
+    const googleAccounts = email
+      ? await prisma.account.findMany({
           where: { provider: "google", user: { email } },
-          orderBy: { id: "desc" },
         })
-      : await prisma.account.findFirst({
+      : await prisma.account.findMany({
           where: { userId: currentUser.id, provider: "google" },
-          orderBy: { id: "desc" },
         });
-
-    account = decryptOAuthTokenFields(account);
+    const decryptedGoogleAccounts = googleAccounts.map((item) => decryptOAuthTokenFields(item));
+    let account: any =
+      decryptedGoogleAccounts.find((item) => item.access_token && hasScope(item.scope)) ??
+      decryptedGoogleAccounts.find((item) => hasScope(item.scope)) ??
+      decryptedGoogleAccounts.find((item) => item.access_token) ??
+      decryptedGoogleAccounts[0] ??
+      null;
 
     if (!account?.access_token || !hasScope(account.scope)) {
       return NextResponse.json(

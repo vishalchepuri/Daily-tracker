@@ -103,9 +103,15 @@ function summarizeCounts(items: any[]) {
 async function findGmailAccount(userId: string) {
   const accounts = await prisma.account.findMany({
     where: { userId, provider: "google" },
-    orderBy: { id: "desc" },
   });
-  return decryptOAuthTokenFields(accounts.find((account) => hasScope(account.scope)) ?? accounts[0] ?? null);
+  const decrypted = accounts.map((account) => decryptOAuthTokenFields(account));
+  return (
+    decrypted.find((account) => account.access_token && hasScope(account.scope)) ??
+    decrypted.find((account) => hasScope(account.scope)) ??
+    decrypted.find((account) => account.access_token) ??
+    decrypted[0] ??
+    null
+  );
 }
 
 async function refreshGoogleAccessToken(account: any) {
