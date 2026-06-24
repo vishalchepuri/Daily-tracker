@@ -118,6 +118,7 @@ export default function WorkoutsPage() {
   const [replacementOriginal, setReplacementOriginal] = useState<any>(null);
   const [replacementReason, setReplacementReason] = useState("");
   const [applyingReplacement, setApplyingReplacement] = useState(false);
+  const [loadingMoreReplacements, setLoadingMoreReplacements] = useState(false);
   const [chooseExerciseOpen, setChooseExerciseOpen] = useState(false);
   const [chooseExerciseSearch, setChooseExerciseSearch] = useState("");
   const [addingChoiceExercise, setAddingChoiceExercise] = useState(false);
@@ -325,13 +326,29 @@ export default function WorkoutsPage() {
     } catch {}
   };
 
-  const fetchReplacementCandidates = async (exercise: any, usedIds: string[], usedNames: string[]) => {
+  const dedupeReplacementOptions = (options: any[]) => {
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    return (options ?? []).filter((exerciseOption: any) => {
+      const id = String(exerciseOption?.id ?? "").trim();
+      const name = String(exerciseOption?.name ?? "").trim().toLowerCase();
+      if (!id && !name) return false;
+      if (id && seenIds.has(id)) return false;
+      if (name && seenNames.has(name)) return false;
+      if (id) seenIds.add(id);
+      if (name) seenNames.add(name);
+      return true;
+    });
+  };
+
+  const fetchReplacementCandidates = async (exercise: any, usedIds: string[], usedNames: string[], extraRecentNames: string[] = []) => {
     const recentReplacementNames = (() => {
       try {
         const stored = window.localStorage.getItem(RECENT_REPLACEMENTS_STORAGE_KEY);
-        return stored ? JSON.parse(stored) : [];
+        const saved = stored ? JSON.parse(stored) : [];
+        return Array.from(new Set([...(Array.isArray(saved) ? saved : []), ...extraRecentNames].map((item) => String(item ?? "").trim()).filter(Boolean)));
       } catch {
-        return [];
+        return extraRecentNames;
       }
     })();
     const res = await dayzaFetch("/api/workouts/replace-exercise", {
@@ -350,9 +367,7 @@ export default function WorkoutsPage() {
       toast.error(data?.error ?? "No replacement found");
       return null;
     }
-    const nextOptions = [data?.exercise, ...(data?.options ?? [])]
-      .filter(Boolean)
-      .filter((exerciseOption: any, index: number, all: any[]) => all.findIndex((item: any) => item?.id === exerciseOption?.id) === index);
+    const nextOptions = dedupeReplacementOptions([data?.exercise, ...(data?.options ?? [])].filter(Boolean));
     const generatedOptions = nextOptions.filter((option: any) => option?.status === "pending");
     if (generatedOptions.length > 0) {
       setExercises((prev) => {
@@ -424,6 +439,47 @@ export default function WorkoutsPage() {
     }
   };
 
+  const loadMoreReplacementOptions = async () => {
+    if (loadingMoreReplacements || !replacementOriginal) return;
+    const shownNames = (replacementOptions ?? []).map((option) => option?.name).filter(Boolean);
+    let exercise = replacementOriginal;
+    let usedIds: string[] = [];
+    let usedNames: string[] = [];
+
+    if (replacementTarget?.mode === "program") {
+      const template = replacementTarget?.template;
+      exercise = replacementTarget?.workoutExercise?.exercise ?? replacementOriginal;
+      usedIds = (template?.exercises ?? [])
+        .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
+        .filter(Boolean);
+      usedNames = (template?.exercises ?? [])
+        .map((item: any) => item?.exercise?.name)
+        .filter(Boolean);
+    } else {
+      usedIds = (activeExercises ?? [])
+        .map((item: any) => item?.exercise?.id ?? item?.exerciseId)
+        .filter(Boolean);
+      usedNames = (activeExercises ?? [])
+        .map((item: any) => item?.exercise?.name)
+        .filter(Boolean);
+    }
+
+    setLoadingMoreReplacements(true);
+    try {
+      const replacementData = await fetchReplacementCandidates(exercise, usedIds, usedNames, shownNames);
+      if (!replacementData?.options?.length) {
+        toast.error("No extra replacement options found");
+        return;
+      }
+      setReplacementOptions((prev) => dedupeReplacementOptions([...(prev ?? []), ...replacementData.options]));
+      setReplacementReason(replacementData.reason ?? replacementReason);
+    } catch {
+      toast.error("Failed to load more replacement options");
+    } finally {
+      setLoadingMoreReplacements(false);
+    }
+  };
+
   const applyProgramReplacementChoice = async (replacement: any, target: any) => {
     const template = target?.template;
     const workoutExercise = target?.workoutExercise;
@@ -470,6 +526,7 @@ export default function WorkoutsPage() {
       setReplacementTarget(null);
       setReplacementOriginal(null);
       setReplacementReason("");
+      setLoadingMoreReplacements(false);
     } catch (error: any) {
       toast.error(error?.message ?? "Failed to replace exercise");
     } finally {
@@ -1264,6 +1321,7 @@ export default function WorkoutsPage() {
           setReplacementTarget(null);
           setReplacementOriginal(null);
           setReplacementReason("");
+          setLoadingMoreReplacements(false);
         }
       }}>
         <DialogContent className="inset-x-0 bottom-0 max-h-[92svh] max-w-none gap-0 rounded-b-none rounded-t-[28px] border-border/80 bg-card/95 p-0 shadow-2xl sm:max-w-2xl sm:rounded-2xl">
@@ -1282,6 +1340,22 @@ export default function WorkoutsPage() {
                 {replacementReason}
               </p>
             ) : null}
+            <div className="grid gap-2 rounded-2xl border border-border/70 bg-muted/20 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Dayza ranks common Indian gym and bodyweight options first. Use more options if this batch still feels repetitive.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 rounded-2xl"
+                onClick={loadMoreReplacementOptions}
+                loading={loadingMoreReplacements}
+                disabled={applyingReplacement || loadingMoreReplacements}
+              >
+                <Shuffle className="h-4 w-4" />
+                More options
+              </Button>
+            </div>
             {replacementOptions.map((option) => (
               <button
                 key={option.id}

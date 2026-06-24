@@ -4,11 +4,17 @@ import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-to
 const YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
 
 export async function getGoogleAccount(userId: string) {
-  const account = await prisma.account.findFirst({
+  const accounts = await prisma.account.findMany({
     where: { userId, provider: "google" },
-    orderBy: { id: "desc" },
   });
-  return decryptOAuthTokenFields(account);
+  const decrypted = accounts.map((account) => decryptOAuthTokenFields(account));
+  return (
+    decrypted.find((account) => account.access_token && !googleNeedsReconnect(account.scope)) ??
+    decrypted.find((account) => !googleNeedsReconnect(account.scope)) ??
+    decrypted.find((account) => account.access_token) ??
+    decrypted[0] ??
+    null
+  );
 }
 
 export function googleNeedsReconnect(scope?: string | null) {
@@ -77,7 +83,7 @@ function youtubeErrorPayload(data: any, status: number) {
 }
 
 export async function youtubeFetch(userId: string, url: string) {
-  let account = await getGoogleAccount(userId);
+  let account: any = await getGoogleAccount(userId);
   if (!account?.access_token || googleNeedsReconnect(account.scope)) {
     return {
       ok: false as const,

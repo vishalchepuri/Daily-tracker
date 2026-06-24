@@ -18,20 +18,30 @@ export async function POST(req: Request) {
     if (!accessToken || !scope) return NextResponse.json({ error: "Google access token and scope are required" }, { status: 400 });
 
     const providerAccountId = String(data?.providerAccountId ?? user.email ?? user.id);
-    const existing = await prisma.account.findFirst({ where: { userId: user.id, provider: "google" } });
-    if (existing) {
-      const account = await prisma.account.update({
-        where: { id: existing.id },
+    const existingAccounts = await prisma.account.findMany({ where: { userId: user.id, provider: "google" } });
+    const mergedScope = mergeScopes(...existingAccounts.map((account) => account.scope), scope, "openid email profile");
+
+    if (existingAccounts.length > 0) {
+      const encryptedTokens = encryptOAuthTokenFields({ access_token: accessToken });
+      await prisma.account.updateMany({
+        where: { userId: user.id, provider: "google" },
         data: {
           type: "oauth",
-          providerAccountId,
-          ...encryptOAuthTokenFields({ access_token: accessToken }),
+          ...encryptedTokens,
+          refresh_token: null,
+          id_token: null,
+          session_state: null,
           expires_at: Math.floor(Date.now() / 1000) + 3500,
           token_type: "Bearer",
-          scope: mergeScopes(existing.scope, scope, "openid email profile"),
+          scope: mergedScope,
         },
       });
-      return NextResponse.json({ account: { id: account.id, scope: account.scope } });
+
+      const exactAccount = existingAccounts.find((account) => account.providerAccountId === providerAccountId);
+      const account = exactAccount
+        ? await prisma.account.findUnique({ where: { id: exactAccount.id } })
+        : existingAccounts[0];
+      return NextResponse.json({ account: { id: account?.id, scope: mergedScope } });
     }
 
     const account = await prisma.account.create({
@@ -41,9 +51,12 @@ export async function POST(req: Request) {
         provider: "google",
         providerAccountId,
         ...encryptOAuthTokenFields({ access_token: accessToken }),
+        refresh_token: null,
+        id_token: null,
+        session_state: null,
         expires_at: Math.floor(Date.now() / 1000) + 3500,
         token_type: "Bearer",
-        scope: mergeScopes(scope, "openid email profile"),
+        scope: mergedScope,
       },
     });
     return NextResponse.json({ account: { id: account.id, scope: account.scope } });

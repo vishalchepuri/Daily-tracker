@@ -1,10 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
+import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { youtubeFetch } from "@/lib/youtube";
 
 const MAX_CHANNELS = 50;
 const MAX_FEED_VIDEOS = 60;
+const YOUTUBE_FEED_CACHE_SECONDS = 6 * 60 * 60;
 
 function parseIsoDurationSeconds(duration?: string) {
   if (!duration) return 0;
@@ -42,6 +44,10 @@ function compactDescription(value?: string) {
     .replace(/https?:\/\/\S+/g, "")
     .trim()
     .slice(0, 220);
+}
+
+function cleanAiJson(value: string) {
+  return value.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/, "").trim();
 }
 
 const aiTechSignals = [
@@ -108,6 +114,104 @@ function scoreVideo(video: any, durationSeconds: number, viewCount: number | nul
   };
 }
 
+function chunk<T>(items: T[], size: number) {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) chunks.push(items.slice(index, index + size));
+  return chunks;
+}
+
+function appDateKey(value?: string | null) {
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function detectContentKind(video: any, durationSeconds: number) {
+  const text = `${video.title ?? ""} ${video.description ?? ""}`.toLowerCase();
+  if (durationSeconds > 0 && durationSeconds <= 90) return "short";
+  if (/#shorts\b|\bshorts\b|youtube shorts/.test(text)) return "short";
+  return "video";
+}
+
+async function loadVideoDetails(userId: string, videoIds: string[]) {
+  const detailMap = new Map<string, any>();
+  for (const ids of chunk(videoIds, 50)) {
+    const detailsResult = await youtubeFetch(
+      userId,
+      `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,statistics&id=${encodeURIComponent(ids.join(","))}`
+    );
+    if (detailsResult?.ok) {
+      for (const item of detailsResult.data.items ?? []) detailMap.set(item.id, item);
+    }
+  }
+  return detailMap;
+}
+
+async function aiScoreVideos(videos: any[]) {
+  if (!process.env.ABACUSAI_API_KEY || videos.length === 0) return new Map<string, any>();
+  try {
+    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        max_tokens: 4500,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Score YouTube subscription items for a personal learning queue. Think mainly from the video title line, channel, description, duration, views, and recency. Return ONLY JSON array. Each item: id, priorityScore 0-100, matchedTopics string array, kind video|short, reason. Long useful tutorials/explainers should score higher. Shorts should stay kind short and usually score lower unless highly useful. Avoid treating Shorts as normal videos.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              videos.map((video) => ({
+                id: video.id,
+                title: video.title,
+                channelTitle: video.channelTitle,
+                description: video.description,
+                publishedAt: video.publishedAt,
+                durationSeconds: video.durationSeconds,
+                kind: video.kind,
+                viewCount: video.viewCount,
+                fallbackPriorityScore: video.priorityScore,
+              }))
+            ),
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return new Map();
+    const data = await response.json().catch(() => ({}));
+    const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]"));
+    if (!Array.isArray(parsed)) return new Map();
+    const entries: Array<[string, any]> = parsed
+        .map((item: any) => [
+          String(item?.id ?? ""),
+          {
+            priorityScore: Math.min(100, Math.max(0, Math.round(Number(item?.priorityScore ?? 0)))),
+            matchedTopics: Array.isArray(item?.matchedTopics) ? item.matchedTopics.map(String).slice(0, 5) : [],
+            kind: String(item?.kind ?? "").toLowerCase() === "short" ? "short" : "video",
+            aiReason: String(item?.reason ?? "").slice(0, 180),
+          },
+        ] as [string, any])
+        .filter(([id]: [string, any]) => Boolean(id));
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
 function parseFeed(xml: string, fallbackChannel: any) {
   const entries = xml.match(/<entry[\s\S]*?<\/entry>/gi) ?? [];
   return entries.map((entry) => {
@@ -139,6 +243,17 @@ export async function GET(req: Request) {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
+    const url = new URL(req.url);
+    const requestedDate = url.searchParams.get("date") ?? "";
+    const forceRefresh = url.searchParams.get("refresh") === "1";
+    const cacheKey = `v1:youtube:feed:${userId}:${requestedDate || "latest"}`;
+
+    if (!forceRefresh) {
+      const cached = await cacheGetJson<any>(cacheKey);
+      if (cached) {
+        return NextResponse.json({ ...cached, cached: true });
+      }
+    }
 
     const subscriptionsResult = await youtubeFetch(
       userId,
@@ -166,33 +281,51 @@ export async function GET(req: Request) {
 
     const channelFeeds = await Promise.all(subscriptions.map((channel: any) => fetchChannelFeed(channel).catch(() => [])));
     const feedVideos = channelFeeds.flat()
+      .filter((video: any) => !requestedDate || appDateKey(video.publishedAt) === requestedDate)
       .sort((a: any, b: any) => new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime())
       .slice(0, MAX_FEED_VIDEOS);
 
-    const ids = feedVideos.map((video: any) => video.id).join(",");
-    const detailsResult = ids
-      ? await youtubeFetch(userId, `https://www.googleapis.com/youtube/v3/videos?part=contentDetails,statistics&id=${encodeURIComponent(ids)}&maxResults=50`)
-      : null;
-    const detailMap = new Map<string, any>();
-    if (detailsResult?.ok) {
-      for (const item of detailsResult.data.items ?? []) detailMap.set(item.id, item);
-    }
+    const detailMap = await loadVideoDetails(userId, feedVideos.map((video: any) => video.id));
 
     const videos = feedVideos.map((video: any) => {
       const details = detailMap.get(video.id);
       const durationSeconds = parseIsoDurationSeconds(details?.contentDetails?.duration);
       const viewCount = details?.statistics?.viewCount ? Number(details.statistics.viewCount) : null;
-      const isShort = durationSeconds > 0 && durationSeconds <= 90;
+      const kind = detectContentKind(video, durationSeconds);
       return {
         ...video,
         durationSeconds,
-        kind: isShort ? "short" : "video",
+        kind,
         viewCount,
         ...scoreVideo(video, durationSeconds, viewCount),
       };
     });
+    const aiScores = await aiScoreVideos(videos);
+    const scoredVideos = videos
+      .map((video: any) => {
+        const ai = aiScores.get(video.id);
+        if (!ai) return video;
+        return {
+          ...video,
+          priorityScore: ai.priorityScore,
+          matchedTopics: ai.matchedTopics.length > 0 ? ai.matchedTopics : video.matchedTopics,
+          kind: video.durationSeconds > 0 && video.durationSeconds <= 90 ? "short" : ai.kind,
+          aiReason: ai.aiReason,
+          scoredBy: "ai",
+        };
+      })
+      .sort((a: any, b: any) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
 
-    return NextResponse.json({ subscriptions, videos, sort: "publishedAt:desc" });
+    const payload = {
+      subscriptions,
+      videos: scoredVideos,
+      sort: "priorityScore:desc",
+      date: requestedDate || null,
+      cached: false,
+      cachedAt: new Date().toISOString(),
+    };
+    await cacheSetJson(cacheKey, payload, YOUTUBE_FEED_CACHE_SECONDS);
+    return NextResponse.json(payload);
   } catch (error: any) {
     return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to load subscription feed" : error?.message ?? "Failed to load subscription feed" }, { status: 500 });
   }

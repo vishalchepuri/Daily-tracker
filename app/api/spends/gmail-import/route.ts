@@ -289,17 +289,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Your session is no longer valid. Please sign in again." }, { status: 401 });
     }
 
-    let account = email
-      ? await prisma.account.findFirst({
+    const googleAccounts = email
+      ? await prisma.account.findMany({
           where: { provider: "google", user: { email } },
-          orderBy: { id: "desc" },
         })
-      : await prisma.account.findFirst({
+      : await prisma.account.findMany({
           where: { userId: currentUser.id, provider: "google" },
-          orderBy: { id: "desc" },
         });
-
-    account = decryptOAuthTokenFields(account);
+    const decryptedGoogleAccounts = googleAccounts.map((item) => decryptOAuthTokenFields(item));
+    let account: any =
+      decryptedGoogleAccounts.find((item) => item.access_token && hasScope(item.scope)) ??
+      decryptedGoogleAccounts.find((item) => hasScope(item.scope)) ??
+      decryptedGoogleAccounts.find((item) => item.access_token) ??
+      decryptedGoogleAccounts[0] ??
+      null;
 
     if (!account?.access_token || !hasScope(account.scope)) {
       return NextResponse.json(
@@ -466,5 +469,34 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Gmail import failed" : error?.message ?? "Gmail import failed" }, { status: 500 });
+  }
+}
+
+export async function DELETE() {
+  try {
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const email = user.email?.trim().toLowerCase();
+    const currentUser = email
+      ? await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      : await prisma.user.findUnique({ where: { id: user.id }, select: { id: true } });
+
+    if (!currentUser) {
+      return NextResponse.json({ error: "Your session is no longer valid. Please sign in again." }, { status: 401 });
+    }
+
+    const deleted = await prisma.spend.deleteMany({
+      where: {
+        userId: currentUser.id,
+        source: "gmail",
+      },
+    });
+
+    return NextResponse.json({ deleted: deleted.count });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === "production" ? "Could not clear Gmail-imported spends" : error?.message ?? "Could not clear Gmail-imported spends" },
+      { status: 500 }
+    );
   }
 }

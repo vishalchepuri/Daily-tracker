@@ -3,13 +3,32 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { listGmailTrackedMessages, upsertGmailTrackedMessage } from "@/lib/firestore-app-data";
+import {
+  deleteGmailTrackedMessagesForUser,
+  listGmailTrackedMessages,
+  upsertGmailTrackedMessage,
+} from "@/lib/firestore-app-data";
 import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DEFAULT_QUERY = "newer_than:45d -category:promotions";
 const MAX_SYNC_EMAILS = 60;
+const MAX_EMAIL_LOOKBACK_DAYS = 15;
+const VALID_GMAIL_CATEGORIES = new Set([
+  "bills",
+  "finance",
+  "orders",
+  "travel",
+  "health",
+  "work",
+  "security",
+  "subscriptions",
+  "social",
+  "updates",
+  "personal",
+  "other",
+]);
 
 const categoryRules = [
   {
@@ -92,6 +111,138 @@ function classifyMessage(input: { subject: string; from: string; snippet: string
   return { category, importance };
 }
 
+function cleanAiJson(value: string) {
+  return value.replace(/^```json\n?/i, "").replace(/^```\n?/i, "").replace(/\n?```$/, "").trim();
+}
+
+function normalizeCategory(value: any) {
+  const category = String(value ?? "").trim().toLowerCase();
+  return VALID_GMAIL_CATEGORIES.has(category) ? category : "other";
+}
+
+function normalizeImportance(value: any) {
+  const importance = String(value ?? "").trim().toLowerCase();
+  return ["high", "medium", "low"].includes(importance) ? importance : "medium";
+}
+
+async function aiClassifyMessages(messages: Array<{ id: string; subject: string; from: string; snippet: string; labelIds: string[] }>) {
+  if (!process.env.ABACUSAI_API_KEY || messages.length === 0) return new Map<string, { category: string; importance: string }>();
+  try {
+    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-5.4-mini",
+        stream: false,
+        max_tokens: 3000,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Classify Gmail metadata for a personal life dashboard. Use the subject, sender, snippet, and labels. Do not need full email body. Return ONLY JSON array. Category must be one of: bills, finance, orders, travel, health, work, security, subscriptions, social, updates, personal, other. Importance must be high, medium, or low. High means action is likely needed, due date/security/work/bill/travel change. Low means newsletters/promotions/general updates.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              messages.map((message) => ({
+                id: message.id,
+                subject: message.subject,
+                from: message.from,
+                snippet: message.snippet,
+                labels: message.labelIds,
+              }))
+            ),
+          },
+        ],
+      }),
+    });
+    if (!response.ok) return new Map();
+    const data = await response.json().catch(() => ({}));
+    const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]"));
+    if (!Array.isArray(parsed)) return new Map();
+    const entries: Array<[string, { category: string; importance: string }]> = parsed
+        .map((item: any) => [
+          String(item?.id ?? ""),
+          { category: normalizeCategory(item?.category), importance: normalizeImportance(item?.importance) },
+        ] as [string, { category: string; importance: string }])
+        .filter(([id]: [string, { category: string; importance: string }]) => Boolean(id));
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function gmailDate(value: string) {
+  return value.replace(/-/g, "/");
+}
+
+function dateRangeError(message: string) {
+  return Object.assign(new Error(message), { code: "GMAIL_DATE_RANGE" });
+}
+
+function utcDateStart(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function parseDateKey(value?: string | null) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) throw dateRangeError("Choose a valid start date.");
+  const parsed = new Date(`${trimmed}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== trimmed) {
+    throw dateRangeError("Choose a valid start date.");
+  }
+  return trimmed;
+}
+
+function normalizeStartDate(value?: string | null) {
+  const startDate = parseDateKey(value);
+  if (!startDate) return "";
+
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const today = utcDateStart();
+  const earliest = addDays(today, -MAX_EMAIL_LOOKBACK_DAYS);
+
+  if (start < earliest) {
+    throw dateRangeError(`Start date can be at most ${MAX_EMAIL_LOOKBACK_DAYS} days old.`);
+  }
+  if (start > today) {
+    throw dateRangeError("Start date cannot be in the future.");
+  }
+  return startDate;
+}
+
+function rangeEndDate() {
+  return addDays(utcDateStart(), 1).toISOString().slice(0, 10);
+}
+
+function appDateKey(value?: string | null) {
+  if (!value) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function buildGmailQuery(baseQuery: string, startDate?: string) {
+  if (!startDate) return baseQuery;
+  const cleaned = baseQuery.replace(/\bafter:\S+/gi, "").replace(/\bbefore:\S+/gi, "").replace(/\s+/g, " ").trim();
+  return `${cleaned} after:${gmailDate(startDate)} before:${gmailDate(rangeEndDate())}`.trim();
+}
+
 function summarizeCounts(items: any[]) {
   return items.reduce<Record<string, number>>((acc, item) => {
     const key = String(item.category ?? "other");
@@ -103,9 +254,15 @@ function summarizeCounts(items: any[]) {
 async function findGmailAccount(userId: string) {
   const accounts = await prisma.account.findMany({
     where: { userId, provider: "google" },
-    orderBy: { id: "desc" },
   });
-  return decryptOAuthTokenFields(accounts.find((account) => hasScope(account.scope)) ?? accounts[0] ?? null);
+  const decrypted = accounts.map((account) => decryptOAuthTokenFields(account));
+  return (
+    decrypted.find((account) => account.access_token && hasScope(account.scope)) ??
+    decrypted.find((account) => hasScope(account.scope)) ??
+    decrypted.find((account) => account.access_token) ??
+    decrypted[0] ??
+    null
+  );
 }
 
 async function refreshGoogleAccessToken(account: any) {
@@ -153,17 +310,30 @@ async function gmailFetch(account: any, url: string) {
 }
 
 export async function GET(req: Request) {
-  const user = await requireCurrentUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const url = new URL(req.url);
-  const limit = Number(url.searchParams.get("limit") ?? 60);
-  const category = url.searchParams.get("category") ?? "all";
-  const items = await listGmailTrackedMessages(user.id, { limit, category });
-  return NextResponse.json({
-    items,
-    groupedCounts: summarizeCounts(items),
-  });
+    const url = new URL(req.url);
+    const limit = Number(url.searchParams.get("limit") ?? 60);
+    const category = url.searchParams.get("category") ?? "all";
+    const startDate = normalizeStartDate(url.searchParams.get("startDate") ?? url.searchParams.get("date") ?? "");
+    const todayEnd = rangeEndDate();
+    const items = (await listGmailTrackedMessages(user.id, { limit, category })).filter((item) => {
+      const dateKey = appDateKey(item.internalDate);
+      return !startDate || (dateKey >= startDate && dateKey < todayEnd);
+    });
+    return NextResponse.json({
+      items,
+      groupedCounts: summarizeCounts(items),
+      startDate: startDate || null,
+    });
+  } catch (error: any) {
+    if (error?.code === "GMAIL_DATE_RANGE") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Could not load Gmail tracker" }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -181,7 +351,9 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const limit = Math.min(Math.max(Number(body?.limit ?? MAX_SYNC_EMAILS), 1), MAX_SYNC_EMAILS);
-    const query = trimText(String(body?.query || DEFAULT_QUERY), 120);
+    const startDate = normalizeStartDate(body?.startDate ?? body?.date ?? "");
+    const baseQuery = trimText(String(body?.query || DEFAULT_QUERY), 160);
+    const query = buildGmailQuery(baseQuery, startDate);
 
     let account: any = await findGmailAccount(user.id);
     if (!account?.access_token || !hasScope(account.scope)) {
@@ -226,7 +398,7 @@ export async function POST(req: Request) {
 
     const listData = await listRes.json();
     const messages = (listData.messages ?? []).slice(0, limit);
-    const syncedItems: any[] = [];
+    const metadataRows: any[] = [];
     let scanned = 0;
     let skipped = 0;
 
@@ -248,30 +420,50 @@ export async function POST(req: Request) {
       const from = trimText(findHeader(metadata.payload?.headers, "from"), 180);
       const labelIds = Array.isArray(metadata.labelIds) ? metadata.labelIds.map(String) : [];
       const snippet = trimText(metadata.snippet ?? "", 260);
-      const classified = classifyMessage({ subject, from, snippet, labelIds });
-
-      const item = await upsertGmailTrackedMessage(user.id, message.id, {
-        threadId: metadata.threadId ?? message.threadId ?? null,
+      const fallbackClassification = classifyMessage({ subject, from, snippet, labelIds });
+      metadataRows.push({
+        id: message.id,
+        message,
+        metadata,
+        subject,
         from,
         fromEmail: extractEmail(from),
-        subject,
-        snippet,
         labelIds,
-        hasAttachments: hasAttachments(metadata.payload),
-        internalDate: metadata.internalDate ? Number(metadata.internalDate) : Date.now(),
+        snippet,
+        fallbackClassification,
+      });
+    }
+
+    const aiClassifications = await aiClassifyMessages(metadataRows);
+    const syncedItems: any[] = [];
+
+    for (const row of metadataRows) {
+      const classified = aiClassifications.get(row.id) ?? row.fallbackClassification;
+      const item = await upsertGmailTrackedMessage(user.id, row.id, {
+        threadId: row.metadata.threadId ?? row.message.threadId ?? null,
+        from: row.from,
+        fromEmail: row.fromEmail,
+        subject: row.subject,
+        snippet: row.snippet,
+        labelIds: row.labelIds,
+        hasAttachments: hasAttachments(row.metadata.payload),
+        internalDate: row.metadata.internalDate ? Number(row.metadata.internalDate) : Date.now(),
         category: classified.category,
         importance: classified.importance,
       });
       syncedItems.push(item);
     }
 
-    const items = await listGmailTrackedMessages(user.id, { limit: Math.max(limit, 60) });
+    const items = startDate
+      ? syncedItems.sort((a, b) => new Date(b.internalDate ?? 0).getTime() - new Date(a.internalDate ?? 0).getTime())
+      : await listGmailTrackedMessages(user.id, { limit: Math.max(limit, 60) });
     return NextResponse.json({
       summary: {
         scanned,
         synced: syncedItems.length,
         skipped,
         query,
+        startDate: startDate || null,
         limit,
       },
       items,
@@ -279,8 +471,25 @@ export async function POST(req: Request) {
       needsConnection: false,
     });
   } catch (error: any) {
+    if (error?.code === "GMAIL_DATE_RANGE") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json(
       { error: process.env.NODE_ENV === "production" ? "Gmail tracker sync failed" : error?.message ?? "Gmail tracker sync failed" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const deleted = await deleteGmailTrackedMessagesForUser(user.id);
+    return NextResponse.json({ deleted });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === "production" ? "Could not clear Gmail cache" : error?.message ?? "Could not clear Gmail cache" },
       { status: 500 }
     );
   }

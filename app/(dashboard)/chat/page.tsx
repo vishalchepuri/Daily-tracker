@@ -32,6 +32,8 @@ export default function ChatPage() {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [agentStatus, setAgentStatus] = useState("");
+  const [agentStartedAt, setAgentStartedAt] = useState<number | null>(null);
+  const [agentElapsedSeconds, setAgentElapsedSeconds] = useState(0);
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
@@ -153,6 +155,17 @@ export default function ChatPage() {
   }, [streaming]);
 
   useEffect(() => {
+    if (!streaming || !agentStartedAt) {
+      setAgentElapsedSeconds(0);
+      return;
+    }
+    const updateElapsed = () => setAgentElapsedSeconds(Math.max(0, Math.floor((Date.now() - agentStartedAt) / 1000)));
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(interval);
+  }, [agentStartedAt, streaming]);
+
+  useEffect(() => {
     if (!interactionMode || !voiceReplies || streaming) return;
     const lastAssistant = [...(messages ?? [])].reverse().find((message) => message?.role === "assistant" && message?.content?.trim());
     const content = lastAssistant?.content?.trim();
@@ -190,11 +203,20 @@ export default function ChatPage() {
     return null;
   }, []);
 
+  const finishAgentStream = useCallback(() => {
+    setStreaming(false);
+    setAgentStatus("");
+    setAgentStartedAt(null);
+    abortControllerRef.current = null;
+  }, []);
+
   const sendMessage = useCallback(async (messageOverride?: string, imageOverride?: string | null) => {
     const outgoingText = messageOverride ?? input.trim();
     const outgoingImage = imageOverride ?? imageDataUrl;
     if ((!outgoingText && !outgoingImage) || streaming) return;
     setStreaming(true);
+    setAgentStartedAt(Date.now());
+    setAgentElapsedSeconds(0);
     setAgentStatus(outgoingImage ? "Uploading image and preparing context..." : "Preparing your request...");
     setLastFailedMessage(null);
     const userMsg = outgoingText;
@@ -217,7 +239,7 @@ export default function ChatPage() {
       if (!targetSessionId) {
         setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
         setMessages(prev => (prev ?? []).filter((message) => message.id !== assistantMessageId));
-        setStreaming(false);
+        finishAgentStream();
         return;
       }
 
@@ -232,7 +254,7 @@ export default function ChatPage() {
         const data = await res.json().catch(() => ({}));
         setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
         toast.error(data?.error ?? "Agent response failed. You can retry.");
-        setStreaming(false);
+        finishAgentStream();
         return;
       }
 
@@ -250,7 +272,10 @@ export default function ChatPage() {
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === "[DONE]") { setStreaming(false); return; }
+            if (data === "[DONE]") {
+              finishAgentStream();
+              return;
+            }
             try {
               const parsed = JSON.parse(data);
               if (parsed?.status) {
@@ -306,18 +331,14 @@ export default function ChatPage() {
           if (last?.role === "assistant") updated[updated.length - 1] = { ...last, content: `${last.content}\n\nStopped.`.trim() };
           return updated;
         });
-        setStreaming(false);
-        setAgentStatus("");
-        abortControllerRef.current = null;
+        finishAgentStream();
         return;
       }
       setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
       toast.error("Agent response failed. You can retry.");
     }
-    setStreaming(false);
-    setAgentStatus("");
-    abortControllerRef.current = null;
-  }, [activeSessionId, createChatSession, imageDataUrl, input, streaming]);
+    finishAgentStream();
+  }, [activeSessionId, createChatSession, finishAgentStream, imageDataUrl, input, streaming]);
 
   const stopAgentResponse = useCallback(() => {
     abortControllerRef.current?.abort();
@@ -764,7 +785,17 @@ export default function ChatPage() {
           <div className="grid gap-2 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-2">
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-              <span className="truncate">{agentStatus || "Dayza is working..."}</span>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate font-medium text-foreground">{agentStatus || "Dayza is working..."}</span>
+                  <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">
+                    {agentElapsedSeconds}s
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                  Your message is already in chat. Stop anytime if you want to change direction.
+                </p>
+              </div>
             </div>
             <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse} className="w-full sm:w-auto">
               Stop

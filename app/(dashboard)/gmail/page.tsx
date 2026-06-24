@@ -18,6 +18,7 @@ import {
   Search,
   Shield,
   Tags,
+  Trash2,
   WalletCards,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -78,16 +79,30 @@ function gmailUrl(item: GmailItem) {
   return `https://mail.google.com/mail/u/0/#inbox/${item.threadId || item.gmailMessageId || item.id}`;
 }
 
+function localDateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function daysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return localDateKey(date);
+}
+
 export default function GmailTrackerPage() {
   const [items, setItems] = useState<GmailItem[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [query, setQuery] = useState("newer_than:45d -category:promotions");
+  const [startDate, setStartDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [clearingCache, setClearingCache] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [needsConnection, setNeedsConnection] = useState(false);
   const [lastSummary, setLastSummary] = useState<any>(null);
+  const maxStartDate = useMemo(() => localDateKey(new Date()), []);
+  const minStartDate = useMemo(() => daysAgo(15), []);
 
   const groupedItems = useMemo(() => {
     const visible = selectedCategory === "all" ? items : items.filter((item) => item.category === selectedCategory);
@@ -102,10 +117,12 @@ export default function GmailTrackerPage() {
 
   const highPriorityCount = items.filter((item) => item.importance === "high").length;
 
-  async function loadTracked() {
+  async function loadTracked(startDateOverride?: string) {
     setLoading(true);
     try {
+      const activeStartDate = startDateOverride ?? startDate;
       const params = new URLSearchParams({ limit: "80" });
+      if (activeStartDate) params.set("startDate", activeStartDate);
       const res = await fetch(`/api/gmail/tracker?${params.toString()}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error ?? "Could not load Gmail tracker");
@@ -125,7 +142,7 @@ export default function GmailTrackerPage() {
       const res = await fetch("/api/gmail/tracker", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query, limit: 60 }),
+        body: JSON.stringify({ query, startDate: startDate || null, limit: 60 }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -140,6 +157,24 @@ export default function GmailTrackerPage() {
       toast.error(error?.message ?? "Gmail sync failed");
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function clearEmailCache() {
+    if (!window.confirm("Clear stored Gmail tracker metadata? This does not delete emails from Gmail.")) return;
+    setClearingCache(true);
+    try {
+      const res = await fetch("/api/gmail/tracker", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Could not clear Gmail cache");
+      setItems([]);
+      setCounts({});
+      setLastSummary(null);
+      toast.success(`Cleared ${data.deleted ?? 0} cached Gmail updates`);
+    } catch (error: any) {
+      toast.error(error?.message ?? "Could not clear Gmail cache");
+    } finally {
+      setClearingCache(false);
     }
   }
 
@@ -203,7 +238,17 @@ export default function GmailTrackerPage() {
             </Button>
             <Button onClick={syncGmail} loading={syncing} className="h-11 rounded-2xl">
               <RefreshCw className={cn("h-4 w-4", syncing && "animate-spin")} />
-              Sync latest
+              Sync range
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={clearEmailCache}
+              loading={clearingCache}
+              className="col-span-2 h-11 rounded-2xl sm:col-span-1"
+            >
+              <Trash2 className="h-4 w-4" />
+              Clear cache
             </Button>
           </div>
         </div>
@@ -213,14 +258,38 @@ export default function GmailTrackerPage() {
             <Search className="h-3.5 w-3.5" />
             Gmail search
           </div>
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="newer_than:45d -category:promotions"
-            className="h-11 rounded-2xl"
-          />
+          <div className="grid gap-2 sm:grid-cols-[1fr_12rem_auto_auto]">
+            <Input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="newer_than:45d -category:promotions"
+              className="h-11 rounded-2xl"
+            />
+            <Input
+              type="date"
+              value={startDate}
+              min={minStartDate}
+              max={maxStartDate}
+              onChange={(event) => setStartDate(event.target.value)}
+              className="h-11 rounded-2xl"
+            />
+            <Button type="button" onClick={syncGmail} loading={syncing} className="h-11 rounded-2xl">
+              Get emails
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setStartDate("");
+                void loadTracked("");
+              }}
+              className="h-11 rounded-2xl"
+            >
+              Clear
+            </Button>
+          </div>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Dayza reads recent headers and snippets only. Use Gmail search syntax to narrow this, for example `from:bank newer_than:30d`.
+            Dayza reads recent headers and snippets only. {startDate ? `Selected range: ${startDate} through today.` : "No start date selected, so Dayza uses the Gmail query above."} Start date can be up to 15 days old.
           </p>
         </div>
 

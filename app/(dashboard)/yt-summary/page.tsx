@@ -6,14 +6,22 @@ import {
   AlertCircle,
   Bookmark,
   BookmarkCheck,
+  CalendarDays,
+  Clock3,
+  Eye,
+  ExternalLink,
+  Filter,
+  Layers3,
   ListTodo,
   NotebookText,
   PlayCircle,
   RefreshCw,
   Search,
+  SlidersHorizontal,
   Sparkles,
   Trash2,
   TrendingUp,
+  Video,
   Youtube,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -54,6 +62,27 @@ function priorityLabel(score?: number) {
   return "Low signal";
 }
 
+function localDateKey(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function dateOffsetKey(daysAgo: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return localDateKey(date);
+}
+
+function youtubeWatchUrl(videoId?: string | null) {
+  return videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : "https://www.youtube.com";
+}
+
 const learningCategories = [
   { value: "fitness", label: "Fitness" },
   { value: "nutrition", label: "Nutrition" },
@@ -68,6 +97,29 @@ const learningStatuses = [
   { value: "summarized", label: "Summarized" },
   { value: "acted_on", label: "Action planned" },
   { value: "completed", label: "Completed" },
+] as const;
+
+const sortOptions = [
+  { value: "priority", label: "Smart score" },
+  { value: "newest", label: "Newest" },
+  { value: "oldest", label: "Oldest" },
+  { value: "views", label: "Most viewed" },
+  { value: "duration", label: "Longest" },
+  { value: "channel", label: "Channel" },
+] as const;
+
+const priorityFilters = [
+  { value: "all", label: "All" },
+  { value: "must", label: "Must watch" },
+  { value: "useful", label: "Useful+" },
+  { value: "saved", label: "Saved" },
+  { value: "unsaved", label: "Unsaved" },
+] as const;
+
+const datePresets = [
+  { label: "Today", value: () => dateOffsetKey(0) },
+  { label: "Yesterday", value: () => dateOffsetKey(1) },
+  { label: "2 days ago", value: () => dateOffsetKey(2) },
 ] as const;
 
 const YT_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
@@ -127,6 +179,16 @@ export default function YtSummaryPage() {
   const [importHealth, setImportHealth] = useState<any>(null);
   const [connectingYoutube, setConnectingYoutube] = useState(false);
   const [savedSearch, setSavedSearch] = useState("");
+  const [savedCategoryFilter, setSavedCategoryFilter] = useState("all");
+  const [savedStatusFilter, setSavedStatusFilter] = useState("all");
+  const [feedDate, setFeedDate] = useState("");
+  const [feedCachedAt, setFeedCachedAt] = useState<string | null>(null);
+  const [feedFromCache, setFeedFromCache] = useState(false);
+  const [contentKind, setContentKind] = useState("all");
+  const [videoSearch, setVideoSearch] = useState("");
+  const [sortMode, setSortMode] = useState("priority");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [topicFilter, setTopicFilter] = useState("all");
   const [savingLearning, setSavingLearning] = useState(false);
   const [creatingReminder, setCreatingReminder] = useState(false);
   const [learningForm, setLearningForm] = useState({
@@ -143,11 +205,15 @@ export default function YtSummaryPage() {
     return fallback;
   };
 
-  const loadSubscriptionFeed = async () => {
+  const loadSubscriptionFeed = async (dateOverride?: string, refresh = false) => {
     setLoadingSubscriptions(true);
     setLoadingVideos(true);
     try {
-      const res = await fetch("/api/youtube/feed");
+      const activeDate = dateOverride ?? feedDate;
+      const params = new URLSearchParams();
+      if (activeDate) params.set("date", activeDate);
+      if (refresh) params.set("refresh", "1");
+      const res = await fetch(`/api/youtube/feed${params.toString() ? `?${params.toString()}` : ""}`);
       const data = await res.json();
       if (!res.ok) {
         setNeedsConnection(Boolean(data?.needsConnection));
@@ -167,6 +233,8 @@ export default function YtSummaryPage() {
       setYoutubeError(null);
       setSubscriptions(data.subscriptions ?? []);
       setVideos(data.videos ?? []);
+      setFeedCachedAt(data.cachedAt ?? null);
+      setFeedFromCache(Boolean(data.cached));
       setSelectedChannel(null);
       setSelectedVideo(null);
       setSummary("");
@@ -369,27 +437,112 @@ export default function YtSummaryPage() {
     setSource("");
   };
 
+  const applyFeedDate = (date: string, refresh = false) => {
+    setFeedDate(date);
+    void loadSubscriptionFeed(date, refresh);
+  };
+
+  const topicOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const video of videos ?? []) {
+      for (const topic of video?.matchedTopics ?? []) {
+        const key = String(topic ?? "").trim().toLowerCase();
+        if (!key) continue;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 10)
+      .map(([value, count]) => ({ value, count }));
+  }, [videos]);
+
+  const loadedDateOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const video of videos ?? []) {
+      const key = localDateKey(new Date(video.publishedAt));
+      if (!key) continue;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .slice(0, 8)
+      .map(([value, count]) => ({ value, count }));
+  }, [videos]);
+
+  const feedStats = useMemo(() => {
+    const list = videos ?? [];
+    return {
+      total: list.length,
+      videos: list.filter((video) => video.kind === "video").length,
+      shorts: list.filter((video) => video.kind === "short").length,
+      mustWatch: list.filter((video) => (video.priorityScore ?? 0) >= 55).length,
+      useful: list.filter((video) => (video.priorityScore ?? 0) >= 18).length,
+      saved: list.filter((video) => isSaved(video.id)).length,
+    };
+  }, [savedSummaries, videos]);
+
   const visibleVideos = useMemo(() => {
-    const list = selectedChannel ? videos.filter((video) => video.channelId === selectedChannel.channelId) : videos;
-    return [...list].sort((a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
-  }, [selectedChannel, videos]);
+    let list = selectedChannel ? videos.filter((video) => video.channelId === selectedChannel.channelId) : videos;
+    if (contentKind !== "all") list = list.filter((video) => video.kind === contentKind);
+    if (priorityFilter === "must") list = list.filter((video) => (video.priorityScore ?? 0) >= 55);
+    if (priorityFilter === "useful") list = list.filter((video) => (video.priorityScore ?? 0) >= 18);
+    if (priorityFilter === "saved") list = list.filter((video) => isSaved(video.id));
+    if (priorityFilter === "unsaved") list = list.filter((video) => !isSaved(video.id));
+    if (topicFilter !== "all") {
+      list = list.filter((video) => (video.matchedTopics ?? []).some((topic: string) => String(topic).toLowerCase() === topicFilter));
+    }
+    const query = videoSearch.trim().toLowerCase();
+    if (query) {
+      list = list.filter((video) =>
+        [
+          video.title,
+          video.channelTitle,
+          video.description,
+          video.aiReason,
+          ...(video.matchedTopics ?? []),
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(query)
+      );
+    }
+    return [...list].sort((a, b) => {
+      if (sortMode === "newest") return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+      if (sortMode === "oldest") return new Date(a.publishedAt).getTime() - new Date(b.publishedAt).getTime();
+      if (sortMode === "views") return (b.viewCount ?? 0) - (a.viewCount ?? 0);
+      if (sortMode === "duration") return (b.durationSeconds ?? 0) - (a.durationSeconds ?? 0);
+      if (sortMode === "channel") return String(a.channelTitle ?? "").localeCompare(String(b.channelTitle ?? ""));
+      return (b.priorityScore ?? 0) - (a.priorityScore ?? 0) || new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+    });
+  }, [contentKind, priorityFilter, savedSummaries, selectedChannel, sortMode, topicFilter, videoSearch, videos]);
 
   const filteredSavedSummaries = useMemo(() => {
     const query = savedSearch.trim().toLowerCase();
-    if (!query) return savedSummaries;
-    return savedSummaries.filter((item) =>
+    return savedSummaries.filter((item) => {
+      if (savedCategoryFilter !== "all" && item.category !== savedCategoryFilter) return false;
+      if (savedStatusFilter !== "all" && item.status !== savedStatusFilter) return false;
+      if (!query) return true;
+      return (
       [item.title, item.channelTitle, item.summary, item.notes, item.nextAction, ...(item.takeaways ?? [])]
         .join(" ")
         .toLowerCase()
         .includes(query)
-    );
-  }, [savedSearch, savedSummaries]);
+      );
+    }).sort((a, b) => new Date(b.updatedAt ?? b.savedAt).getTime() - new Date(a.updatedAt ?? a.savedAt).getTime());
+  }, [savedCategoryFilter, savedSearch, savedStatusFilter, savedSummaries]);
 
-  const summarizeVideo = async (video: any) => {
+  const summarizeVideo = async (video: any, options: { refresh?: boolean } = {}) => {
     setSelectedVideo(video);
     setSummary("");
     setSource("");
     const existing = savedSummaries.find((item) => item.videoId === video.id);
+    if (existing && !options.refresh) {
+      setSummary(existing.summary ?? "");
+      setSource(existing.source ?? "saved summary");
+      hydrateLearningForm(video, existing.summary, existing.source ?? "saved summary", existing.takeaways ?? []);
+      return;
+    }
     if (existing) hydrateLearningForm(video, existing.summary, existing.source ?? "", existing.takeaways ?? []);
     setSummarizing(true);
     try {
@@ -478,6 +631,183 @@ export default function YtSummaryPage() {
         </Card>
       )}
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Loaded", value: feedStats.total, icon: Layers3 },
+          { label: "Must watch", value: feedStats.mustWatch, icon: Sparkles },
+          { label: "Videos", value: feedStats.videos, icon: Video },
+          { label: "Shorts", value: feedStats.shorts, icon: PlayCircle },
+        ].map((item) => {
+          const Icon = item.icon;
+          return (
+            <div key={item.label} className="rounded-[24px] border border-border/70 bg-card/80 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                <Icon className="h-4 w-4 text-primary" />
+              </div>
+              <p className="mt-2 font-mono text-2xl font-bold">{item.value}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <Card className={YT_CARD_CLASS}>
+        <CardContent className="space-y-4 p-3 sm:p-4">
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] xl:items-end">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <CalendarDays className="h-4 w-4 text-primary" />
+                Get by date
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,15rem)_auto_auto_auto] sm:items-center">
+                <Input
+                  type="date"
+                  value={feedDate}
+                  onChange={(event) => setFeedDate(event.target.value)}
+                  className={YT_INPUT_CLASS}
+                />
+                <Button type="button" onClick={() => loadSubscriptionFeed()} loading={loadingVideos} className="h-11 rounded-2xl">
+                  Load
+                </Button>
+                <Button type="button" variant="outline" onClick={() => loadSubscriptionFeed(undefined, true)} loading={loadingVideos} className="h-11 rounded-2xl">
+                  Refresh
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setFeedDate("");
+                    void loadSubscriptionFeed("");
+                  }}
+                  className="h-11 rounded-2xl"
+                >
+                  Latest
+                </Button>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                {datePresets.map((preset) => {
+                  const value = preset.value();
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => applyFeedDate(value)}
+                      className={`h-9 shrink-0 rounded-full border px-3 text-xs font-semibold transition active:scale-[0.98] ${
+                        feedDate === value ? "border-primary/50 bg-primary/15 text-primary" : "border-border bg-background/70 text-muted-foreground"
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {loadedDateOptions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Dates in loaded feed</p>
+                  <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                    {loadedDateOptions.map((item) => (
+                      <button
+                        key={item.value}
+                        type="button"
+                        onClick={() => applyFeedDate(item.value)}
+                        className={`h-9 shrink-0 rounded-full border px-3 text-xs font-semibold transition active:scale-[0.98] ${
+                          feedDate === item.value ? "border-primary/50 bg-primary/15 text-primary" : "border-border bg-background/70 text-muted-foreground"
+                        }`}
+                      >
+                        {formatAppDate(`${item.value}T00:00:00.000Z`, { day: "2-digit", month: "short" })} ({item.count})
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cache</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {feedCachedAt
+                  ? `${feedFromCache ? "Using saved feed" : "Saved fresh feed"} for ${feedDate || "latest subscriptions"} at ${formatAppDate(feedCachedAt, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}.`
+                  : "No feed loaded yet."}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_14rem_12rem] xl:items-end">
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Search className="h-4 w-4 text-primary" />
+                Search videos
+              </Label>
+              <Input
+                value={videoSearch}
+                onChange={(event) => setVideoSearch(event.target.value)}
+                className={YT_INPUT_CLASS}
+                placeholder="Search title, channel, topic, reason..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <SlidersHorizontal className="h-4 w-4 text-primary" />
+                Sort
+              </Label>
+              <Select value={sortMode} onValueChange={setSortMode}>
+                <SelectTrigger className={YT_INPUT_CLASS}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {sortOptions.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Filter className="h-4 w-4 text-primary" />
+                Topic
+              </Label>
+              <Select value={topicFilter} onValueChange={setTopicFilter}>
+                <SelectTrigger className={YT_INPUT_CLASS}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All topics</SelectItem>
+                  {topicOptions.map((topic) => <SelectItem key={topic.value} value={topic.value}>{topic.value} ({topic.count})</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
+              {priorityFilters.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setPriorityFilter(item.value)}
+                  className={`h-10 shrink-0 rounded-2xl border px-3 text-sm font-semibold transition active:scale-[0.98] ${
+                    priorityFilter === item.value ? "border-primary/50 bg-primary/15 text-primary" : "border-border bg-background/70 text-muted-foreground"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { value: "all", label: "All" },
+                { value: "video", label: "Videos" },
+                { value: "short", label: "Shorts" },
+              ].map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  onClick={() => setContentKind(item.value)}
+                  className={`h-10 rounded-2xl border px-3 text-sm font-semibold transition active:scale-[0.98] ${
+                    contentKind === item.value ? "border-primary/50 bg-primary/15 text-primary" : "border-border bg-background/70 text-muted-foreground"
+                  }`}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 xl:grid-cols-[18rem_1fr]">
         <Card className={YT_CARD_CLASS}>
           <CardHeader>
@@ -538,20 +868,39 @@ export default function YtSummaryPage() {
                   <PlayCircle className="h-5 w-5 text-primary" />
                   <span className="min-w-0 truncate">{selectedChannel ? selectedChannel.title : "Latest Subscription Videos"}</span>
                 </CardTitle>
-                {visibleVideos.length > 0 && (
-                  <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                    <Badge variant="secondary">{visibleVideos.filter((video) => video.kind === "video").length} videos</Badge>
-                    <Badge variant="outline">{visibleVideos.filter((video) => video.kind === "short").length} shorts</Badge>
-                    <Badge variant="outline">By priority score</Badge>
-                  </div>
-                )}
+                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <Badge variant="secondary">{visibleVideos.length} showing</Badge>
+                  <Badge variant="outline">{visibleVideos.filter((video) => video.kind === "video").length} videos</Badge>
+                  <Badge variant="outline">{visibleVideos.filter((video) => video.kind === "short").length} shorts</Badge>
+                  {(videoSearch || contentKind !== "all" || priorityFilter !== "all" || topicFilter !== "all" || selectedChannel) && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 rounded-full px-3 text-xs"
+                      onClick={() => {
+                        setVideoSearch("");
+                        setContentKind("all");
+                        setPriorityFilter("all");
+                        setTopicFilter("all");
+                        setSelectedChannel(null);
+                      }}
+                    >
+                      Clear filters
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               {loadingVideos ? (
                 <div className="space-y-2">{[1, 2, 3].map((item) => <div key={item} className="h-24 animate-pulse rounded-lg bg-muted" />)}</div>
               ) : visibleVideos.length === 0 ? (
-                <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">No recent videos found.</div>
+                <div className="rounded-[24px] border border-dashed p-8 text-center text-sm text-muted-foreground">
+                  <Filter className="mx-auto mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-semibold text-foreground">No videos match these filters</p>
+                  <p className="mt-1">Try Latest, clear filters, or pick a different date.</p>
+                </div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
                   {visibleVideos.map((video) => (
@@ -559,32 +908,55 @@ export default function YtSummaryPage() {
                       key={video.id}
                       type="button"
                       onClick={() => summarizeVideo(video)}
-                      className={`overflow-hidden rounded-[24px] border bg-muted/30 text-left transition active:scale-[0.99] hover:border-primary/50 ${selectedVideo?.id === video.id ? "border-primary" : "border-border"}`}
+                      className={`group overflow-hidden rounded-[26px] border bg-background/55 text-left shadow-sm shadow-black/5 transition active:scale-[0.99] hover:border-primary/50 hover:bg-muted/20 ${selectedVideo?.id === video.id ? "border-primary ring-1 ring-primary/30" : "border-border/70"}`}
                     >
-                      {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}
-                      <div className="space-y-2 p-3">
+                      <div className="relative">
+                        {video.thumbnail ? <img src={video.thumbnail} alt="" className="aspect-video w-full object-cover" /> : <div className="aspect-video bg-muted" />}
+                        <div className="absolute bottom-2 left-2 flex flex-wrap gap-1">
+                          <Badge variant={video.kind === "video" ? "default" : "outline"} className="bg-background/90 backdrop-blur">
+                            {video.kind === "video" ? "Video" : "Short"}
+                          </Badge>
+                          {video.durationSeconds > 0 && (
+                            <Badge variant="outline" className="bg-background/90 backdrop-blur">
+                              <Clock3 className="mr-1 h-3 w-3" />
+                              {formatDuration(video.durationSeconds)}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-3 p-3">
                         <div className="flex items-center justify-between gap-2">
                           <Badge variant={(video.priorityScore ?? 0) >= 35 ? "default" : "secondary"} className="gap-1">
                             <TrendingUp className="h-3 w-3" />
                             {priorityLabel(video.priorityScore)}
                           </Badge>
-                          <span className="text-xs text-muted-foreground">Score {video.priorityScore ?? 0}</span>
+                          <span className="rounded-full border border-border bg-background/70 px-2 py-1 font-mono text-xs text-muted-foreground">
+                            {video.priorityScore ?? 0}/100
+                          </span>
                         </div>
-                        <p className="line-clamp-2 text-sm font-semibold">{video.title}</p>
-                        <p className="truncate text-xs font-medium text-muted-foreground">{video.channelTitle}</p>
-                        {video.description && <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{video.description}</p>}
+                        <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, Math.max(0, video.priorityScore ?? 0))}%` }} />
+                        </div>
+                        <div>
+                          <p className="line-clamp-2 text-sm font-semibold leading-snug group-hover:text-primary">{video.title}</p>
+                          <p className="mt-1 truncate text-xs font-medium text-muted-foreground">{video.channelTitle}</p>
+                        </div>
+                        {video.aiReason && (
+                          <p className="rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                            {video.aiReason}
+                          </p>
+                        )}
+                        {video.description && <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{video.description}</p>}
                         {video.matchedTopics?.length > 0 && (
                           <div className="flex flex-wrap gap-1">
-                            {video.matchedTopics.slice(0, 3).map((topic: string) => (
+                            {video.matchedTopics.slice(0, 4).map((topic: string) => (
                               <Badge key={topic} variant="outline" className="text-[10px] capitalize">{topic}</Badge>
                             ))}
                           </div>
                         )}
                         <div className="flex flex-wrap items-center gap-2">
                           <Badge variant="outline">{formatAppDate(video.publishedAt, { day: "2-digit", month: "short", year: "numeric" })}</Badge>
-                          {video.durationSeconds > 0 && <Badge variant="outline">{formatDuration(video.durationSeconds)}</Badge>}
-                          {video.viewCount > 0 && <Badge variant="outline">{formatViews(video.viewCount)}</Badge>}
-                          <Badge variant={video.kind === "video" ? "default" : "outline"}>{video.kind === "video" ? "Video" : "Short"}</Badge>
+                          {video.viewCount > 0 && <Badge variant="outline"><Eye className="mr-1 h-3 w-3" />{formatViews(video.viewCount)}</Badge>}
                           {isSaved(video.id) && <Badge variant="secondary" className="gap-1 text-primary"><BookmarkCheck className="h-2.5 w-2.5" />Saved</Badge>}
                         </div>
                       </div>
@@ -595,7 +967,7 @@ export default function YtSummaryPage() {
             </CardContent>
           </Card>
 
-          <Card className={YT_CARD_CLASS}>
+          <Card className={`${YT_CARD_CLASS} xl:sticky xl:top-4 xl:self-start`}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5 text-primary" />
@@ -604,7 +976,11 @@ export default function YtSummaryPage() {
             </CardHeader>
             <CardContent>
               {!selectedVideo ? (
-                <div className="rounded-[22px] border border-dashed p-6 text-sm text-muted-foreground">Click a video to generate a summary and save your notes.</div>
+                <div className="rounded-[22px] border border-dashed p-6 text-center text-sm text-muted-foreground">
+                  <Sparkles className="mx-auto mb-3 h-9 w-9 text-muted-foreground/35" />
+                  <p className="font-semibold text-foreground">Choose a video</p>
+                  <p className="mt-1">Dayza will show the saved summary instantly, or generate a new one when needed.</p>
+                </div>
               ) : summarizing ? (
                 <div className="space-y-3">
                   <div className="h-4 w-3/4 animate-pulse rounded bg-muted" />
@@ -613,10 +989,41 @@ export default function YtSummaryPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  <div>
-                    <p className="text-sm font-semibold">{selectedVideo.title}</p>
-                    {source && <p className="mt-1 text-xs text-muted-foreground">Summary source: {source}</p>}
+                  <div className="overflow-hidden rounded-[22px] border border-border/70 bg-background/55">
+                    {selectedVideo.thumbnail && <img src={selectedVideo.thumbnail} alt="" className="aspect-video w-full object-cover" />}
+                    <div className="space-y-3 p-3">
+                      <div>
+                        <p className="line-clamp-3 text-sm font-semibold leading-snug">{selectedVideo.title}</p>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{selectedVideo.channelTitle}</p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant={(selectedVideo.priorityScore ?? 0) >= 35 ? "default" : "secondary"}>
+                          Score {selectedVideo.priorityScore ?? 0}
+                        </Badge>
+                        <Badge variant="outline">{selectedVideo.kind === "video" ? "Video" : "Short"}</Badge>
+                        {selectedVideo.durationSeconds > 0 && <Badge variant="outline">{formatDuration(selectedVideo.durationSeconds)}</Badge>}
+                        <Badge variant="outline">{formatAppDate(selectedVideo.publishedAt, { day: "2-digit", month: "short" })}</Badge>
+                      </div>
+                      {selectedVideo.aiReason && (
+                        <p className="rounded-2xl border border-primary/20 bg-primary/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+                          {selectedVideo.aiReason}
+                        </p>
+                      )}
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <Button type="button" variant="outline" asChild className="h-10 rounded-2xl">
+                          <a href={youtubeWatchUrl(selectedVideo.id)} target="_blank" rel="noreferrer">
+                            <ExternalLink className="h-4 w-4" />
+                            Open
+                          </a>
+                        </Button>
+                        <Button type="button" variant="outline" className="h-10 rounded-2xl" onClick={() => summarizeVideo(selectedVideo, { refresh: true })} loading={summarizing}>
+                          <RefreshCw className="h-4 w-4" />
+                          Refresh AI
+                        </Button>
+                      </div>
+                    </div>
                   </div>
+                  {source && <p className="text-xs text-muted-foreground">Summary source: {source}</p>}
                   <div className="whitespace-pre-wrap rounded-[22px] bg-muted/35 p-3 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
                     {summary || "No summary yet."}
                   </div>
@@ -701,14 +1108,51 @@ export default function YtSummaryPage() {
     <div className="space-y-3">
       <Card className={YT_CARD_CLASS}>
         <CardContent className="p-4">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              value={savedSearch}
-              onChange={(event) => setSavedSearch(event.target.value)}
-              className={`${YT_INPUT_CLASS} pl-9`}
-              placeholder="Search saved learning, notes, next actions..."
-            />
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_12rem_12rem_auto] lg:items-end">
+            <div className="space-y-1.5">
+              <Label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Search className="h-4 w-4 text-primary" />
+                Search saved learning
+              </Label>
+              <Input
+                value={savedSearch}
+                onChange={(event) => setSavedSearch(event.target.value)}
+                className={YT_INPUT_CLASS}
+                placeholder="Search notes, takeaways, next actions..."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Category</Label>
+              <Select value={savedCategoryFilter} onValueChange={setSavedCategoryFilter}>
+                <SelectTrigger className={YT_INPUT_CLASS}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  {learningCategories.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Status</Label>
+              <Select value={savedStatusFilter} onValueChange={setSavedStatusFilter}>
+                <SelectTrigger className={YT_INPUT_CLASS}><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {learningStatuses.map((item) => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-2xl"
+              onClick={() => {
+                setSavedSearch("");
+                setSavedCategoryFilter("all");
+                setSavedStatusFilter("all");
+              }}
+            >
+              Clear
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -782,7 +1226,7 @@ export default function YtSummaryPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
             <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, with notes, reminders, and saved takeaways.</p>
           </div>
-          <Button variant="outline" className="h-11 rounded-2xl" onClick={loadSubscriptionFeed} disabled={loadingSubscriptions || loadingVideos}>
+          <Button variant="outline" className="h-11 rounded-2xl" onClick={() => loadSubscriptionFeed(undefined, true)} disabled={loadingSubscriptions || loadingVideos}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
             Refresh
           </Button>

@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { createHash } from "crypto";
 import { prisma } from "@/lib/db";
 
 export type PushPayload = {
@@ -72,6 +73,43 @@ function normalizePayload(payload: PushPayload) {
   });
 }
 
+function shortDeviceId(endpoint: string) {
+  return createHash("sha256").update(endpoint).digest("hex").slice(0, 8).toUpperCase();
+}
+
+function endpointHash(endpoint: string) {
+  return createHash("sha256").update(endpoint).digest("hex");
+}
+
+function pushKind(payload: PushPayload) {
+  return String(payload.data?.kind ?? payload.tag ?? "general").trim().slice(0, 80) || "general";
+}
+
+async function recordPushLog(userId: string, payload: PushPayload, details: {
+  subscriptionId?: string | null;
+  endpoint?: string | null;
+  status: string;
+  error?: string | null;
+}) {
+  try {
+    await prisma.pushNotificationLog.create({
+      data: {
+        userId,
+        subscriptionId: details.subscriptionId ?? null,
+        deviceId: details.endpoint ? shortDeviceId(details.endpoint) : null,
+        endpointHash: details.endpoint ? endpointHash(details.endpoint) : null,
+        kind: pushKind(payload),
+        title: String(payload.title ?? "Dayza notification").slice(0, 220),
+        body: payload.body ? String(payload.body).slice(0, 500) : null,
+        status: details.status,
+        error: details.error ? String(details.error).slice(0, 500) : null,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to record push notification log", error);
+  }
+}
+
 export async function pruneStalePushSubscriptions(userId?: string, maxAgeDays = 60) {
   const cutoff = new Date(Date.now() - maxAgeDays * 24 * 60 * 60 * 1000);
   const result = await prisma.webPushSubscription.deleteMany({
@@ -99,10 +137,14 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
     orderBy: { updatedAt: "desc" },
   });
 
-  if (subscriptions.length === 0) return { sent: 0, removed: 0 };
+  if (subscriptions.length === 0) {
+    await recordPushLog(userId, payload, { status: "no_devices" });
+    return { sent: 0, removed: 0, failed: 0 };
+  }
 
   let sent = 0;
   let removed = 0;
+  let failed = 0;
   const body = normalizePayload({ ...payload, url: payload.url ?? `${getBaseUrl()}/dashboard` });
 
   for (const subscription of subscriptions) {
@@ -119,20 +161,40 @@ export async function sendPushToUser(userId: string, payload: PushPayload) {
         body
       );
       sent += 1;
-      await prisma.webPushSubscription.update({
-        where: { id: subscription.id },
-        data: { lastUsedAt: new Date() },
-      });
+      await Promise.all([
+        prisma.webPushSubscription.update({
+          where: { id: subscription.id },
+          data: { lastUsedAt: new Date() },
+        }),
+        recordPushLog(userId, payload, {
+          subscriptionId: subscription.id,
+          endpoint: subscription.endpoint,
+          status: "sent",
+        }),
+      ]);
     } catch (error: any) {
       const statusCode = Number(error?.statusCode ?? 0);
       if (statusCode === 404 || statusCode === 410) {
+        await recordPushLog(userId, payload, {
+          subscriptionId: subscription.id,
+          endpoint: subscription.endpoint,
+          status: "removed",
+          error: error?.body || error?.message || `Subscription expired (${statusCode})`,
+        });
         await prisma.webPushSubscription.delete({ where: { id: subscription.id } });
         removed += 1;
       } else {
+        failed += 1;
+        await recordPushLog(userId, payload, {
+          subscriptionId: subscription.id,
+          endpoint: subscription.endpoint,
+          status: "failed",
+          error: error?.body || error?.message || "Push send failed",
+        });
         throw error;
       }
     }
   }
 
-  return { sent, removed };
+  return { sent, removed, failed };
 }

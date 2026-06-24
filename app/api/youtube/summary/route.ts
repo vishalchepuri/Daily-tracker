@@ -1,8 +1,11 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
+import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { getPublicTranscript, youtubeFetch } from "@/lib/youtube";
+
+const YOUTUBE_SUMMARY_CACHE_SECONDS = 30 * 24 * 60 * 60;
 
 function cleanSummaryText(value: string) {
   return value
@@ -43,6 +46,13 @@ export async function POST(req: Request) {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
+    const { videoId } = await req.json();
+    if (!videoId) return NextResponse.json({ error: "Video ID required" }, { status: 400 });
+
+    const cacheKey = `v1:youtube:summary:${userId}:${String(videoId)}`;
+    const cached = await cacheGetJson<any>(cacheKey);
+    if (cached) return NextResponse.json({ ...cached, cached: true });
+
     const limited = rateLimit(req, "youtube-summary", { limit: 20, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json(
@@ -50,9 +60,6 @@ export async function POST(req: Request) {
         { status: 429, headers: rateLimitHeaders(limited) }
       );
     }
-
-    const { videoId } = await req.json();
-    if (!videoId) return NextResponse.json({ error: "Video ID required" }, { status: 400 });
 
     const details = await youtubeFetch(
       userId,
@@ -96,7 +103,7 @@ export async function POST(req: Request) {
     }
     const data = await response.json();
     const summary = cleanSummaryText(data?.choices?.[0]?.message?.content ?? "No summary generated.");
-    return NextResponse.json({
+    const payload = {
       video: {
         id: videoId,
         title: video.snippet?.title,
@@ -106,7 +113,11 @@ export async function POST(req: Request) {
       source: sourceLabel,
       summary,
       takeaways: extractTakeaways(summary),
-    });
+      cached: false,
+      cachedAt: new Date().toISOString(),
+    };
+    await cacheSetJson(cacheKey, payload, YOUTUBE_SUMMARY_CACHE_SECONDS);
+    return NextResponse.json(payload);
   } catch (error: any) {
     return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to summarize video" : error?.message ?? "Failed to summarize video" }, { status: 500 });
   }
