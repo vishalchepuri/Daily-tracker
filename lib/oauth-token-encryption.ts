@@ -63,6 +63,15 @@ export function decryptOAuthToken(value?: string | null) {
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
 }
 
+function safeDecryptOAuthToken(value?: string | null) {
+  try {
+    return decryptOAuthToken(value);
+  } catch (error: any) {
+    console.warn("Could not decrypt stored OAuth token; reconnect required.", error?.message ?? error);
+    return null;
+  }
+}
+
 export function encryptOAuthTokenFields<T extends TokenFields>(data: T): T {
   const encrypted = { ...data };
   if ("access_token" in encrypted && encrypted.access_token !== undefined) {
@@ -82,8 +91,8 @@ export function decryptOAuthTokenFields<T extends TokenFields | null>(account: T
   const current = account as TokenFields;
   return {
     ...account,
-    access_token: decryptOAuthToken(current.access_token),
-    refresh_token: decryptOAuthToken(current.refresh_token),
-    id_token: decryptOAuthToken(current.id_token),
+    access_token: safeDecryptOAuthToken(current.access_token),
+    refresh_token: safeDecryptOAuthToken(current.refresh_token),
+    id_token: safeDecryptOAuthToken(current.id_token),
   } as T;
 }
