@@ -130,6 +130,7 @@ export default function SpendsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [clearingGmailImports, setClearingGmailImports] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
   const [targetSaving, setTargetSaving] = useState(false);
@@ -1125,6 +1126,26 @@ export default function SpendsPage() {
     }
   };
 
+  const clearGmailImports = async () => {
+    if (!window.confirm("Remove Gmail-imported spends only? Manual spends, cards, banks, and lent/borrow records will stay.")) return;
+    setClearingGmailImports(true);
+    try {
+      const res = await fetch("/api/spends/gmail-import", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Could not clear Gmail-imported spends");
+        return;
+      }
+      toast.success(`Cleared ${data.deleted ?? 0} Gmail-imported spends`);
+      loadData();
+      fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
+    } catch {
+      toast.error("Could not clear Gmail-imported spends");
+    } finally {
+      setClearingGmailImports(false);
+    }
+  };
+
   const connectGmail = async () => {
     setConnectingGmail(true);
     try {
@@ -1159,6 +1180,15 @@ export default function SpendsPage() {
             </Button>
             <Button variant="outline" onClick={importGmail} disabled={importing} className="h-11 rounded-2xl px-3">
               <RefreshCw className={`w-4 h-4 mr-2 ${importing ? "animate-spin" : ""}`} />Import Gmail
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={clearGmailImports}
+              loading={clearingGmailImports}
+              className="h-11 rounded-2xl px-3"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />Clear imports
             </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>

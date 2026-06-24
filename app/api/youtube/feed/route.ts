@@ -1,10 +1,12 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
+import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { youtubeFetch } from "@/lib/youtube";
 
 const MAX_CHANNELS = 50;
 const MAX_FEED_VIDEOS = 60;
+const YOUTUBE_FEED_CACHE_SECONDS = 6 * 60 * 60;
 
 function parseIsoDurationSeconds(duration?: string) {
   if (!duration) return 0;
@@ -243,6 +245,15 @@ export async function GET(req: Request) {
     const userId = user.id;
     const url = new URL(req.url);
     const requestedDate = url.searchParams.get("date") ?? "";
+    const forceRefresh = url.searchParams.get("refresh") === "1";
+    const cacheKey = `v1:youtube:feed:${userId}:${requestedDate || "latest"}`;
+
+    if (!forceRefresh) {
+      const cached = await cacheGetJson<any>(cacheKey);
+      if (cached) {
+        return NextResponse.json({ ...cached, cached: true });
+      }
+    }
 
     const subscriptionsResult = await youtubeFetch(
       userId,
@@ -305,7 +316,16 @@ export async function GET(req: Request) {
       })
       .sort((a: any, b: any) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0));
 
-    return NextResponse.json({ subscriptions, videos: scoredVideos, sort: "priorityScore:desc", date: requestedDate || null });
+    const payload = {
+      subscriptions,
+      videos: scoredVideos,
+      sort: "priorityScore:desc",
+      date: requestedDate || null,
+      cached: false,
+      cachedAt: new Date().toISOString(),
+    };
+    await cacheSetJson(cacheKey, payload, YOUTUBE_FEED_CACHE_SECONDS);
+    return NextResponse.json(payload);
   } catch (error: any) {
     return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to load subscription feed" : error?.message ?? "Failed to load subscription feed" }, { status: 500 });
   }

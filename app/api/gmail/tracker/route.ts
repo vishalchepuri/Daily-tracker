@@ -3,13 +3,18 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { listGmailTrackedMessages, upsertGmailTrackedMessage } from "@/lib/firestore-app-data";
+import {
+  deleteGmailTrackedMessagesForUser,
+  listGmailTrackedMessages,
+  upsertGmailTrackedMessage,
+} from "@/lib/firestore-app-data";
 import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DEFAULT_QUERY = "newer_than:45d -category:promotions";
 const MAX_SYNC_EMAILS = 60;
+const MAX_EMAIL_LOOKBACK_DAYS = 15;
 const VALID_GMAIL_CATEGORIES = new Set([
   "bills",
   "finance",
@@ -176,9 +181,48 @@ function addDays(date: Date, days: number) {
   return next;
 }
 
-function gmailDate(value?: string) {
-  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+function gmailDate(value: string) {
   return value.replace(/-/g, "/");
+}
+
+function dateRangeError(message: string) {
+  return Object.assign(new Error(message), { code: "GMAIL_DATE_RANGE" });
+}
+
+function utcDateStart(date = new Date()) {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function parseDateKey(value?: string | null) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) throw dateRangeError("Choose a valid start date.");
+  const parsed = new Date(`${trimmed}T00:00:00.000Z`);
+  if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== trimmed) {
+    throw dateRangeError("Choose a valid start date.");
+  }
+  return trimmed;
+}
+
+function normalizeStartDate(value?: string | null) {
+  const startDate = parseDateKey(value);
+  if (!startDate) return "";
+
+  const start = new Date(`${startDate}T00:00:00.000Z`);
+  const today = utcDateStart();
+  const earliest = addDays(today, -MAX_EMAIL_LOOKBACK_DAYS);
+
+  if (start < earliest) {
+    throw dateRangeError(`Start date can be at most ${MAX_EMAIL_LOOKBACK_DAYS} days old.`);
+  }
+  if (start > today) {
+    throw dateRangeError("Start date cannot be in the future.");
+  }
+  return startDate;
+}
+
+function rangeEndDate() {
+  return addDays(utcDateStart(), 1).toISOString().slice(0, 10);
 }
 
 function appDateKey(value?: string | null) {
@@ -193,12 +237,10 @@ function appDateKey(value?: string | null) {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
-function buildGmailQuery(baseQuery: string, date?: string) {
-  const dateToken = gmailDate(date);
-  if (!dateToken) return baseQuery;
-  const nextDateToken = addDays(new Date(`${date}T00:00:00.000Z`), 1).toISOString().slice(0, 10).replace(/-/g, "/");
+function buildGmailQuery(baseQuery: string, startDate?: string) {
+  if (!startDate) return baseQuery;
   const cleaned = baseQuery.replace(/\bafter:\S+/gi, "").replace(/\bbefore:\S+/gi, "").replace(/\s+/g, " ").trim();
-  return `${cleaned} after:${dateToken} before:${nextDateToken}`.trim();
+  return `${cleaned} after:${gmailDate(startDate)} before:${gmailDate(rangeEndDate())}`.trim();
 }
 
 function summarizeCounts(items: any[]) {
@@ -268,19 +310,30 @@ async function gmailFetch(account: any, url: string) {
 }
 
 export async function GET(req: Request) {
-  const user = await requireCurrentUser();
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const url = new URL(req.url);
-  const limit = Number(url.searchParams.get("limit") ?? 60);
-  const category = url.searchParams.get("category") ?? "all";
-  const date = url.searchParams.get("date") ?? "";
-  const items = (await listGmailTrackedMessages(user.id, { limit, category }))
-    .filter((item) => !date || appDateKey(item.internalDate) === date);
-  return NextResponse.json({
-    items,
-    groupedCounts: summarizeCounts(items),
-  });
+    const url = new URL(req.url);
+    const limit = Number(url.searchParams.get("limit") ?? 60);
+    const category = url.searchParams.get("category") ?? "all";
+    const startDate = normalizeStartDate(url.searchParams.get("startDate") ?? url.searchParams.get("date") ?? "");
+    const todayEnd = rangeEndDate();
+    const items = (await listGmailTrackedMessages(user.id, { limit, category })).filter((item) => {
+      const dateKey = appDateKey(item.internalDate);
+      return !startDate || (dateKey >= startDate && dateKey < todayEnd);
+    });
+    return NextResponse.json({
+      items,
+      groupedCounts: summarizeCounts(items),
+      startDate: startDate || null,
+    });
+  } catch (error: any) {
+    if (error?.code === "GMAIL_DATE_RANGE") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+    return NextResponse.json({ error: "Could not load Gmail tracker" }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {
@@ -298,9 +351,9 @@ export async function POST(req: Request) {
 
     const body = await req.json().catch(() => ({}));
     const limit = Math.min(Math.max(Number(body?.limit ?? MAX_SYNC_EMAILS), 1), MAX_SYNC_EMAILS);
-    const date = String(body?.date ?? "").trim();
+    const startDate = normalizeStartDate(body?.startDate ?? body?.date ?? "");
     const baseQuery = trimText(String(body?.query || DEFAULT_QUERY), 160);
-    const query = buildGmailQuery(baseQuery, date);
+    const query = buildGmailQuery(baseQuery, startDate);
 
     let account: any = await findGmailAccount(user.id);
     if (!account?.access_token || !hasScope(account.scope)) {
@@ -401,7 +454,7 @@ export async function POST(req: Request) {
       syncedItems.push(item);
     }
 
-    const items = date
+    const items = startDate
       ? syncedItems.sort((a, b) => new Date(b.internalDate ?? 0).getTime() - new Date(a.internalDate ?? 0).getTime())
       : await listGmailTrackedMessages(user.id, { limit: Math.max(limit, 60) });
     return NextResponse.json({
@@ -410,7 +463,7 @@ export async function POST(req: Request) {
         synced: syncedItems.length,
         skipped,
         query,
-        date: date || null,
+        startDate: startDate || null,
         limit,
       },
       items,
@@ -418,8 +471,25 @@ export async function POST(req: Request) {
       needsConnection: false,
     });
   } catch (error: any) {
+    if (error?.code === "GMAIL_DATE_RANGE") {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     return NextResponse.json(
       { error: process.env.NODE_ENV === "production" ? "Gmail tracker sync failed" : error?.message ?? "Gmail tracker sync failed" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE() {
+  try {
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const deleted = await deleteGmailTrackedMessagesForUser(user.id);
+    return NextResponse.json({ deleted });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: process.env.NODE_ENV === "production" ? "Could not clear Gmail cache" : error?.message ?? "Could not clear Gmail cache" },
       { status: 500 }
     );
   }

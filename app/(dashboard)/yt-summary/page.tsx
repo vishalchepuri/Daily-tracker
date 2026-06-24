@@ -129,6 +129,8 @@ export default function YtSummaryPage() {
   const [connectingYoutube, setConnectingYoutube] = useState(false);
   const [savedSearch, setSavedSearch] = useState("");
   const [feedDate, setFeedDate] = useState("");
+  const [feedCachedAt, setFeedCachedAt] = useState<string | null>(null);
+  const [feedFromCache, setFeedFromCache] = useState(false);
   const [contentKind, setContentKind] = useState("all");
   const [savingLearning, setSavingLearning] = useState(false);
   const [creatingReminder, setCreatingReminder] = useState(false);
@@ -146,13 +148,14 @@ export default function YtSummaryPage() {
     return fallback;
   };
 
-  const loadSubscriptionFeed = async (dateOverride?: string) => {
+  const loadSubscriptionFeed = async (dateOverride?: string, refresh = false) => {
     setLoadingSubscriptions(true);
     setLoadingVideos(true);
     try {
       const activeDate = dateOverride ?? feedDate;
       const params = new URLSearchParams();
       if (activeDate) params.set("date", activeDate);
+      if (refresh) params.set("refresh", "1");
       const res = await fetch(`/api/youtube/feed${params.toString() ? `?${params.toString()}` : ""}`);
       const data = await res.json();
       if (!res.ok) {
@@ -173,6 +176,8 @@ export default function YtSummaryPage() {
       setYoutubeError(null);
       setSubscriptions(data.subscriptions ?? []);
       setVideos(data.videos ?? []);
+      setFeedCachedAt(data.cachedAt ?? null);
+      setFeedFromCache(Boolean(data.cached));
       setSelectedChannel(null);
       setSelectedVideo(null);
       setSummary("");
@@ -515,6 +520,11 @@ export default function YtSummaryPage() {
               Clear
             </Button>
           </div>
+          {feedCachedAt && (
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {feedFromCache ? "Using saved YouTube feed" : "Saved YouTube feed"} from {formatAppDate(feedCachedAt, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}. Use Refresh for fresh YouTube data.
+            </p>
+          )}
           <div className="grid grid-cols-3 gap-2">
             {[
               { value: "all", label: "All" },
@@ -842,7 +852,7 @@ export default function YtSummaryPage() {
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">YT Summary</h2>
             <p className="mt-1 text-sm text-muted-foreground">Latest videos from your subscriptions, with notes, reminders, and saved takeaways.</p>
           </div>
-          <Button variant="outline" className="h-11 rounded-2xl" onClick={() => loadSubscriptionFeed()} disabled={loadingSubscriptions || loadingVideos}>
+          <Button variant="outline" className="h-11 rounded-2xl" onClick={() => loadSubscriptionFeed(undefined, true)} disabled={loadingSubscriptions || loadingVideos}>
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingSubscriptions ? "animate-spin" : ""}`} />
             Refresh
           </Button>
