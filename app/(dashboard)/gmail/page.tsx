@@ -195,7 +195,7 @@ export default function GmailTrackerPage() {
 
   useEffect(() => {
     let cancelled = false;
-    completeGoogleFeatureRedirect()
+    completeGoogleFeatureRedirect(GMAIL_SCOPE)
       .then(async (result) => {
         if (!result || result.scope !== GMAIL_SCOPE || cancelled) return;
         toast.success("Gmail connected");

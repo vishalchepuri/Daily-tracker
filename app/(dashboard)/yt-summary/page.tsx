@@ -122,6 +122,7 @@ const datePresets = [
   { label: "2 days ago", value: () => dateOffsetKey(2) },
 ] as const;
 
+const YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
 const YT_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
 const YT_PANEL_CLASS = "rounded-[24px] border border-border/70 bg-background/55";
 const YT_INPUT_CLASS = "h-11 rounded-2xl border-border/70 bg-background/80 px-3 text-sm";
@@ -274,7 +275,7 @@ export default function YtSummaryPage() {
   const connectYoutube = async () => {
     setConnectingYoutube(true);
     try {
-      const result = await connectGoogleFeature("https://www.googleapis.com/auth/youtube.readonly");
+      const result = await connectGoogleFeature(YOUTUBE_SCOPE);
       if ((result as any)?.redirected) return;
       toast.success("YouTube connected");
       setNeedsConnection(false);
@@ -297,9 +298,9 @@ export default function YtSummaryPage() {
 
     const completeRedirect = async () => {
       try {
-        const result = await completeGoogleFeatureRedirect();
+        const result = await completeGoogleFeatureRedirect(YOUTUBE_SCOPE);
         if (!result || cancelled) return;
-        if (result.scope === "https://www.googleapis.com/auth/youtube.readonly") {
+        if (result.scope === YOUTUBE_SCOPE) {
           toast.success("YouTube connected");
           setNeedsConnection(false);
           await Promise.all([loadImportHealth(), loadSubscriptionFeed()]);

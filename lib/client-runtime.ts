@@ -18,6 +18,16 @@ export function isNativeCapacitorRuntime() {
   return typeof window !== "undefined" && Boolean((window as any).Capacitor?.isNativePlatform?.());
 }
 
+export function isMobileBrowserRuntime() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+
+  const userAgent = navigator.userAgent || "";
+  const mobileUserAgent = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(userAgent);
+  const touchSmallScreen = navigator.maxTouchPoints > 1 && window.innerWidth <= 900;
+
+  return mobileUserAgent || touchSmallScreen;
+}
+
 export function shouldUseRedirectGoogleAuth() {
-  return isStandaloneDisplayMode() || isNativeCapacitorRuntime();
+  return isStandaloneDisplayMode() || isNativeCapacitorRuntime() || isMobileBrowserRuntime();
 }

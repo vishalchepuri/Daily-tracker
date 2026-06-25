@@ -7,6 +7,14 @@ import { dayzaFetch, ensureDayzaSession } from "@/lib/firebase-session-client";
 
 const FEATURE_SCOPE_KEY = "dayza_google_feature_scope";
 
+function isRecoverablePopupError(error: any) {
+  return [
+    "auth/popup-blocked",
+    "auth/cancelled-popup-request",
+    "auth/operation-not-supported-in-this-environment",
+  ].includes(error?.code);
+}
+
 function rememberFeatureScope(scope: string) {
   if (typeof window === "undefined") return;
   try {
@@ -78,7 +86,7 @@ export async function connectGoogleFeature(scope: string) {
   try {
     result = await signInWithPopup(auth, provider);
   } catch (error: any) {
-    if (error?.code === "auth/popup-blocked") {
+    if (isRecoverablePopupError(error)) {
       rememberFeatureScope(scope);
       await signInWithRedirect(auth, provider);
       return { redirected: true };
@@ -88,14 +96,17 @@ export async function connectGoogleFeature(scope: string) {
   return saveGoogleFeatureConnection(result, scope);
 }
 
-export async function completeGoogleFeatureRedirect() {
-  const scope = readFeatureScope();
-  if (!scope) return null;
-
+export async function completeGoogleFeatureRedirect(fallbackScope?: string) {
+  const scope = readFeatureScope() ?? fallbackScope ?? null;
   const result = await getRedirectResult(getFirebaseClientAuth());
   if (!result) {
-    clearFeatureScope();
+    if (scope) clearFeatureScope();
     return null;
+  }
+
+  if (!scope) {
+    clearFeatureScope();
+    throw new Error("Google connected, but Dayza could not identify which permission was requested. Please tap Connect again.");
   }
 
   try {

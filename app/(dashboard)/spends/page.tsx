@@ -66,6 +66,7 @@ const blankFriendSpendForm = {
 };
 
 const spendCategories = ["Food", "Groceries", "Travel", "Shopping", "Health", "Fitness", "Bills", "Subscriptions", "Entertainment", "Other"];
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const SPEND_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
 const SPEND_PANEL_CLASS = "rounded-[24px] border border-border/70 bg-background/55";
 const SPEND_INPUT_CLASS = "mt-1 h-11 rounded-2xl border-border/70 bg-background/80 px-3 text-sm";
@@ -245,9 +246,9 @@ export default function SpendsPage() {
 
     const completeRedirect = async () => {
       try {
-        const result = await completeGoogleFeatureRedirect();
+        const result = await completeGoogleFeatureRedirect(GMAIL_SCOPE);
         if (!result || cancelled) return;
-        if (result.scope === "https://www.googleapis.com/auth/gmail.readonly") {
+        if (result.scope === GMAIL_SCOPE) {
           toast.success("Gmail connected");
           await loadData();
           fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
@@ -1149,7 +1150,7 @@ export default function SpendsPage() {
   const connectGmail = async () => {
     setConnectingGmail(true);
     try {
-      const result = await connectGoogleFeature("https://www.googleapis.com/auth/gmail.readonly");
+      const result = await connectGoogleFeature(GMAIL_SCOPE);
       if ((result as any)?.redirected) return;
       toast.success("Gmail connected");
       await loadData();
