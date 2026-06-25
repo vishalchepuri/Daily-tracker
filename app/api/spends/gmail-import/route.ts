@@ -1,5 +1,6 @@
 export const dynamic = "force-dynamic";
 
+import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -9,6 +10,9 @@ import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-to
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
+const MAX_PDF_ATTACHMENTS_PER_EMAIL = 2;
+const MAX_PDF_BYTES = 5 * 1024 * 1024;
+const MAX_STATEMENT_TRANSACTIONS = 80;
 const receiptQuery = "newer_than:90d";
 const candidatePattern =
   /(receipt|invoice|order|payment|paid|purchase|transaction|debited|credited|spent|charged|upi|card|statement|rs\.?|inr|₹|\$)/i;
@@ -74,6 +78,44 @@ function bodyText(payload: any): string {
   if (!payload) return "";
   if (payload.body?.data) return decodeBase64Url(payload.body.data);
   return (payload.parts ?? []).map((part: any) => bodyText(part)).join("\n");
+}
+
+type GmailPdfAttachment = {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+};
+
+function collectPdfAttachments(payload: any, items: GmailPdfAttachment[] = []) {
+  if (!payload) return items;
+  const filename = String(payload.filename ?? "");
+  const mimeType = String(payload.mimeType ?? "");
+  const attachmentId = payload.body?.attachmentId ? String(payload.body.attachmentId) : "";
+  const size = Number(payload.body?.size ?? 0);
+  const isPdf = attachmentId && (mimeType.toLowerCase().includes("pdf") || /\.pdf$/i.test(filename));
+  if (isPdf) {
+    items.push({ attachmentId, filename: filename || "statement.pdf", mimeType: mimeType || "application/pdf", size });
+  }
+  for (const part of payload.parts ?? []) collectPdfAttachments(part, items);
+  return items;
+}
+
+function looksLikeStatementEmail(input: { subject: string; from: string; snippet: string; body: string; pdfs: GmailPdfAttachment[] }) {
+  const text = `${input.subject} ${input.from} ${input.snippet} ${input.body} ${input.pdfs.map((pdf) => pdf.filename).join(" ")}`.toLowerCase();
+  return /\b(e-?statement|statement|monthly\s+statement|card\s+statement|credit\s+card\s+statement|bank\s+statement|account\s+statement)\b/.test(text) ||
+    (input.pdfs.length > 0 && /\b(credit\s+card|debit\s+card|bank|statement|transactions?)\b/.test(text));
+}
+
+async function extractPdfText(buffer: Buffer) {
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const result = await parser.getText();
+    return String(result.text ?? "").replace(/\s+\n/g, "\n").trim();
+  } finally {
+    await parser.destroy().catch(() => null);
+  }
 }
 
 function hasScope(scope?: string | null) {
@@ -211,6 +253,105 @@ ${input.body.slice(0, 10000)}`,
   };
 }
 
+type StatementTransaction = {
+  date: string;
+  merchant: string;
+  amount: number;
+  currency: string;
+  cardLast4: string;
+  transactionId: string;
+  category: string;
+  confidence: number;
+  reason: string;
+};
+
+function normalizeDateKey(value: unknown, fallback: Date) {
+  const raw = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  const parsed = raw ? new Date(raw) : fallback;
+  if (!Number.isFinite(parsed.getTime())) return fallback.toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
+}
+
+function normalizeCardLast4(value: unknown) {
+  return String(value ?? "").replace(/\D/g, "").slice(-4);
+}
+
+function statementHash(input: unknown) {
+  return createHash("sha256").update(JSON.stringify(input)).digest("hex").slice(0, 22).toUpperCase();
+}
+
+function stableStatementTransactionId(messageId: string, item: StatementTransaction, index: number) {
+  if (item.transactionId) return item.transactionId;
+  return `STMT${statementHash({ messageId, index, date: item.date, merchant: item.merchant, amount: item.amount, last4: item.cardLast4 })}`;
+}
+
+async function aiExtractStatementTransactions(input: {
+  subject: string;
+  from: string;
+  snippet: string;
+  emailDate: Date;
+  pdfFilename: string;
+  pdfText: string;
+}) {
+  if (!process.env.ABACUSAI_API_KEY || !input.pdfText.trim()) return [] as StatementTransaction[];
+
+  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-5.4-mini",
+      stream: false,
+      max_tokens: 5000,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Extract spend transactions from Indian bank or credit card statement PDF text. Return ONLY JSON array. Include only user purchases/debit spends/fees that should appear in an expense tracker. Exclude payments received, credits, reversals, cashback, reward points, opening/closing balances, totals, minimum due, interest summary lines, and duplicated header/footer rows. Each item must have date as YYYY-MM-DD when possible, merchant, positive amount, currency, cardLast4 if visible, transactionId/refNo/authCode if visible, category, confidence 0-1, and reason. If no real spend transactions are present return [].",
+        },
+        {
+          role: "user",
+          content: `Email date: ${input.emailDate.toISOString().slice(0, 10)}
+Subject: ${input.subject}
+From: ${input.from}
+Snippet: ${input.snippet}
+PDF filename: ${input.pdfFilename}
+
+PDF text:
+${input.pdfText.slice(0, 24000)}`,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) return [];
+  const data = await response.json().catch(() => ({}));
+  const raw = cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]");
+  const parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed)) return [];
+
+  return parsed.slice(0, MAX_STATEMENT_TRANSACTIONS).flatMap((item: any, index: number) => {
+    const amount = Number(String(item?.amount ?? "").replace(/,/g, ""));
+    const merchant = sanitizeMerchant(String(item?.merchant ?? ""));
+    if (!Number.isFinite(amount) || amount <= 0 || !merchant) return [];
+    const tx: StatementTransaction = {
+      date: normalizeDateKey(item?.date, input.emailDate),
+      merchant: titleCaseMerchant(merchant),
+      amount,
+      currency: String(item?.currency || "INR").toUpperCase(),
+      cardLast4: normalizeCardLast4(item?.cardLast4),
+      transactionId: normalizeTransactionId(item?.transactionId || item?.refNo || item?.authCode),
+      category: sanitizeMerchant(String(item?.category || "Imported")).slice(0, 40) || "Imported",
+      confidence: Math.max(0, Math.min(1, Number(item?.confidence ?? 0))),
+      reason: String(item?.reason ?? `Statement row ${index + 1}`).slice(0, 180),
+    };
+    return [tx];
+  });
+}
+
 function normalizeTransactionId(value?: string | null) {
   const clean = String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   return clean.length >= 8 && clean.length <= 32 ? clean : "";
@@ -254,6 +395,32 @@ async function findPaymentAccount(userId: string, last4: string) {
   return { creditCardId: null, bankAccountId: null, matchedName: "" };
 }
 
+function simpleToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+async function findStatementCreditCard(userId: string, last4: string, context: string) {
+  if (last4) {
+    const payment = await findPaymentAccount(userId, last4);
+    if (payment.creditCardId) return { creditCardId: payment.creditCardId, matchedName: payment.matchedName };
+  }
+
+  const cards = await prisma.creditCard.findMany({
+    where: { userId, active: true },
+    select: { id: true, name: true, bankName: true, last4: true },
+  });
+  const haystack = simpleToken(context);
+  const matches = cards.filter((card) => {
+    const cardTokens = [card.name, card.bankName, card.last4].filter(Boolean).map((value) => simpleToken(String(value)));
+    return cardTokens.some((token) => token.length >= 3 && haystack.includes(token));
+  });
+  if (matches.length === 1) return { creditCardId: matches[0].id, matchedName: matches[0].name };
+  if (cards.length === 1 && /\b(credit\s+card|card\s+statement|statement)\b/i.test(context)) {
+    return { creditCardId: cards[0].id, matchedName: cards[0].name };
+  }
+  return { creditCardId: null as string | null, matchedName: "" };
+}
+
 async function gmailFetch(account: any, url: string) {
   let res = await fetch(url, { headers: { Authorization: `Bearer ${account.access_token}` } });
   if (res.status !== 401 || !account.refresh_token) return { res, account };
@@ -263,6 +430,62 @@ async function gmailFetch(account: any, url: string) {
 
   res = await fetch(url, { headers: { Authorization: `Bearer ${refreshed.access_token}` } });
   return { res, account: refreshed };
+}
+
+async function gmailAttachmentFetch(account: any, messageId: string, attachmentId: string) {
+  const result = await gmailFetch(
+    account,
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`
+  );
+  const data = await result.res.json().catch(() => ({}));
+  if (!result.res.ok || !data?.data) return { account: result.account, buffer: null as Buffer | null };
+  return { account: result.account, buffer: Buffer.from(String(data.data).replace(/-/g, "+").replace(/_/g, "/"), "base64") };
+}
+
+async function createImportedSpend(input: {
+  userId: string;
+  merchant: string;
+  amount: number;
+  currency: string;
+  category: string;
+  source: string;
+  gmailMessageId: string;
+  transactionId: string;
+  bankAccountId?: string | null;
+  creditCardId?: string | null;
+  notes: string;
+  date: Date;
+  subject: string;
+  from: string;
+}) {
+  return prisma.$transaction(async (tx) => {
+    const spend = await tx.spend.create({
+      data: {
+        userId: input.userId,
+        merchant: input.merchant,
+        amount: input.amount,
+        currency: input.currency,
+        category: input.category,
+        source: input.source,
+        emailSubject: STORE_GMAIL_METADATA ? input.subject : null,
+        emailFrom: STORE_GMAIL_METADATA ? input.from : null,
+        gmailMessageId: input.gmailMessageId,
+        transactionId: input.transactionId,
+        bankAccountId: input.bankAccountId ?? null,
+        creditCardId: input.creditCardId ?? null,
+        balanceApplied: Boolean(input.bankAccountId || input.creditCardId),
+        notes: input.notes,
+        date: input.date,
+      },
+    });
+    if (input.bankAccountId) {
+      await tx.bankAccount.update({ where: { id: input.bankAccountId }, data: { balance: { decrement: input.amount } } });
+    }
+    if (input.creditCardId) {
+      await tx.creditCard.update({ where: { id: input.creditCardId }, data: { currentDue: { increment: input.amount } } });
+    }
+    return spend;
+  });
 }
 
 export async function POST(req: Request) {
@@ -352,17 +575,12 @@ export async function POST(req: Request) {
     let filteredOut = 0;
     let fullReads = 0;
     let imported = 0;
+    let statementPdfs = 0;
+    let statementTransactions = 0;
+    let statementReviews = 0;
 
     for (const message of messages) {
       scanned += 1;
-      const existing = await prisma.spend.findUnique({
-        where: { userId_gmailMessageId: { userId: currentUser.id, gmailMessageId: message.id } },
-      });
-      if (existing) {
-        skippedDuplicates += 1;
-        continue;
-      }
-
       const metadataFetch = await gmailFetch(
         account,
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`
@@ -389,7 +607,130 @@ export async function POST(req: Request) {
       fullReads += 1;
 
       const msg = await msgRes.json();
-      const parsed = await aiExtractSpend({ subject, from, snippet: msg.snippet ?? metadata.snippet ?? "", body: bodyText(msg.payload) });
+      const emailBody = bodyText(msg.payload);
+      const emailDate = new Date(Number(msg.internalDate ?? metadata.internalDate ?? Date.now()));
+      const pdfs = collectPdfAttachments(msg.payload).slice(0, MAX_PDF_ATTACHMENTS_PER_EMAIL);
+      const statementCandidate = looksLikeStatementEmail({
+        subject,
+        from,
+        snippet: msg.snippet ?? metadata.snippet ?? "",
+        body: emailBody.slice(0, 1200),
+        pdfs,
+      });
+
+      if (statementCandidate && pdfs.length > 0) {
+        let importedFromStatement = 0;
+        for (const pdf of pdfs) {
+          if (pdf.size > MAX_PDF_BYTES) {
+            await createReviewItemOnce(currentUser.id, {
+              type: "gmail_statement_pdf_too_large",
+              title: `Statement PDF too large: ${pdf.filename}`,
+              detail: `${pdf.filename} is larger than ${Math.round(MAX_PDF_BYTES / 1024 / 1024)}MB, so Dayza skipped it to keep imports fast.`,
+              priority: "normal",
+              payload: { gmailMessageId: message.id, subject, filename: pdf.filename, size: pdf.size },
+            });
+            statementReviews += 1;
+            continue;
+          }
+
+          const attachment = await gmailAttachmentFetch(account, message.id, pdf.attachmentId);
+          account = attachment.account;
+          if (!attachment.buffer) continue;
+          statementPdfs += 1;
+
+          let pdfText = "";
+          try {
+            pdfText = await extractPdfText(attachment.buffer);
+          } catch (error: any) {
+            await createReviewItemOnce(currentUser.id, {
+              type: "gmail_statement_pdf_unreadable",
+              title: `Could not read statement PDF: ${pdf.filename}`,
+              detail: `Dayza found a statement PDF but could not read it. If it is password-protected, add transactions manually for now.`,
+              priority: "high",
+              payload: { gmailMessageId: message.id, subject, filename: pdf.filename, reason: error?.message ?? "PDF parse failed" },
+            });
+            statementReviews += 1;
+            continue;
+          }
+
+          const rows = await aiExtractStatementTransactions({
+            subject,
+            from,
+            snippet: msg.snippet ?? metadata.snippet ?? "",
+            emailDate,
+            pdfFilename: pdf.filename,
+            pdfText,
+          });
+          const seenRows = new Set<string>();
+          for (const row of rows) {
+            const transactionId = stableStatementTransactionId(message.id, row, seenRows.size);
+            const rowKey = `${row.date}|${row.merchant}|${row.amount}|${row.cardLast4}|${transactionId}`;
+            if (seenRows.has(rowKey)) continue;
+            seenRows.add(rowKey);
+
+            const existingTransaction = await prisma.spend.findUnique({
+              where: { userId_transactionId: { userId: currentUser.id, transactionId } },
+            });
+            if (existingTransaction) {
+              skippedDuplicates += 1;
+              continue;
+            }
+
+            const card = await findStatementCreditCard(currentUser.id, row.cardLast4, `${subject}\n${from}\n${pdf.filename}\n${pdfText.slice(0, 3000)}`);
+            if (!card.creditCardId) {
+              await createReviewItemOnce(currentUser.id, {
+                type: "gmail_statement_card_review",
+                title: `Statement needs card match: ${pdf.filename}`,
+                detail: `${row.currency} ${row.amount.toFixed(2)} at ${row.merchant} was found, but Dayza could not safely match the statement to one saved credit card.`,
+                priority: "high",
+                payload: { gmailMessageId: message.id, subject, filename: pdf.filename, merchant: row.merchant, amount: row.amount, currency: row.currency, last4: row.cardLast4 || null },
+              });
+              statementReviews += 1;
+              continue;
+            }
+
+            const spend = await createImportedSpend({
+              userId: currentUser.id,
+              merchant: row.merchant,
+              amount: row.amount,
+              currency: row.currency,
+              category: row.category || "Imported",
+              source: "gmail_statement",
+              gmailMessageId: `${message.id}:${transactionId}`,
+              transactionId,
+              creditCardId: card.creditCardId,
+              notes: `Imported from Gmail statement ${pdf.filename}${card.matchedName ? ` and matched to ${card.matchedName}` : ""}. Raw PDF text was not stored.`,
+              date: new Date(`${row.date}T00:00:00.000Z`),
+              subject,
+              from,
+            });
+            if (row.confidence < 0.75) {
+              await createReviewItemOnce(currentUser.id, {
+                type: "gmail_statement_spend_review",
+                title: `Review statement spend: ${row.merchant}`,
+                detail: `${row.currency} ${row.amount.toFixed(2)} imported from ${pdf.filename} may need checking.`,
+                priority: "normal",
+                payload: { spendId: spend.id, gmailMessageId: message.id, transactionId, subject, reason: row.reason },
+              });
+              statementReviews += 1;
+            }
+            imported += 1;
+            importedFromStatement += 1;
+            statementTransactions += 1;
+          }
+        }
+        if (importedFromStatement > 0) continue;
+      }
+
+      const existing = await prisma.spend.findUnique({
+        where: { userId_gmailMessageId: { userId: currentUser.id, gmailMessageId: message.id } },
+      });
+      if (existing) {
+        skippedDuplicates += 1;
+        continue;
+      }
+
+      const parsed = await aiExtractSpend({ subject, from, snippet: msg.snippet ?? metadata.snippet ?? "", body: emailBody });
       if (!parsed) {
         filteredOut += 1;
         continue;
@@ -427,23 +768,21 @@ export async function POST(req: Request) {
         continue;
       }
 
-      const spend = await prisma.spend.create({
-        data: {
-          userId: currentUser.id,
-          merchant: parsed.merchant,
-          amount: parsed.amount,
-          currency: parsed.currency,
-          category: "Imported",
-          source: "gmail",
-          emailSubject: STORE_GMAIL_METADATA ? subject : null,
-          emailFrom: STORE_GMAIL_METADATA ? from : null,
-          gmailMessageId: message.id,
-          transactionId: parsed.transactionId,
-          bankAccountId: payment.bankAccountId,
-          creditCardId: payment.creditCardId,
-          notes: `Imported from Gmail${payment.matchedName ? ` and matched to ${payment.matchedName}` : ""}. Transaction ID: ${parsed.transactionId}. Raw email content was not stored.`,
-          date: new Date(Number(msg.internalDate ?? Date.now())),
-        },
+      const spend = await createImportedSpend({
+        userId: currentUser.id,
+        merchant: parsed.merchant,
+        amount: parsed.amount,
+        currency: parsed.currency,
+        category: "Imported",
+        source: "gmail",
+        gmailMessageId: message.id,
+        transactionId: parsed.transactionId,
+        bankAccountId: payment.bankAccountId,
+        creditCardId: payment.creditCardId,
+        notes: `Imported from Gmail${payment.matchedName ? ` and matched to ${payment.matchedName}` : ""}. Transaction ID: ${parsed.transactionId}. Raw email content was not stored.`,
+        date: emailDate,
+        subject,
+        from,
       });
       if (parsed.needsReview) {
         await createReviewItemOnce(currentUser.id, {
@@ -462,6 +801,9 @@ export async function POST(req: Request) {
         scanned,
         fullReads,
         imported,
+        statementPdfs,
+        statementTransactions,
+        statementReviews,
         skippedDuplicates,
         filteredOut,
         limit: MAX_EMAILS_PER_RUN,
@@ -485,14 +827,32 @@ export async function DELETE() {
       return NextResponse.json({ error: "Your session is no longer valid. Please sign in again." }, { status: 401 });
     }
 
-    const deleted = await prisma.spend.deleteMany({
+    const importedSpends = await prisma.spend.findMany({
       where: {
         userId: currentUser.id,
-        source: "gmail",
+        source: { in: ["gmail", "gmail_statement"] },
       },
+      select: { id: true, amount: true, balanceApplied: true, bankAccountId: true, creditCardId: true },
     });
 
-    return NextResponse.json({ deleted: deleted.count });
+    await prisma.$transaction(async (tx) => {
+      for (const spend of importedSpends) {
+        if (spend.balanceApplied && spend.bankAccountId) {
+          await tx.bankAccount.update({ where: { id: spend.bankAccountId }, data: { balance: { increment: spend.amount } } });
+        }
+        if (spend.balanceApplied && spend.creditCardId) {
+          await tx.creditCard.update({ where: { id: spend.creditCardId }, data: { currentDue: { decrement: spend.amount } } });
+        }
+      }
+      await tx.spend.deleteMany({
+        where: {
+          userId: currentUser.id,
+          source: { in: ["gmail", "gmail_statement"] },
+        },
+      });
+    });
+
+    return NextResponse.json({ deleted: importedSpends.length });
   } catch (error: any) {
     return NextResponse.json(
       { error: process.env.NODE_ENV === "production" ? "Could not clear Gmail-imported spends" : error?.message ?? "Could not clear Gmail-imported spends" },

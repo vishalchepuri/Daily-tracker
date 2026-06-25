@@ -1117,7 +1117,12 @@ export default function SpendsPage() {
         return;
       }
       const reviewed = data.summary.filteredOut ?? 0;
-      toast.success(`Imported ${data.summary.imported} spends. ${reviewed ? `${reviewed} skipped or sent to Review. ` : ""}Scanned ${data.summary.scanned} emails.`);
+      const statementText = data.summary.statementTransactions
+        ? ` ${data.summary.statementTransactions} from statements.`
+        : data.summary.statementPdfs
+          ? ` Checked ${data.summary.statementPdfs} statement PDFs.`
+          : "";
+      toast.success(`Imported ${data.summary.imported} spends.${statementText} ${reviewed ? `${reviewed} skipped or sent to Review. ` : ""}Scanned ${data.summary.scanned} emails.`);
       loadData();
       fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
     } catch {

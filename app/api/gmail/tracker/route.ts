@@ -33,11 +33,11 @@ const VALID_GMAIL_CATEGORIES = new Set([
 const categoryRules = [
   {
     category: "bills",
-    keywords: ["bill", "due", "electricity", "current bill", "recharge", "invoice due", "payment reminder", "statement"],
+    keywords: ["bill", "due", "electricity", "current bill", "recharge", "invoice due", "payment reminder", "utility"],
   },
   {
     category: "finance",
-    keywords: ["bank", "upi", "debited", "credited", "payment", "receipt", "card", "account", "inr", "transaction", "refund"],
+    keywords: ["bank", "upi", "debited", "credited", "payment", "receipt", "card", "account", "inr", "transaction", "refund", "statement", "e-statement"],
   },
   {
     category: "orders",
@@ -85,6 +85,10 @@ function extractEmail(value: string) {
   return value.match(/<([^>]+)>/)?.[1] ?? value.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? "";
 }
 
+function senderDomain(value: string) {
+  return extractEmail(value).split("@")[1]?.toLowerCase() ?? "";
+}
+
 function trimText(value: string, max = 220) {
   return value.replace(/\s+/g, " ").trim().slice(0, max);
 }
@@ -95,10 +99,13 @@ function hasAttachments(payload: any): boolean {
   return (payload.parts ?? []).some((part: any) => hasAttachments(part));
 }
 
-function classifyMessage(input: { subject: string; from: string; snippet: string; labelIds: string[] }) {
+function classifyMessage(input: { subject: string; from: string; snippet: string; labelIds: string[]; hasAttachments?: boolean }) {
   const text = `${input.subject} ${input.from} ${input.snippet} ${input.labelIds.join(" ")}`.toLowerCase();
   const matched = categoryRules.find((rule) => rule.keywords.some((keyword) => text.includes(keyword)));
-  const category = matched?.category ?? (text.includes("personal") ? "personal" : "other");
+  const domain = senderDomain(input.from);
+  const category =
+    matched?.category ??
+    (/\b(gmail|yahoo|outlook|hotmail|icloud)\./i.test(domain) ? "personal" : text.includes("personal") ? "personal" : "other");
   const urgentWords = ["due", "overdue", "last date", "action required", "security alert", "failed", "blocked", "expires", "pay by"];
   const lowWords = ["newsletter", "digest", "promotion", "offer", "sale"];
   const importance = urgentWords.some((word) => text.includes(word))
@@ -125,8 +132,10 @@ function normalizeImportance(value: any) {
   return ["high", "medium", "low"].includes(importance) ? importance : "medium";
 }
 
-async function aiClassifyMessages(messages: Array<{ id: string; subject: string; from: string; snippet: string; labelIds: string[] }>) {
-  if (!process.env.ABACUSAI_API_KEY || messages.length === 0) return new Map<string, { category: string; importance: string }>();
+type GmailClassification = { category: string; importance: string; reason?: string; confidence?: number };
+
+async function aiClassifyMessages(messages: Array<{ id: string; subject: string; from: string; snippet: string; labelIds: string[]; hasAttachments?: boolean }>) {
+  if (!process.env.ABACUSAI_API_KEY || messages.length === 0) return new Map<string, GmailClassification>();
   try {
     const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
       method: "POST",
@@ -142,7 +151,7 @@ async function aiClassifyMessages(messages: Array<{ id: string; subject: string;
           {
             role: "system",
             content:
-              "Classify Gmail metadata for a personal life dashboard. Use the subject, sender, snippet, and labels. Do not need full email body. Return ONLY JSON array. Category must be one of: bills, finance, orders, travel, health, work, security, subscriptions, social, updates, personal, other. Importance must be high, medium, or low. High means action is likely needed, due date/security/work/bill/travel change. Low means newsletters/promotions/general updates.",
+              "You are Dayza's Gmail organizer for an Indian personal dashboard. Think about the sender, sender domain, subject intent, Gmail labels, snippet, date, and attachment presence. Return ONLY JSON array. Category must be exactly one of: bills, finance, orders, travel, health, work, security, subscriptions, social, updates, personal, other. Use finance for bank/card statements, debit/credit alerts, UPI, refunds, investment, salary, tax, and wallet emails. Use bills only for payable utilities or due reminders. Use orders for ecommerce/food delivery/shipping. Use security only for login, OTP, password, account safety. Use work for office/task/career/project emails. Use personal for human-to-human messages. Importance must be high, medium, or low. High only when the user likely needs action soon, money/security risk, due dates, travel changes, work deadlines, or failed payments. Low for newsletters, promos, FYI updates. Include a short reason and confidence 0-1.",
           },
           {
             role: "user",
@@ -151,8 +160,10 @@ async function aiClassifyMessages(messages: Array<{ id: string; subject: string;
                 id: message.id,
                 subject: message.subject,
                 from: message.from,
+                senderDomain: senderDomain(message.from),
                 snippet: message.snippet,
                 labels: message.labelIds,
+                hasAttachments: Boolean((message as any).hasAttachments),
               }))
             ),
           },
@@ -163,12 +174,17 @@ async function aiClassifyMessages(messages: Array<{ id: string; subject: string;
     const data = await response.json().catch(() => ({}));
     const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]"));
     if (!Array.isArray(parsed)) return new Map();
-    const entries: Array<[string, { category: string; importance: string }]> = parsed
+    const entries: Array<[string, GmailClassification]> = parsed
         .map((item: any) => [
           String(item?.id ?? ""),
-          { category: normalizeCategory(item?.category), importance: normalizeImportance(item?.importance) },
-        ] as [string, { category: string; importance: string }])
-        .filter(([id]: [string, { category: string; importance: string }]) => Boolean(id));
+          {
+            category: normalizeCategory(item?.category),
+            importance: normalizeImportance(item?.importance),
+            reason: trimText(String(item?.reason ?? ""), 180),
+            confidence: Math.max(0, Math.min(1, Number(item?.confidence ?? 0))),
+          },
+        ] as [string, GmailClassification])
+        .filter(([id]: [string, GmailClassification]) => Boolean(id));
     return new Map(entries);
   } catch {
     return new Map();
@@ -420,7 +436,8 @@ export async function POST(req: Request) {
       const from = trimText(findHeader(metadata.payload?.headers, "from"), 180);
       const labelIds = Array.isArray(metadata.labelIds) ? metadata.labelIds.map(String) : [];
       const snippet = trimText(metadata.snippet ?? "", 260);
-      const fallbackClassification = classifyMessage({ subject, from, snippet, labelIds });
+      const messageHasAttachments = hasAttachments(metadata.payload);
+      const fallbackClassification = classifyMessage({ subject, from, snippet, labelIds, hasAttachments: messageHasAttachments });
       metadataRows.push({
         id: message.id,
         message,
@@ -430,6 +447,7 @@ export async function POST(req: Request) {
         fromEmail: extractEmail(from),
         labelIds,
         snippet,
+        hasAttachments: messageHasAttachments,
         fallbackClassification,
       });
     }
@@ -450,6 +468,8 @@ export async function POST(req: Request) {
         internalDate: row.metadata.internalDate ? Number(row.metadata.internalDate) : Date.now(),
         category: classified.category,
         importance: classified.importance,
+        classificationReason: classified.reason ?? "",
+        classificationConfidence: classified.confidence ?? null,
       });
       syncedItems.push(item);
     }
