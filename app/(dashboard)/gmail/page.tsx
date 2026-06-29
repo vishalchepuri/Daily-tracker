@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   Shield,
+  MessageCircle,
   Tags,
   Trash2,
   WalletCards,
@@ -38,6 +39,8 @@ const categories = [
   { id: "work", label: "Work", icon: BriefcaseBusiness },
   { id: "security", label: "Security", icon: Shield },
   { id: "subscriptions", label: "Subscriptions", icon: CalendarClock },
+  { id: "personal", label: "Personal", icon: MessageCircle },
+  { id: "social", label: "Social", icon: Tags },
   { id: "updates", label: "Updates", icon: Tags },
   { id: "other", label: "Other", icon: Mail },
 ] as const;
@@ -195,7 +198,7 @@ export default function GmailTrackerPage() {
 
   useEffect(() => {
     let cancelled = false;
-    completeGoogleFeatureRedirect()
+    completeGoogleFeatureRedirect(GMAIL_SCOPE)
       .then(async (result) => {
         if (!result || result.scope !== GMAIL_SCOPE || cancelled) return;
         toast.success("Gmail connected");

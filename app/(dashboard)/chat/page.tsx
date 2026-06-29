@@ -9,6 +9,7 @@ import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, Mess
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
+import { DayzaLiveAgent } from "@/components/live/dayza-live-agent";
 
 declare global {
   interface Window {
@@ -568,6 +569,7 @@ export default function ChatPage() {
     { label: "Replace exercise", detail: "Fresh gym-friendly option" },
     { label: "Analyze spending", detail: "Cards, banks, budgets" },
   ];
+  const showLegacyVoicePanel = false;
 
   return (
     <div className="flex h-[calc(100svh_-_7rem_-_env(safe-area-inset-bottom))] min-h-[32rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
@@ -672,7 +674,9 @@ export default function ChatPage() {
         </div>
       </FadeIn>
 
-      {interactionMode && (
+      <DayzaLiveAgent />
+
+      {showLegacyVoicePanel && interactionMode && (
         <div className="mb-3 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-sm">
           <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] sm:p-4">
             <div className="flex min-w-0 items-center gap-3">

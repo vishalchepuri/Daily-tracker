@@ -46,6 +46,8 @@ export async function upsertGmailTrackedMessage(userId: string, messageId: strin
       snippet: input.snippet ?? "",
       category: input.category ?? "other",
       importance: input.importance ?? "medium",
+      classificationReason: input.classificationReason ?? "",
+      classificationConfidence: typeof input.classificationConfidence === "number" ? input.classificationConfidence : null,
       trackingStatus: existing.data()?.trackingStatus ?? input.trackingStatus ?? "new",
       labelIds: Array.isArray(input.labelIds) ? input.labelIds.slice(0, 20) : [],
       hasAttachments: Boolean(input.hasAttachments),
