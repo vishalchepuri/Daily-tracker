@@ -63,6 +63,24 @@ function base64PcmToFloat32(data: string) {
   return output;
 }
 
+async function readSocketMessage(data: MessageEvent["data"]) {
+  if (typeof data === "string") return data;
+  if (data instanceof Blob) return data.text();
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data);
+  if (ArrayBuffer.isView(data)) return new TextDecoder().decode(data);
+  return String(data ?? "");
+}
+
+async function readResponseJson(res: Response) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text.slice(0, 240) };
+  }
+}
+
 function statusLabel(status: LiveStatus) {
   if (status === "starting") return "Starting";
   if (status === "listening") return "Listening";
@@ -83,6 +101,7 @@ export function DayzaLiveAgent() {
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [muted, setMuted] = useState(false);
   const [text, setText] = useState("");
+  const [liveError, setLiveError] = useState("");
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [maxSessionSeconds, setMaxSessionSeconds] = useState(600);
   const [transcript, setTranscript] = useState<TranscriptItem[]>([
@@ -114,6 +133,14 @@ export function DayzaLiveAgent() {
     if (!clean) return;
     setTranscript((items) => [...items.slice(-40), { id: uid(), role, text: clean }]);
   }, []);
+
+  const showLiveError = useCallback((message: string) => {
+    const clean = String(message || "Live Agent had a problem. Use typed chat below.").trim();
+    setLiveError(clean);
+    setStatus("error");
+    toast.error(clean);
+    pushTranscript("system", clean);
+  }, [pushTranscript]);
 
   const updateStreamingTranscript = useCallback((role: "user" | "assistant", nextText: string) => {
     const clean = String(nextText || "").trim();
@@ -250,13 +277,15 @@ export function DayzaLiveAgent() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: call?.name, args: call?.args ?? {} }),
           });
-          const data = await res.json().catch(() => ({}));
+          const data = await readResponseJson(res);
+          if (!res.ok) pushTranscript("tool", `Tool failed: ${data?.error ?? "Could not complete action"}`);
           return {
             id: call?.id,
             name: call?.name,
             response: res.ok ? data?.result ?? { ok: true } : { ok: false, error: data?.error ?? "Tool failed" },
           };
         } catch (error: any) {
+          pushTranscript("tool", `Tool failed: ${error?.message ?? "Could not complete action"}`);
           return {
             id: call?.id,
             name: call?.name,
@@ -270,11 +299,15 @@ export function DayzaLiveAgent() {
   }, [pushTranscript, sendJson]);
 
   const handleLiveMessage = useCallback((message: any) => {
+    if (message?.error) {
+      const detail = message.error?.message || message.error?.status || "Gemini Live returned an error.";
+      showLiveError(`Gemini Live error: ${detail}`);
+      return;
+    }
+
     if (message?.setupComplete) {
       void startMicrophone().catch((error) => {
-        setStatus("error");
-        toast.error(error instanceof Error ? error.message : "Could not start microphone");
-        pushTranscript("system", "Microphone failed. Use the typed chat fallback below.");
+        showLiveError(error instanceof Error ? `Microphone failed: ${error.message}` : "Microphone failed. Use the typed chat fallback below.");
       });
       return;
     }
@@ -316,19 +349,20 @@ export function DayzaLiveAgent() {
       finishStreamingTranscript();
       setStatus("listening");
     }
-  }, [finishStreamingTranscript, handleToolCalls, interruptPlayback, pushTranscript, startMicrophone, updateStreamingTranscript]);
+  }, [finishStreamingTranscript, handleToolCalls, interruptPlayback, pushTranscript, showLiveError, startMicrophone, updateStreamingTranscript]);
 
   const startLive = useCallback(async () => {
     if (status === "starting" || status === "listening" || status === "speaking" || status === "thinking") return;
 
     try {
       setStatus("starting");
+      setLiveError("");
       setTranscript([{ id: uid(), role: "system", text: "Starting secure Live Agent session..." }]);
 
       const tokenRes = await dayzaFetch("/api/live/token", { method: "POST" });
-      const tokenData = (await tokenRes.json().catch(() => ({}))) as Partial<LiveTokenResponse> & { error?: string };
+      const tokenData = (await readResponseJson(tokenRes)) as Partial<LiveTokenResponse> & { error?: string };
       if (!tokenRes.ok || !tokenData.token || !tokenData.setup) {
-        throw new Error(tokenData?.error || "Live Agent is not configured. Use typed chat below.");
+        throw new Error(tokenData?.error ? `Live setup failed: ${tokenData.error}` : "Live setup failed. Use typed chat below.");
       }
 
       await setupPlayback();
@@ -351,33 +385,33 @@ export function DayzaLiveAgent() {
         socket.send(JSON.stringify({ setup: tokenData.setup }));
         pushTranscript("system", `Connected to ${tokenData.model || "Gemini Live"}.`);
       };
-      socket.onmessage = (event) => {
+      socket.onmessage = async (event) => {
         try {
-          handleLiveMessage(JSON.parse(event.data));
+          const messageText = await readSocketMessage(event.data);
+          handleLiveMessage(JSON.parse(messageText));
         } catch (error) {
           console.error("Gemini Live message parse failed", error);
+          showLiveError("Could not read a Gemini Live response. Please end the call and start again.");
         }
       };
       socket.onerror = () => {
-        setStatus("error");
-        toast.error("Live Agent connection failed. Typed chat still works below.");
+        showLiveError("Live Agent connection failed. Typed chat still works below.");
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (!stoppingRef.current && status !== "idle") {
           setStatus("ended");
-          pushTranscript("system", "Live connection closed.");
+          const closeReason = event.reason ? ` Reason: ${event.reason}` : "";
+          pushTranscript("system", `Live connection closed${event.code ? ` (${event.code})` : ""}.${closeReason}`);
         }
       };
     } catch (error) {
-      setStatus("error");
       const message = error instanceof Error ? error.message : "Could not start Live Agent";
-      toast.error(message);
-      pushTranscript("system", message);
+      showLiveError(message);
       micStreamRef.current?.getTracks().forEach((track) => track.stop());
       captureContextRef.current?.close().catch(() => undefined);
       playbackContextRef.current?.close().catch(() => undefined);
     }
-  }, [handleLiveMessage, pushTranscript, setupPlayback, status, stopLive]);
+  }, [handleLiveMessage, pushTranscript, setupPlayback, showLiveError, status, stopLive]);
 
   const sendText = useCallback(() => {
     const clean = text.trim();
@@ -422,6 +456,11 @@ export function DayzaLiveAgent() {
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
           <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
         </div>
+        {liveError && (
+          <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive">
+            {liveError}
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
