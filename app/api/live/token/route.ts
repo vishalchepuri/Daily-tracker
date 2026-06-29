@@ -32,7 +32,7 @@ export async function POST(req: Request) {
     }
 
     if (!process.env.GEMINI_API_KEY) {
-      return NextResponse.json({ error: "Gemini Live is not configured yet. Add GEMINI_API_KEY." }, { status: 503 });
+      return NextResponse.json({ error: "Live Dayza is not configured yet. Add GEMINI_API_KEY." }, { status: 503 });
     }
 
     const model = DAYZA_LIVE_MODEL;

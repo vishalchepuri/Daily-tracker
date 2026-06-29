@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox } from "lucide-react";
+import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox, Loader2 } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [remindersLoading, setRemindersLoading] = useState(true);
   const [waterLoading, setWaterLoading] = useState(true);
   const [waterAdding, setWaterAdding] = useState(false);
+  const [pendingReminderIds, setPendingReminderIds] = useState<Record<string, boolean>>({});
   const [youtubeVideos, setYoutubeVideos] = useState<any[]>([]);
   const [youtubeLoading, setYoutubeLoading] = useState(true);
   const [youtubeNeedsConnection, setYoutubeNeedsConnection] = useState(false);
@@ -147,6 +148,8 @@ export default function DashboardPage() {
   }, []);
 
   const toggleReminder = async (id: string, completed: boolean) => {
+    if (pendingReminderIds[id]) return;
+    setPendingReminderIds((current) => ({ ...current, [id]: true }));
     try {
       const res = await fetch("/api/reminders", {
         method: "PATCH",
@@ -166,6 +169,12 @@ export default function DashboardPage() {
     } catch (err) {
       console.error(err);
       toast.error("Failed to update reminder");
+    } finally {
+      setPendingReminderIds((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
     }
   };
 
@@ -521,10 +530,11 @@ export default function DashboardPage() {
                             <button
                               type="button"
                               onClick={() => toggleReminder(r.id, true)}
-                              className="text-muted-foreground hover:text-primary transition-colors focus:outline-none"
+                              disabled={Boolean(pendingReminderIds[r.id])}
+                              className="text-muted-foreground transition-colors hover:text-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
                               aria-label="Mark reminder completed"
                             >
-                              <Circle className="w-5 h-5" />
+                              {pendingReminderIds[r.id] ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Circle className="h-5 w-5" />}
                             </button>
                             <div className="text-sm">
                               <p className="font-medium text-foreground">{r.title}</p>

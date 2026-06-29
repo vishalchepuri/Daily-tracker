@@ -103,8 +103,8 @@ async function dispatchPush(req: Request) {
       const body = `${prefix}${reminder.title}${listLabel} due ${due}${reminder.notes ? `\n${reminder.notes}` : ""}`;
 
       const result = await sendPushToUser(reminder.userId, {
-        title: isOverdue ? "Dayza overdue task" : "Dayza reminder",
-        body,
+        title: isOverdue ? "Overdue reminder" : "Reminder",
+        body: due === "now" ? reminder.title : `${reminder.title} - ${due}`,
         url: "/reminders",
         tag: `reminder-${reminder.id}`,
         requireInteraction: true,
@@ -136,8 +136,8 @@ async function dispatchPush(req: Request) {
         const alreadyPushedToday = lastPushAt && getZonedDateParts(lastPushAt, timeZone).dateKey === nowZoned.dateKey;
         if (!alreadyPushedToday) {
           const result = await sendPushToUser(medication.userId, {
-            title: "Dayza medication reminder",
-            body: `Take ${medication.name}${medication.dosage ? ` (${medication.dosage})` : ""} at ${medication.timeOfDay}${medication.instructions ? `\n${medication.instructions}` : ""}`,
+            title: "Medication reminder",
+            body: `Take ${medication.name}${medication.dosage ? ` (${medication.dosage})` : ""} - ${medication.timeOfDay}`,
             url: "/medications",
             tag: `medication-${medication.id}-${nowZoned.dateKey}`,
             requireInteraction: true,
@@ -160,8 +160,8 @@ async function dispatchPush(req: Request) {
         const refillCooldownMs = 24 * 60 * 60 * 1000;
         if (!lastRefillPushAt || (now.getTime() - lastRefillPushAt.getTime()) >= refillCooldownMs) {
           const result = await sendPushToUser(medication.userId, {
-            title: "Dayza refill alert",
-            body: `${medication.name} is low on stock${medication.stockCount != null ? ` (${medication.stockCount} left)` : ""}${medication.refillNotes ? `\n${medication.refillNotes}` : ""}`,
+            title: "Refill alert",
+            body: `${medication.name} is low${medication.stockCount != null ? ` - ${medication.stockCount} left` : ""}`,
             url: "/medications",
             tag: `medication-refill-${medication.id}`,
             requireInteraction: true,

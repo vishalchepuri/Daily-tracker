@@ -97,7 +97,9 @@ async function resetFeature(userId: string, feature: ResetFeature): Promise<Reco
 
   if (feature === "agent") {
     const firestoreDeleted = await deleteAllFirestoreChatData(userId);
-    return firestoreDeleted;
+    const scheduledTaskRuns = await prisma.agentScheduledTaskRun.deleteMany({ where: { userId } });
+    const scheduledTasks = await prisma.agentScheduledTask.deleteMany({ where: { userId } });
+    return { ...firestoreDeleted, scheduledTaskRuns: scheduledTaskRuns.count, scheduledTasks: scheduledTasks.count };
   }
 
   if (feature === "reviews") {
