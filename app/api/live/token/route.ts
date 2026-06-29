@@ -7,6 +7,8 @@ import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import {
   DAYZA_LIVE_MAX_SESSION_MINUTES,
   DAYZA_LIVE_MODEL,
+  agentTaskTrainingLiveInstruction,
+  dayzaLiveToolDeclarations,
   dayzaLiveSetup,
 } from "@/lib/dayza-live-config";
 
@@ -35,8 +37,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Live Dayza is not configured yet. Add GEMINI_API_KEY." }, { status: 503 });
     }
 
+    const body = await req.json().catch(() => ({}));
     const model = DAYZA_LIVE_MODEL;
-    const setup = dayzaLiveSetup(model);
+    const setup = body?.mode === "agent-task-training"
+      ? dayzaLiveSetup(model, {
+          systemInstruction: agentTaskTrainingLiveInstruction(body?.taskContext ?? {}),
+          tools: dayzaLiveToolDeclarations.filter((tool) => tool.name === "preview_agent_task_draft"),
+        })
+      : dayzaLiveSetup(model);
     const constrainedLiveConfig = {
       responseModalities: setup.generationConfig.responseModalities,
       systemInstruction: setup.systemInstruction,

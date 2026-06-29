@@ -77,6 +77,7 @@ export async function POST(req: Request) {
       userId: user.id,
       name,
       prompt,
+      trainingNotes: cleanString(data.trainingNotes) || null,
       outputFormat: cleanString(data.outputFormat) || null,
       templateId: cleanString(data.templateId) || null,
       url: cleanUrl(data.url),
@@ -113,6 +114,7 @@ export async function PATCH(req: Request) {
     data: {
       name: "name" in data ? cleanString(data.name, existing.name) || existing.name : existing.name,
       prompt: "prompt" in data ? cleanString(data.prompt, existing.prompt) || existing.prompt : existing.prompt,
+      trainingNotes: "trainingNotes" in data ? cleanString(data.trainingNotes) || null : existing.trainingNotes,
       outputFormat: "outputFormat" in data ? cleanString(data.outputFormat) || null : existing.outputFormat,
       url: "url" in data ? cleanUrl(data.url) : existing.url,
       scheduleType,

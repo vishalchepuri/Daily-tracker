@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { previewAgentTaskDraft } from "@/lib/agent-scheduled-tasks";
 import { createAgentUndoAction } from "@/lib/firestore-app-data";
 import { dateTimeInputToIso, formatAppDateTime, formatLocalDateInput } from "@/lib/local-dates";
 
@@ -304,6 +305,26 @@ async function getProfileContext(userId: string) {
   };
 }
 
+async function previewAgentTask(userId: string, args: any) {
+  const url = trim(args?.url, 1000);
+  const prompt = trim(args?.prompt, 3000);
+  if (!url || !prompt) throw new Error("Task URL and instruction are required.");
+  const result = await previewAgentTaskDraft({
+    userId,
+    name: trim(args?.name || "Agent task preview", 120),
+    url,
+    prompt,
+    trainingNotes: trim(args?.trainingNotes, 5000) || null,
+    outputFormat: trim(args?.outputFormat, 3000) || null,
+  });
+  return {
+    ok: result.ok,
+    status: result.status,
+    title: result.title,
+    summary: result.summary,
+  };
+}
+
 export async function executeDayzaLiveTool(userId: string, name: string, args: any = {}) {
   if (WRITE_TOOLS.has(name) && !args?.confirmed) {
     return confirmationRequired(name, args, name.replace(/_/g, " "));
@@ -332,6 +353,8 @@ export async function executeDayzaLiveTool(userId: string, name: string, args: a
       return logWorkoutNote(userId, args);
     case "get_profile_context":
       return getProfileContext(userId);
+    case "preview_agent_task_draft":
+      return previewAgentTask(userId, args);
     default:
       throw new Error(`Unknown Live Agent tool: ${name}`);
   }

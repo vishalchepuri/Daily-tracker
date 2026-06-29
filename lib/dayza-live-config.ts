@@ -145,9 +145,46 @@ export const dayzaLiveToolDeclarations = [
     description: "Read profile basics and preferences used by Dayza.",
     parameters: { type: "object", properties: {}, required: [] },
   },
+  {
+    name: "preview_agent_task_draft",
+    description: "Run a read-only preview for a scheduled web-check agent task draft before it is saved.",
+    parameters: {
+      type: "object",
+      properties: {
+        name: { type: "string" },
+        url: { type: "string" },
+        prompt: { type: "string" },
+        trainingNotes: { type: "string" },
+        outputFormat: { type: "string" },
+      },
+      required: ["url", "prompt"],
+    },
+  },
 ];
 
-export function dayzaLiveSetup(model = DAYZA_LIVE_MODEL) {
+export function agentTaskTrainingLiveInstruction(taskContext: any = {}) {
+  const context = JSON.stringify({
+    name: taskContext?.name ?? "",
+    url: taskContext?.url ?? "",
+    prompt: taskContext?.prompt ?? "",
+    trainingNotes: taskContext?.trainingNotes ?? "",
+    outputFormat: taskContext?.outputFormat ?? "",
+    scheduleType: taskContext?.scheduleType ?? "",
+    timeOfDay: taskContext?.timeOfDay ?? "",
+  });
+
+  return `
+You are Dayza's real-time voice coach for training one scheduled Agent Task.
+Speak like Gemini Live: brief, natural, and conversational.
+Your job is to help the user refine what the task should check, what it should ignore, and exactly how the output should look.
+If the user asks to test or run the draft, call preview_agent_task_draft with the current name, URL, prompt, trainingNotes, and outputFormat.
+Do not save or schedule anything by voice. Tell the user to use the Save & Schedule button when the preview response is correct.
+When the user says a response is correct, summarize the final instruction, training notes, and expected output clearly so the app can save it.
+Current task draft: ${context}
+`.trim();
+}
+
+export function dayzaLiveSetup(model = DAYZA_LIVE_MODEL, options: { systemInstruction?: string; tools?: any[] } = {}) {
   return {
     model: `models/${model}`,
     generationConfig: {
@@ -162,9 +199,9 @@ export function dayzaLiveSetup(model = DAYZA_LIVE_MODEL) {
       },
     },
     systemInstruction: {
-      parts: [{ text: DAYZA_LIVE_SYSTEM_INSTRUCTION }],
+      parts: [{ text: options.systemInstruction || DAYZA_LIVE_SYSTEM_INSTRUCTION }],
     },
-    tools: [{ functionDeclarations: dayzaLiveToolDeclarations }],
+    tools: [{ functionDeclarations: options.tools || dayzaLiveToolDeclarations }],
     inputAudioTranscription: {},
     outputAudioTranscription: {},
     realtimeInputConfig: {

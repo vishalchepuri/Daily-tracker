@@ -3,6 +3,7 @@ type AgentTaskMemoryInput = {
   taskId: string;
   taskName: string;
   prompt: string;
+  trainingNotes?: string | null;
   url?: string | null;
   runId: string;
   summary: string;
@@ -129,6 +130,7 @@ export async function rememberAgentTaskRun(input: AgentTaskMemoryInput) {
   const text = [
     `Task: ${input.taskName}`,
     `Instruction: ${input.prompt}`,
+    input.trainingNotes ? `Training notes: ${input.trainingNotes}` : "",
     input.url ? `URL: ${input.url}` : "",
     `Result:\n${input.summary}`,
   ].filter(Boolean).join("\n");

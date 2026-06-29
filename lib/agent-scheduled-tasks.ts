@@ -104,12 +104,13 @@ function extractPageContext(html: string) {
   ].filter(Boolean).join("\n\n");
 }
 
-async function summarizeWithAi(input: { taskName: string; prompt: string; outputFormat?: string | null; url: string; title: string; status: number; context: string; memory?: string }) {
+async function summarizeWithAi(input: { taskName: string; prompt: string; trainingNotes?: string | null; outputFormat?: string | null; url: string; title: string; status: number; context: string; memory?: string }) {
   if (!process.env.ABACUSAI_API_KEY || !input.context.trim()) return "";
   const aiPrompt = `You are Dayza Agent running a scheduled web-check task.
 
 Task name: ${input.taskName}
 User instruction: ${input.prompt}
+Task training notes: ${input.trainingNotes || "-"}
 Expected output: ${input.outputFormat || "Concise plain-text summary with important facts and changes."}
 URL: ${input.url}
 HTTP status: ${input.status}
@@ -141,7 +142,7 @@ ${input.context.slice(0, 9000)}`;
   return String(data?.choices?.[0]?.message?.content ?? "").trim();
 }
 
-async function inspectUrl(task: { name: string; prompt: string; outputFormat?: string | null; url: string }, memory?: string) {
+async function inspectUrl(task: { name: string; prompt: string; trainingNotes?: string | null; outputFormat?: string | null; url: string }, memory?: string) {
   const url = task.url;
   const res = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0 Dayza-Agent-Task/1.0" },
@@ -154,6 +155,7 @@ async function inspectUrl(task: { name: string; prompt: string; outputFormat?: s
   const aiSummary = await summarizeWithAi({
     taskName: task.name,
     prompt: task.prompt,
+    trainingNotes: task.trainingNotes,
     outputFormat: task.outputFormat,
     url,
     title,
@@ -174,6 +176,21 @@ async function inspectUrl(task: { name: string; prompt: string; outputFormat?: s
       text ? `Preview: ${text.slice(0, 500)}` : "",
     ].filter(Boolean).join("\n"),
   };
+}
+
+export async function previewAgentTaskDraft(input: { userId: string; name: string; prompt: string; trainingNotes?: string | null; outputFormat?: string | null; url: string }) {
+  const memory = await queryAgentTaskMemory({
+    userId: input.userId,
+    prompt: input.prompt,
+    url: input.url,
+  });
+  return inspectUrl({
+    name: input.name,
+    prompt: input.prompt,
+    trainingNotes: input.trainingNotes,
+    outputFormat: input.outputFormat,
+    url: input.url,
+  }, memory);
 }
 
 export async function runAgentScheduledTask(taskId: string) {
@@ -198,7 +215,7 @@ export async function runAgentScheduledTask(taskId: string) {
         prompt: task.prompt,
         url: task.url,
       });
-      const result = await inspectUrl({ name: task.name, prompt: task.prompt, outputFormat: task.outputFormat, url: task.url }, memory);
+      const result = await inspectUrl({ name: task.name, prompt: task.prompt, trainingNotes: task.trainingNotes, outputFormat: task.outputFormat, url: task.url }, memory);
       summary = `${summary}\n\n${result.summary}`;
       status = result.ok ? "completed" : "warning";
     }
@@ -220,6 +237,7 @@ export async function runAgentScheduledTask(taskId: string) {
       taskId: task.id,
       taskName: task.name,
       prompt: task.prompt,
+      trainingNotes: task.trainingNotes,
       url: task.url,
       runId: updatedRun.id,
       summary,

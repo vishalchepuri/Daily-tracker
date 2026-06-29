@@ -420,6 +420,7 @@ model AgentScheduledTask {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
   prompt      String
+  trainingNotes String?
   outputFormat String?
   templateId  String?
   template    AgentTaskTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
@@ -446,6 +447,7 @@ model AgentTaskTemplate {
   name        String
   description String?
   prompt      String
+  trainingNotes String?
   outputFormat String?
   category    String   @default("general")
   defaultScheduleType String @default("daily")

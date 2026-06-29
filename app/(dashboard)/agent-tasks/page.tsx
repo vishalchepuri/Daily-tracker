@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, CalendarClock, CheckCircle2, Clipboard, ExternalLink, History, Play, Plus, RefreshCw, Share2, Sparkles, Trash2, XCircle } from "lucide-react";
-import Link from "next/link";
+import { Bot, CalendarClock, CheckCircle2, Clipboard, ExternalLink, History, Mic, Play, Plus, RefreshCw, Save, Send, Share2, Sparkles, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,10 +12,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
+import { DayzaLiveAgent } from "@/components/live/dayza-live-agent";
 
 const blankForm = {
   name: "",
   prompt: "",
+  trainingNotes: "",
   outputFormat: "",
   templateId: "",
   url: "",
@@ -27,15 +28,21 @@ const blankForm = {
   notifyOnRun: "true",
 };
 
-const blankTemplateForm = {
+const blankTrainerDraft = {
+  taskId: "",
+  templateId: "",
   name: "",
   description: "",
+  url: "",
   prompt: "",
+  trainingNotes: "",
   outputFormat: "Return a short summary with: new items, changed items, important dates or amounts, and the action I should take.",
   category: "general",
-  defaultScheduleType: "daily",
-  defaultTimeOfDay: "09:00",
-  defaultDaysOfWeek: "mon,tue,wed,thu,fri",
+  scheduleType: "daily",
+  timeOfDay: "09:00",
+  daysOfWeek: "mon,tue,wed,thu,fri",
+  active: "true",
+  notifyOnRun: "true",
 };
 
 const dayOptions = [
@@ -108,11 +115,6 @@ function scheduleLabel(task: any) {
   return `Daily at ${task.timeOfDay || "-"}`;
 }
 
-function improveTaskHref(task: any) {
-  const prompt = `Help me improve this scheduled agent task so it extracts the right data without site-specific hardcoding.\n\nTask: ${task.name}\nInstruction: ${task.prompt}\nURL: ${task.url || "-"}\nSchedule: ${scheduleLabel(task)}\n\nAsk me any needed questions, then suggest a clearer task instruction.`;
-  return `/chat?from=/agent-tasks&prompt=${encodeURIComponent(prompt)}`;
-}
-
 export default function AgentTasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -120,13 +122,16 @@ export default function AgentTasksPage() {
   const [vectorMemoryInfo, setVectorMemoryInfo] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [savingTemplate, setSavingTemplate] = useState<string | null>(null);
+  const [trainerBusy, setTrainerBusy] = useState<string | null>(null);
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
+  const [trainerOpen, setTrainerOpen] = useState(false);
   const [logTask, setLogTask] = useState<any>(null);
   const [form, setForm] = useState(blankForm);
-  const [templateForm, setTemplateForm] = useState(blankTemplateForm);
+  const [trainerDraft, setTrainerDraft] = useState(blankTrainerDraft);
+  const [trainerInput, setTrainerInput] = useState("");
+  const [trainerReady, setTrainerReady] = useState(false);
+  const [trainerMessages, setTrainerMessages] = useState<Array<{ role: "user" | "assistant" | "system"; text: string }>>([]);
 
   const activeCount = useMemo(() => tasks.filter((task) => task.active).length, [tasks]);
   const upcomingTasks = useMemo(() => (
@@ -135,7 +140,18 @@ export default function AgentTasksPage() {
       .sort((a, b) => new Date(a.nextRunAt).getTime() - new Date(b.nextRunAt).getTime())
       .slice(0, 5)
   ), [tasks]);
-  const approvedTemplates = useMemo(() => templates.filter((template) => template.status === "approved" || template.status === "private"), [templates]);
+  const trainerLivePayload = useMemo(() => ({
+    mode: "agent-task-training",
+    taskContext: {
+      name: trainerDraft.name,
+      url: trainerDraft.url,
+      prompt: trainerDraft.prompt,
+      trainingNotes: trainerDraft.trainingNotes,
+      outputFormat: trainerDraft.outputFormat,
+      scheduleType: trainerDraft.scheduleType,
+      timeOfDay: trainerDraft.timeOfDay,
+    },
+  }), [trainerDraft]);
 
   const loadTasks = async () => {
     setLoading(true);
@@ -201,18 +217,161 @@ export default function AgentTasksPage() {
     }
   };
 
-  const saveTemplate = async (share: boolean) => {
-    if (!templateForm.name.trim() || !templateForm.prompt.trim()) {
-      toast.error("Template name and training details are required");
+  const openTrainer = (seed?: any) => {
+    const fromTemplate = Boolean(seed && !seed.runs && (seed.defaultScheduleType || seed.status));
+    const draft = {
+      ...blankTrainerDraft,
+      taskId: seed?.runs ? seed.id ?? "" : "",
+      templateId: seed && !seed.runs ? seed.id ?? "" : seed?.templateId ?? "",
+      name: seed?.name ?? "",
+      description: seed?.description ?? "",
+      url: seed?.url ?? "",
+      prompt: seed?.prompt ?? "",
+      trainingNotes: seed?.trainingNotes ?? "",
+      outputFormat: seed?.outputFormat ?? blankTrainerDraft.outputFormat,
+      category: seed?.category ?? "general",
+      scheduleType: seed?.scheduleType ?? seed?.defaultScheduleType ?? "daily",
+      timeOfDay: seed?.timeOfDay ?? seed?.defaultTimeOfDay ?? "09:00",
+      daysOfWeek: seed?.daysOfWeek ?? seed?.defaultDaysOfWeek ?? "mon,tue,wed,thu,fri",
+      active: String(seed?.active ?? true),
+      notifyOnRun: String(seed?.notifyOnRun ?? true),
+    };
+    setTrainerDraft(draft);
+    setTrainerReady(Boolean(draft.name && draft.url && draft.prompt && draft.outputFormat));
+    setTrainerMessages([
+      {
+        role: "assistant",
+        text: fromTemplate
+          ? "I loaded this trained template. Add the link, run a preview, then save it as a scheduled task."
+          : seed?.runs
+            ? "I loaded this saved task. We can refine it, preview the response, then update the schedule."
+            : "Tell me what this agent task should check, what a good response looks like, and what it should ignore.",
+      },
+    ]);
+    setTrainerInput("");
+    setTrainerOpen(true);
+  };
+
+  const useTemplate = (template: any) => {
+    openTrainer(template);
+  };
+
+  const sendTrainerMessage = async () => {
+    const message = trainerInput.trim();
+    if (!message) return;
+    const nextMessages = [...trainerMessages, { role: "user" as const, text: message }];
+    setTrainerMessages(nextMessages);
+    setTrainerInput("");
+    setTrainerBusy("chat");
+    try {
+      const res = await fetch("/api/agent-task-training", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "chat", draft: trainerDraft, messages: nextMessages, message }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Trainer failed");
+        return;
+      }
+      if (data?.draft) setTrainerDraft({ ...trainerDraft, ...data.draft });
+      setTrainerReady(Boolean(data?.readyToSave));
+      setTrainerMessages((items) => [...items, { role: "assistant", text: data?.assistantMessage ?? "I updated the task draft." }]);
+    } catch {
+      toast.error("Trainer failed");
+    } finally {
+      setTrainerBusy(null);
+    }
+  };
+
+  const runTrainerPreview = async () => {
+    if (!trainerDraft.url.trim() || !trainerDraft.prompt.trim()) {
+      toast.error("Add a link and task instruction first");
       return;
     }
-    setSavingTemplate(share ? "share" : "private");
+    setTrainerBusy("run");
+    try {
+      const res = await fetch("/api/agent-task-training", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run", draft: trainerDraft, messages: trainerMessages }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Preview failed");
+        return;
+      }
+      setTrainerReady(Boolean(data?.readyToSave));
+      setTrainerMessages((items) => [...items, { role: "assistant", text: data?.assistantMessage ?? "Preview finished." }]);
+    } catch {
+      toast.error("Preview failed");
+    } finally {
+      setTrainerBusy(null);
+    }
+  };
+
+  const saveTrainerTask = async () => {
+    if (!trainerDraft.name.trim() || !trainerDraft.prompt.trim() || !trainerDraft.url.trim()) {
+      toast.error("Name, instruction, and link are required");
+      return;
+    }
+    setTrainerBusy("task");
+    try {
+      const payload = {
+        id: trainerDraft.taskId || undefined,
+        name: trainerDraft.name,
+        prompt: trainerDraft.prompt,
+        trainingNotes: trainerDraft.trainingNotes,
+        outputFormat: trainerDraft.outputFormat,
+        templateId: trainerDraft.templateId || undefined,
+        url: trainerDraft.url,
+        scheduleType: trainerDraft.scheduleType,
+        timeOfDay: trainerDraft.timeOfDay,
+        daysOfWeek: trainerDraft.daysOfWeek,
+        active: trainerDraft.active === "true",
+        notifyOnRun: trainerDraft.notifyOnRun === "true",
+      };
+      const res = await fetch("/api/agent-tasks", {
+        method: trainerDraft.taskId ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save task");
+        return;
+      }
+      toast.success(trainerDraft.taskId ? "Agent task updated" : "Agent task saved and scheduled");
+      setTrainerOpen(false);
+      setTrainerDraft(blankTrainerDraft);
+      loadTasks();
+    } catch {
+      toast.error("Failed to save task");
+    } finally {
+      setTrainerBusy(null);
+    }
+  };
+
+  const saveTrainerTemplate = async (share: boolean) => {
+    if (!trainerDraft.name.trim() || !trainerDraft.prompt.trim()) {
+      toast.error("Template name and instruction are required");
+      return;
+    }
+    setTrainerBusy(share ? "share" : "template");
     try {
       const res = await fetch("/api/agent-task-templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...templateForm,
+          name: trainerDraft.name,
+          description: trainerDraft.description,
+          prompt: trainerDraft.prompt,
+          trainingNotes: trainerDraft.trainingNotes,
+          outputFormat: trainerDraft.outputFormat,
+          category: trainerDraft.category,
+          defaultScheduleType: trainerDraft.scheduleType,
+          defaultTimeOfDay: trainerDraft.timeOfDay,
+          defaultDaysOfWeek: trainerDraft.daysOfWeek,
           shared: share,
         }),
       });
@@ -222,30 +381,13 @@ export default function AgentTasksPage() {
         return;
       }
       toast.success(share ? "Template sent for admin approval" : "Template saved");
-      setTemplateForm(blankTemplateForm);
-      setTemplateDialogOpen(false);
+      setTrainerDraft({ ...trainerDraft, templateId: data?.template?.id ?? trainerDraft.templateId });
       loadTemplates();
     } catch {
       toast.error("Failed to save template");
     } finally {
-      setSavingTemplate(null);
+      setTrainerBusy(null);
     }
-  };
-
-  const useTemplate = (template: any) => {
-    setForm({
-      ...blankForm,
-      name: template.name ?? "",
-      prompt: template.prompt ?? "",
-      outputFormat: template.outputFormat ?? "",
-      templateId: template.id ?? "",
-      scheduleType: template.defaultScheduleType ?? "daily",
-      timeOfDay: template.defaultTimeOfDay ?? "09:00",
-      daysOfWeek: template.defaultDaysOfWeek ?? "mon,tue,wed,thu,fri",
-      active: "true",
-      notifyOnRun: "true",
-    });
-    setDialogOpen(true);
   };
 
   const toggleTask = async (task: any) => {
@@ -298,14 +440,10 @@ export default function AgentTasksPage() {
   };
 
   const applyTemplate = (template: typeof taskTemplates[number]) => {
-    setForm({
-      ...blankForm,
+    openTrainer({
       ...template,
       outputFormat: "Return new, changed, or important items only. Include names, dates, amounts, and action needed.",
-      active: "true",
-      notifyOnRun: "true",
     });
-    setDialogOpen(true);
   };
 
   const copyText = async (value: string, label: string) => {
@@ -326,62 +464,10 @@ export default function AgentTasksPage() {
               <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
-              <DialogTrigger asChild>
-                <Button type="button" variant="outline"><Sparkles className="mr-2 h-4 w-4" />Train</Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[90svh] max-w-xl overflow-y-auto">
-                <DialogHeader><DialogTitle>Train Agent Task Template</DialogTitle></DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label>Template name</Label>
-                    <Input value={templateForm.name} onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })} className="mt-1" placeholder="Daily IPO change check" />
-                  </div>
-                  <div>
-                    <Label>What should the agent do?</Label>
-                    <Textarea value={templateForm.prompt} onChange={(e) => setTemplateForm({ ...templateForm, prompt: e.target.value })} className="mt-1 min-h-28" placeholder="Check the page and identify newly listed IPOs, GMP changes, subscription changes, dates, and anything important." />
-                  </div>
-                  <div>
-                    <Label>Expected output</Label>
-                    <Textarea value={templateForm.outputFormat} onChange={(e) => setTemplateForm({ ...templateForm, outputFormat: e.target.value })} className="mt-1 min-h-24" placeholder="Return bullet points grouped as New, Changed, Important, Action needed." />
-                  </div>
-                  <div>
-                    <Label>Description</Label>
-                    <Input value={templateForm.description} onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })} className="mt-1" placeholder="Reusable IPO monitor template" />
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    <div>
-                      <Label>Default schedule</Label>
-                      <Select value={templateForm.defaultScheduleType} onValueChange={(value) => setTemplateForm({ ...templateForm, defaultScheduleType: value })}>
-                        <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="daily">Daily</SelectItem>
-                          <SelectItem value="weekly">Weekly</SelectItem>
-                          <SelectItem value="manual">Manual only</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Default time</Label>
-                      <Input type="time" value={templateForm.defaultTimeOfDay} onChange={(e) => setTemplateForm({ ...templateForm, defaultTimeOfDay: e.target.value })} className="mt-1" disabled={templateForm.defaultScheduleType === "manual"} />
-                    </div>
-                    <div>
-                      <Label>Category</Label>
-                      <Input value={templateForm.category} onChange={(e) => setTemplateForm({ ...templateForm, category: e.target.value })} className="mt-1" placeholder="ipo" />
-                    </div>
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <Button type="button" onClick={() => saveTemplate(false)} loading={savingTemplate === "private"} disabled={Boolean(savingTemplate)}>
-                      Save Private Template
-                    </Button>
-                    <Button type="button" variant="outline" onClick={() => saveTemplate(true)} loading={savingTemplate === "share"} disabled={Boolean(savingTemplate)}>
-                      <Share2 className="mr-2 h-4 w-4" />
-                      Share for Approval
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button type="button" variant="outline" onClick={() => openTrainer()}>
+              <Sparkles className="mr-2 h-4 w-4" />
+              Train
+            </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
                 <Button type="button"><Plus className="mr-2 h-4 w-4" />Task</Button>
@@ -396,6 +482,10 @@ export default function AgentTasksPage() {
                   <div>
                     <Label>Task details</Label>
                     <Textarea value={form.prompt} onChange={(e) => setForm({ ...form, prompt: e.target.value })} className="mt-1" placeholder="Check this page for new IPO listings and tell me what changed." />
+                  </div>
+                  <div>
+                    <Label>Training notes</Label>
+                    <Textarea value={form.trainingNotes} onChange={(e) => setForm({ ...form, trainingNotes: e.target.value })} className="mt-1" placeholder="Fields to focus on, things to ignore, and examples of a good response." />
                   </div>
                   <div>
                     <Label>Expected output</Label>
@@ -648,10 +738,8 @@ export default function AgentTasksPage() {
                   <Button type="button" variant="outline" size="sm" onClick={() => setLogTask(task)}>
                     <History className="h-4 w-4" />
                   </Button>
-                  <Button asChild type="button" variant="outline" size="sm">
-                    <Link href={improveTaskHref(task)}>
-                      <Bot className="h-4 w-4" />
-                    </Link>
+                  <Button type="button" variant="outline" size="sm" onClick={() => openTrainer(task)}>
+                    <Bot className="h-4 w-4" />
                   </Button>
                   <Button type="button" variant="outline" size="sm" onClick={() => deleteTask(task)} className="hover:text-destructive">
                     <Trash2 className="h-4 w-4" />
@@ -683,6 +771,168 @@ export default function AgentTasksPage() {
           </Card>
         ))}
       </div>
+
+      <Dialog open={trainerOpen} onOpenChange={setTrainerOpen}>
+        <DialogContent className="h-[94svh] max-w-[min(72rem,calc(100vw-1rem))] overflow-hidden p-0">
+          <DialogHeader className="border-b border-border px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <DialogTitle className="flex items-center gap-2">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  Agent Studio
+                </DialogTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Train, preview, and save one scheduled task.</p>
+              </div>
+              <Badge variant={trainerReady ? "secondary" : "outline"}>{trainerReady ? "Ready" : "Draft"}</Badge>
+            </div>
+          </DialogHeader>
+
+          <div className="grid h-[calc(94svh-4.5rem)] min-h-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)]">
+            <div className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
+              <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
+                <DayzaLiveAgent
+                  compact
+                  title="Task Voice Coach"
+                  subtitle="Talk through this task, test a draft by voice, then save when the preview is right."
+                  initialSystemMessage="Start Live and explain how this task should behave."
+                  tokenPayload={trainerLivePayload}
+                  className="mb-0"
+                />
+
+                <div className="overflow-hidden rounded-2xl border border-border bg-background/60">
+                  <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                    <div className="flex items-center gap-2 text-sm font-semibold">
+                      <Bot className="h-4 w-4 text-primary" />
+                      Task Chat
+                    </div>
+                    <Button type="button" size="sm" variant="outline" onClick={runTrainerPreview} loading={trainerBusy === "run"} disabled={Boolean(trainerBusy)}>
+                      <Play className="mr-2 h-4 w-4" />
+                      Run
+                    </Button>
+                  </div>
+                  <div className="max-h-72 space-y-2 overflow-y-auto p-3">
+                    {trainerMessages.map((message, index) => (
+                      <div
+                        key={`${message.role}-${index}`}
+                        className={`whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+                          message.role === "user"
+                            ? "ml-auto max-w-[88%] bg-primary text-primary-foreground"
+                            : message.role === "assistant"
+                              ? "max-w-[92%] bg-muted text-foreground"
+                              : "max-w-[92%] border border-border text-muted-foreground"
+                        }`}
+                      >
+                        {message.text}
+                      </div>
+                    ))}
+                  </div>
+                  <form
+                    className="grid grid-cols-[minmax(0,1fr)_2.75rem] gap-2 border-t border-border p-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      sendTrainerMessage();
+                    }}
+                  >
+                    <Input
+                      value={trainerInput}
+                      onChange={(event) => setTrainerInput(event.target.value)}
+                      placeholder="Tell the agent what to improve..."
+                      className="h-11 rounded-xl"
+                    />
+                    <Button type="submit" className="h-11 rounded-xl px-0" disabled={!trainerInput.trim() || Boolean(trainerBusy)} loading={trainerBusy === "chat"}>
+                      <Send className="h-4 w-4" />
+                    </Button>
+                  </form>
+                </div>
+              </div>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-3 sm:p-4">
+              <div className="space-y-4">
+                <div>
+                  <Label>Task name</Label>
+                  <Input value={trainerDraft.name} onChange={(e) => setTrainerDraft({ ...trainerDraft, name: e.target.value })} className="mt-1" placeholder="Daily IPO check" />
+                </div>
+                <div>
+                  <Label>Link</Label>
+                  <Input value={trainerDraft.url} onChange={(e) => setTrainerDraft({ ...trainerDraft, url: e.target.value })} className="mt-1" placeholder="https://example.com/page" />
+                </div>
+                <div>
+                  <Label>Task instruction</Label>
+                  <Textarea value={trainerDraft.prompt} onChange={(e) => setTrainerDraft({ ...trainerDraft, prompt: e.target.value })} className="mt-1 min-h-24" placeholder="What should the agent check every time?" />
+                </div>
+                <div>
+                  <Label>Training notes</Label>
+                  <Textarea value={trainerDraft.trainingNotes} onChange={(e) => setTrainerDraft({ ...trainerDraft, trainingNotes: e.target.value })} className="mt-1 min-h-28" placeholder="Rules, examples, things to ignore, and how to decide what changed." />
+                </div>
+                <div>
+                  <Label>Expected output</Label>
+                  <Textarea value={trainerDraft.outputFormat} onChange={(e) => setTrainerDraft({ ...trainerDraft, outputFormat: e.target.value })} className="mt-1 min-h-24" placeholder="How should the final response look?" />
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <Label>Schedule</Label>
+                    <Select value={trainerDraft.scheduleType} onValueChange={(value) => setTrainerDraft({ ...trainerDraft, scheduleType: value })}>
+                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="daily">Daily</SelectItem>
+                        <SelectItem value="weekly">Weekly</SelectItem>
+                        <SelectItem value="manual">Manual only</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Time</Label>
+                    <Input type="time" value={trainerDraft.timeOfDay} onChange={(e) => setTrainerDraft({ ...trainerDraft, timeOfDay: e.target.value })} className="mt-1" disabled={trainerDraft.scheduleType === "manual"} />
+                  </div>
+                  <div>
+                    <Label>Category</Label>
+                    <Input value={trainerDraft.category} onChange={(e) => setTrainerDraft({ ...trainerDraft, category: e.target.value })} className="mt-1" placeholder="ipo" />
+                  </div>
+                </div>
+                {trainerDraft.scheduleType === "weekly" && (
+                  <div>
+                    <Label>Days</Label>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {dayOptions.map(([value, label]) => (
+                        <Button key={value} type="button" size="sm" variant={trainerDraft.daysOfWeek.split(",").includes(value) ? "default" : "outline"} onClick={() => {
+                          const selected = new Set(trainerDraft.daysOfWeek.split(",").filter(Boolean));
+                          if (selected.has(value)) selected.delete(value);
+                          else selected.add(value);
+                          setTrainerDraft({ ...trainerDraft, daysOfWeek: Array.from(selected).join(",") });
+                        }}>
+                          {label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Button type="button" onClick={runTrainerPreview} variant="outline" loading={trainerBusy === "run"} disabled={Boolean(trainerBusy)}>
+                    <Play className="mr-2 h-4 w-4" />
+                    Run Preview
+                  </Button>
+                  <Button type="button" onClick={saveTrainerTask} loading={trainerBusy === "task"} disabled={Boolean(trainerBusy)}>
+                    <Save className="mr-2 h-4 w-4" />
+                    Save & Schedule
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => saveTrainerTemplate(false)} loading={trainerBusy === "template"} disabled={Boolean(trainerBusy)}>
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Save Template
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => saveTrainerTemplate(true)} loading={trainerBusy === "share"} disabled={Boolean(trainerBusy)}>
+                    <Share2 className="mr-2 h-4 w-4" />
+                    Share
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(logTask)} onOpenChange={(open) => !open && setLogTask(null)}>
         <DialogContent className="max-h-[90svh] max-w-3xl overflow-y-auto">
