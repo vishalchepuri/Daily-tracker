@@ -30,6 +30,8 @@ model User {
   moneyLinks    MoneyLink[]
   reminderLists ReminderList[]
   reminders     Reminder[]
+  agentScheduledTasks AgentScheduledTask[]
+  agentScheduledTaskRuns AgentScheduledTaskRun[]
   webPushSubscriptions WebPushSubscription[]
   pushNotificationLogs PushNotificationLog[]
   medications   Medication[]
@@ -385,6 +387,45 @@ model Reminder {
   @@index([userId, dueDate])
   @@index([userId, completed])
   @@index([userId, contextTag, completed])
+}
+
+model AgentScheduledTask {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  prompt      String
+  url         String?
+  scheduleType String  @default("daily")
+  timeOfDay   String?
+  daysOfWeek  String?
+  active      Boolean  @default(true)
+  notifyOnRun Boolean  @default(true)
+  nextRunAt   DateTime?
+  lastRunAt   DateTime?
+  lastStatus  String?
+  lastSummary String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  runs         AgentScheduledTaskRun[]
+  @@index([userId, active, nextRunAt])
+  @@index([nextRunAt, active])
+}
+
+model AgentScheduledTaskRun {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId    String
+  task      AgentScheduledTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status    String
+  summary   String?
+  error     String?
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([taskId, createdAt])
 }
 
 model WebPushSubscription {

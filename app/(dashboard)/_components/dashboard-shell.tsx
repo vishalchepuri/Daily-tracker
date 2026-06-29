@@ -1,12 +1,12 @@
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
-  Mail, Mic, Video,
+  Mail, PhoneCall, CalendarClock, Settings, Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,7 @@ const navItems = [
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "Gmail", href: "/gmail", icon: Mail },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
+  { label: "Agent Tasks", href: "/agent-tasks", icon: CalendarClock },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
   { label: "Profile", href: "/profile", icon: UserCircle },
@@ -35,11 +36,14 @@ const adminNavItem = { label: "Admin", href: "/admin", icon: Shield };
 
 const mobileNavItems = [
   { label: "Today", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Agent", href: "/chat", icon: Bot, agent: true },
+  { label: "Agent", href: "/chat", icon: MessageSquare, agent: true },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
+
+const mobileNavStorageKey = "dayza-mobile-nav-v1";
+const defaultMobileNavHrefs = mobileNavItems.map((item) => item.href);
 
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
   "/dashboard": {
@@ -98,6 +102,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Turn long videos into a quick reading list.",
     ],
   },
+  "/agent-tasks": {
+    label: "Agent Tasks",
+    suggestions: [
+      "Schedule daily link checks, IPO watches, or recurring research tasks.",
+      "Run a saved task manually and review the latest status.",
+      "Turn repeated checks into push notifications.",
+    ],
+  },
   "/workouts": {
     label: "Workouts",
     suggestions: [
@@ -146,6 +158,9 @@ function isProfileComplete(profile: any) {
 export function DashboardShell({ children, user, initialProfile, isAdmin = false }: { children: React.ReactNode; user: any; initialProfile?: any; isAdmin?: boolean }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [coachOpen, setCoachOpen] = useState(false);
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileNavHrefs, setMobileNavHrefs] = useState<string[]>(defaultMobileNavHrefs);
   const [profileComplete, setProfileComplete] = useState(isProfileComplete(initialProfile));
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -156,13 +171,31 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     gender: initialProfile?.gender ?? "male",
   });
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
   const mainRef = useRef<HTMLElement | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [isRoutePending, startRouteTransition] = useTransition();
   const currentFeature = getFeatureHelp(pathname);
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
+  const mobileNavOptions = useMemo(() => {
+    const agentItem = mobileNavItems.find((item) => item.agent)!;
+    const standardItems = visibleNavItems.map((item) => ({
+      label: item.label === "Dashboard" ? "Today" : item.label,
+      href: item.href,
+      icon: item.icon,
+    }));
+    return [agentItem, ...standardItems].filter((item, index, items) => items.findIndex((candidate) => candidate.href === item.href) === index);
+  }, [visibleNavItems]);
+  const selectedMobileNavItems = useMemo(() => {
+    const selected = mobileNavHrefs
+      .map((href) => mobileNavOptions.find((item) => item.href === href))
+      .filter(Boolean) as typeof mobileNavOptions;
+    return selected.length > 0 ? selected.slice(0, 5) : mobileNavItems;
+  }, [mobileNavHrefs, mobileNavOptions]);
   const chatHref = `/chat?from=${encodeURIComponent(pathname || "/dashboard")}`;
+  const chatPanelHref = `${chatHref}&embed=1`;
+  const isEmbeddedChat = pathname === "/chat" && searchParams.get("embed") === "1";
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
@@ -174,10 +207,41 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     }).catch(() => null);
   }, [router]);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(mobileNavStorageKey);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((href) => typeof href === "string").slice(0, 5);
+        if (valid.length > 0) setMobileNavHrefs(valid);
+      }
+    } catch {
+      setMobileNavHrefs(defaultMobileNavHrefs);
+    }
+  }, []);
+
   const goToFeature = (href: string) => {
     setSidebarOpen(false);
+    setAgentPanelOpen(false);
     router.prefetch(href);
     startRouteTransition(() => router.push(href));
+  };
+
+  const toggleMobileNavHref = (href: string) => {
+    setMobileNavHrefs((current) => {
+      const exists = current.includes(href);
+      const next = exists ? current.filter((item) => item !== href) : current.length < 5 ? [...current, href] : current;
+      if (!exists && current.length >= 5) {
+        toast.error("Choose up to 5 bottom icons");
+        return current;
+      }
+      if (exists && current.length <= 1) {
+        toast.error("Keep at least 1 bottom icon");
+        return current;
+      }
+      window.localStorage.setItem(mobileNavStorageKey, JSON.stringify(next));
+      return next;
+    });
   };
 
   const saveProfile = async () => {
@@ -218,6 +282,14 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       setSavingProfile(false);
     }
   };
+
+  if (isEmbeddedChat) {
+    return (
+      <main className="h-dvh overflow-hidden bg-background text-foreground">
+        {children}
+      </main>
+    );
+  }
 
   return (
     <div className="app-viewport flex overflow-hidden bg-background">
@@ -374,6 +446,14 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           <h1 className="min-w-0 truncate font-display text-base font-semibold tracking-tight sm:text-lg">
             {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
           </h1>
+          <button
+            type="button"
+            className="ml-auto rounded-md p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground lg:hidden"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Customize bottom navigation"
+          >
+            <Settings className="h-5 w-5" />
+          </button>
         </header>
 
         <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10">
@@ -392,41 +472,66 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         </main>
       </div>
 
+      <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <DialogContent className="max-w-[calc(100vw-1.5rem)] rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bottom icons</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Choose up to 5 shortcuts for the mobile bottom bar.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {mobileNavOptions.map((item) => {
+                const selected = mobileNavHrefs.includes(item.href);
+                return (
+                  <button
+                    key={item.href}
+                    type="button"
+                    onClick={() => toggleMobileNavHref(item.href)}
+                    className={cn(
+                      "flex min-h-12 items-center gap-3 rounded-xl border px-3 text-left text-sm font-semibold transition active:scale-[0.98]",
+                      selected ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-background/60 text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {selected && <Check className="h-4 w-4 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">{selectedMobileNavItems.length} / 5 selected</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMobileNavHrefs(defaultMobileNavHrefs);
+                  window.localStorage.setItem(mobileNavStorageKey, JSON.stringify(defaultMobileNavHrefs));
+                }}
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-2 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden">
-        <div className="grid grid-cols-5 gap-1">
-          {mobileNavItems.map((item: any) => {
+        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.min(5, Math.max(1, selectedMobileNavItems.length))}, minmax(0, 1fr))` }}>
+          {selectedMobileNavItems.map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
-            const targetHref = item.agent ? `${chatHref}&mode=voice` : item.href;
             return (
               <button
                 key={item.href}
                 type="button"
-                onClick={() => goToFeature(targetHref)}
+                onClick={() => item.agent ? setAgentPanelOpen(true) : goToFeature(item.href)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
-                  isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
+                  (isActive || (item.agent && agentPanelOpen)) ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
                 )}
               >
-                {item.agent ? (
-                  <span
-                    className={cn(
-                      "relative flex h-7 w-9 items-center justify-center rounded-full border transition-colors",
-                      isActive
-                        ? "border-primary/40 bg-primary/15 text-primary"
-                        : "border-border/80 bg-background/70 text-muted-foreground"
-                    )}
-                  >
-                    <Bot className="h-4 w-4" />
-                    <span className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-card bg-emerald-500 text-white shadow-sm">
-                      <Mic className="h-2.5 w-2.5" />
-                    </span>
-                    <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-card bg-sky-500 text-white shadow-sm">
-                      <Video className="h-2.5 w-2.5" />
-                    </span>
-                  </span>
-                ) : (
-                  <item.icon className="h-5 w-5 shrink-0" />
-                )}
+                <item.icon className="h-5 w-5 shrink-0" />
                 <span className="max-w-full truncate">{item.label}</span>
               </button>
             );
@@ -441,6 +546,39 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       )}
 
       <GlobalQuickAdd hidden={pathname === "/chat" || !profileComplete} />
+
+      {agentPanelOpen && pathname !== "/chat" && (
+        <div className="fixed inset-0 z-50 bg-background/70 backdrop-blur-sm lg:pointer-events-none lg:bg-transparent lg:backdrop-blur-none" onClick={() => setAgentPanelOpen(false)}>
+          <section
+            className="fixed bottom-[calc(5.6rem+env(safe-area-inset-bottom))] right-3 top-16 z-50 flex w-[min(calc(100vw-1.5rem),27rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:pointer-events-auto lg:bottom-4 lg:right-4 lg:top-auto lg:h-[min(82dvh,44rem)]"
+            onClick={(event) => event.stopPropagation()}
+            aria-label="Dayza live chat"
+          >
+            <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <MessageSquare className="h-5 w-5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">Dayza Agent</p>
+                <p className="truncate text-xs text-muted-foreground">Live chat</p>
+              </div>
+              <Button asChild size="icon" variant="outline" className="h-9 w-9" title="Open voice chat">
+                <Link href={`${chatHref}&mode=voice`} onClick={() => setAgentPanelOpen(false)}>
+                  <PhoneCall className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Button type="button" size="icon" variant="ghost" className="h-9 w-9" onClick={() => setAgentPanelOpen(false)} aria-label="Close chat">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <iframe
+              src={chatPanelHref}
+              title="Dayza Agent live chat"
+              className="min-h-0 flex-1 border-0 bg-background"
+            />
+          </section>
+        </div>
+      )}
 
       {pathname !== "/chat" && (
       <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
@@ -471,21 +609,24 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                 </li>
               ))}
             </ul>
-            <Button asChild className="mt-4 w-full">
-              <Link href={chatHref} onClick={() => setCoachOpen(false)}>
+            <Button className="mt-4 w-full" onClick={() => {
+              setCoachOpen(false);
+              setAgentPanelOpen(true);
+            }}>
                 Open Dayza Agent
-              </Link>
             </Button>
           </div>
         )}
         <Button
-          asChild
           size="icon"
           className="h-12 w-12 rounded-full shadow-lg"
+          onClick={() => {
+            setCoachOpen(false);
+            setAgentPanelOpen(true);
+          }}
+          aria-label="Open Dayza Agent"
         >
-          <Link href={chatHref} aria-label="Open Dayza Agent">
-            <MessageSquare className="h-5 w-5" />
-          </Link>
+          <MessageSquare className="h-5 w-5" />
         </Button>
       </div>
       )}

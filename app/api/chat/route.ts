@@ -683,6 +683,39 @@ async function findReminderForCompletion(userId: string, action: Extract<AgentAc
   });
 }
 
+function reminderDayBounds(date: Date) {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(date);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
+}
+
+async function findDuplicateReminder(userId: string, title: string, dueDate: Date | null, listId?: string | null) {
+  const trimmedTitle = title.trim();
+  if (!trimmedTitle) return null;
+
+  const where: any = {
+    userId,
+    completed: false,
+    title: { equals: trimmedTitle, mode: "insensitive" },
+    ...(listId ? { listId } : {}),
+  };
+
+  if (dueDate) {
+    const { start, end } = reminderDayBounds(dueDate);
+    where.dueDate = { gte: start, lte: end };
+  } else {
+    where.dueDate = null;
+  }
+
+  return prisma.reminder.findFirst({
+    where,
+    orderBy: { createdAt: "desc" },
+    select: { id: true, title: true, dueDate: true },
+  });
+}
+
 function parseFriendMoneyMentions(text: string) {
   const results: Array<{ person: string; amount: number; notes: string; index: number; rawName: string }> = [];
   const normalized = text.replace(/[₹,]/g, "").replace(/\s+/g, " ");
@@ -1844,13 +1877,23 @@ async function executeAgentAction(
 
   if (action.type === "create_reminder") {
     const listId = await resolveReminderListId(userId, action.listId, action.listName);
+    const title = action.title.trim();
+    const dueDate = parseOptionalDate(action.dueDate);
+    const existingReminder = await findDuplicateReminder(userId, title, dueDate, listId);
+    if (existingReminder) {
+      return {
+        type: action.type,
+        label: `Reminder already exists: ${existingReminder.title}`,
+        id: existingReminder.id,
+      };
+    }
     const reminder = await prisma.reminder.create({
       data: {
         userId,
         listId,
-        title: action.title.trim(),
+        title,
         notes: action.notes?.trim() || null,
-        dueDate: parseOptionalDate(action.dueDate),
+        dueDate,
         recurrence: action.recurrence || "none",
         recurrenceCustom: action.recurrence === "custom" ? action.recurrenceCustom?.trim() || null : null,
         priority: action.priority || "none",
