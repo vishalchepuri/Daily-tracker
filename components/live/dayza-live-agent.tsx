@@ -123,6 +123,7 @@ export function DayzaLiveAgent() {
   const maxSessionRef = useRef(600);
   const mutedRef = useRef(false);
   const stoppingRef = useRef(false);
+  const interruptingRef = useRef(false);
 
   useEffect(() => {
     mutedRef.current = muted;
@@ -166,20 +167,42 @@ export function DayzaLiveAgent() {
   }, []);
 
   const interruptPlayback = useCallback(() => {
+    interruptingRef.current = true;
     playbackNodeRef.current?.port.postMessage("interrupt");
+    playbackContextRef.current?.suspend().catch(() => undefined);
     sendJson({ realtimeInput: { activityStart: {} } });
-    setStatus((current) => (current === "speaking" || current === "thinking" ? "listening" : current));
-  }, [sendJson]);
+    window.setTimeout(() => {
+      playbackContextRef.current?.resume().catch(() => undefined);
+    }, 250);
+    setStatus("listening");
+    finishStreamingTranscript();
+    pushTranscript("system", "Stopped speaking. I am listening.");
+  }, [finishStreamingTranscript, pushTranscript, sendJson]);
 
   const stopLive = useCallback((reason = "Live session ended.") => {
     stoppingRef.current = true;
+    interruptingRef.current = true;
+    setStatus("ended");
+    setElapsedSeconds(0);
+    pushTranscript("system", reason);
+
     if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
 
-    wsRef.current?.close();
+    const socket = wsRef.current;
     wsRef.current = null;
+    if (socket) {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+        socket.close(1000, "User ended Live Dayza");
+      }
+    }
+    playbackNodeRef.current?.port.postMessage("interrupt");
     captureNodeRef.current?.disconnect();
     captureNodeRef.current = null;
     playbackNodeRef.current?.disconnect();
@@ -191,11 +214,9 @@ export function DayzaLiveAgent() {
     captureContextRef.current = null;
     playbackContextRef.current = null;
     startedAtRef.current = null;
-    setElapsedSeconds(0);
-    setStatus("ended");
-    pushTranscript("system", reason);
     window.setTimeout(() => {
       stoppingRef.current = false;
+      interruptingRef.current = false;
     }, 250);
   }, [pushTranscript]);
 
@@ -300,8 +321,8 @@ export function DayzaLiveAgent() {
 
   const handleLiveMessage = useCallback((message: any) => {
     if (message?.error) {
-      const detail = message.error?.message || message.error?.status || "Gemini Live returned an error.";
-      showLiveError(`Gemini Live error: ${detail}`);
+      const detail = message.error?.message || message.error?.status || "Live Dayza returned an error.";
+      showLiveError(`Live Dayza error: ${detail}`);
       return;
     }
 
@@ -320,8 +341,9 @@ export function DayzaLiveAgent() {
     if (!serverContent) return;
 
     if (serverContent?.interrupted) {
-      interruptPlayback();
-      pushTranscript("system", "Interrupted.");
+      playbackNodeRef.current?.port.postMessage("interrupt");
+      interruptingRef.current = false;
+      setStatus("listening");
     }
 
     if (serverContent?.inputTranscription?.text) {
@@ -338,6 +360,7 @@ export function DayzaLiveAgent() {
         if (part?.text) updateStreamingTranscript("assistant", part.text);
         const inlineData = part?.inlineData;
         if (inlineData?.data && String(inlineData?.mimeType || "").startsWith("audio/")) {
+          if (interruptingRef.current) continue;
           setStatus("speaking");
           const audio = base64PcmToFloat32(inlineData.data);
           playbackNodeRef.current?.port.postMessage(audio, [audio.buffer]);
@@ -346,10 +369,11 @@ export function DayzaLiveAgent() {
     }
 
     if (serverContent?.turnComplete) {
+      interruptingRef.current = false;
       finishStreamingTranscript();
       setStatus("listening");
     }
-  }, [finishStreamingTranscript, handleToolCalls, interruptPlayback, pushTranscript, showLiveError, startMicrophone, updateStreamingTranscript]);
+  }, [finishStreamingTranscript, handleToolCalls, pushTranscript, showLiveError, startMicrophone, updateStreamingTranscript]);
 
   const startLive = useCallback(async () => {
     if (status === "starting" || status === "listening" || status === "speaking" || status === "thinking") return;
@@ -383,7 +407,7 @@ export function DayzaLiveAgent() {
       wsRef.current = socket;
       socket.onopen = () => {
         socket.send(JSON.stringify({ setup: tokenData.setup }));
-        pushTranscript("system", `Connected to ${tokenData.model || "Gemini Live"}.`);
+        pushTranscript("system", "Connected to Live Dayza.");
       };
       socket.onmessage = async (event) => {
         try {
@@ -439,9 +463,6 @@ export function DayzaLiveAgent() {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="font-display text-lg font-bold tracking-tight">Live Dayza</h2>
-                <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[0.7rem] font-semibold text-primary">
-                  Gemini Live
-                </span>
               </div>
               <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
                 Voice-first agent with confirmation before app changes. No raw audio is stored.
