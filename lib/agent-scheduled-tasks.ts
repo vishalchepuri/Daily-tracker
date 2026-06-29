@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { queryAgentTaskMemory, rememberAgentTaskRun } from "@/lib/agent-task-vector-memory";
 import { sendPushToUser } from "@/lib/web-push";
 
 const WEEK_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -54,18 +55,112 @@ function cleanText(value: string) {
     .trim();
 }
 
+function cleanTextPreserveScripts(value: string) {
+  return value.replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function extractPageTitle(html: string) {
   return html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.replace(/\s+/g, " ").trim() ?? "";
 }
 
-async function inspectUrl(url: string) {
+function decodeHtml(value: string) {
+  return value
+    .replace(/\\u003c/g, "<")
+    .replace(/\\u003e/g, ">")
+    .replace(/\\u0026/g, "&")
+    .replace(/&amp;/g, "&")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#8377;/g, "INR")
+    .replace(/₹/g, "INR");
+}
+
+function extractHtmlTables(html: string) {
+  const tables: string[] = [];
+  for (const tableMatch of html.matchAll(/<table[\s\S]*?<\/table>/gi)) {
+    const rows: string[] = [];
+    for (const rowMatch of tableMatch[0].matchAll(/<tr[\s\S]*?<\/tr>/gi)) {
+      const cells = [...rowMatch[0].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)]
+        .map((cell) => cleanText(decodeHtml(cell[1])))
+        .filter(Boolean);
+      if (cells.length) rows.push(cells.join(" | "));
+    }
+    if (rows.length) tables.push(rows.slice(0, 20).join("\n"));
+  }
+  return tables.slice(0, 3).join("\n\n");
+}
+
+function extractPageContext(html: string) {
+  const decoded = decodeHtml(html);
+  const tables = extractHtmlTables(decoded);
+  const visibleText = cleanText(decoded).slice(0, 3500);
+  const embeddedText = cleanTextPreserveScripts(decoded).slice(0, 2500);
+  return [
+    tables ? `TABLES:\n${tables}` : "",
+    visibleText ? `VISIBLE TEXT:\n${visibleText}` : "",
+    embeddedText && embeddedText !== visibleText ? `EMBEDDED PAGE DATA:\n${embeddedText}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+async function summarizeWithAi(input: { taskName: string; prompt: string; outputFormat?: string | null; url: string; title: string; status: number; context: string; memory?: string }) {
+  if (!process.env.ABACUSAI_API_KEY || !input.context.trim()) return "";
+  const aiPrompt = `You are Dayza Agent running a scheduled web-check task.
+
+Task name: ${input.taskName}
+User instruction: ${input.prompt}
+Expected output: ${input.outputFormat || "Concise plain-text summary with important facts and changes."}
+URL: ${input.url}
+HTTP status: ${input.status}
+Page title: ${input.title || "-"}
+
+Use the page context below to answer the user's instruction. Extract concrete data such as names, dates, amounts, status, table rows, changes, and alerts when present. If related past runs are available, compare the current page with them and call out only new, changed, or important items. Do not say the page has no data just because a placeholder table says "No data available" if useful names or data appear elsewhere. Keep it concise, plain text, and useful.
+
+${input.memory ? `RELATED PAST RUNS:\n${input.memory.slice(0, 5000)}\n\n` : ""}
+
+PAGE CONTEXT:
+${input.context.slice(0, 9000)}`;
+
+  const res = await fetch("https://apps.abacus.ai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-5.4-mini",
+      stream: false,
+      max_tokens: 700,
+      messages: [{ role: "user", content: aiPrompt }],
+    }),
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!res.ok) return "";
+  const data = await res.json().catch(() => ({}));
+  return String(data?.choices?.[0]?.message?.content ?? "").trim();
+}
+
+async function inspectUrl(task: { name: string; prompt: string; outputFormat?: string | null; url: string }, memory?: string) {
+  const url = task.url;
   const res = await fetch(url, {
-    headers: { "User-Agent": "Dayza-Agent-Task/1.0" },
+    headers: { "User-Agent": "Mozilla/5.0 Dayza-Agent-Task/1.0" },
     signal: AbortSignal.timeout(20000),
   });
   const contentType = res.headers.get("content-type") ?? "";
   const body = await res.text();
   const title = contentType.includes("html") ? extractPageTitle(body) : "";
+  const context = contentType.includes("html") ? extractPageContext(body) : cleanText(body).slice(0, 5000);
+  const aiSummary = await summarizeWithAi({
+    taskName: task.name,
+    prompt: task.prompt,
+    outputFormat: task.outputFormat,
+    url,
+    title,
+    status: res.status,
+    context,
+    memory,
+  }).catch(() => "");
   const text = cleanText(body).slice(0, 1400);
   return {
     ok: res.ok,
@@ -75,6 +170,7 @@ async function inspectUrl(url: string) {
       `URL checked: ${url}`,
       `HTTP ${res.status}${res.ok ? " OK" : ""}`,
       title ? `Title: ${title}` : "",
+      aiSummary ? `Agent summary:\n${aiSummary}` : "",
       text ? `Preview: ${text.slice(0, 500)}` : "",
     ].filter(Boolean).join("\n"),
   };
@@ -96,7 +192,13 @@ export async function runAgentScheduledTask(taskId: string) {
     let status = "completed";
 
     if (task.url) {
-      const result = await inspectUrl(task.url);
+      const memory = await queryAgentTaskMemory({
+        userId: task.userId,
+        taskId: task.id,
+        prompt: task.prompt,
+        url: task.url,
+      });
+      const result = await inspectUrl({ name: task.name, prompt: task.prompt, outputFormat: task.outputFormat, url: task.url }, memory);
       summary = `${summary}\n\n${result.summary}`;
       status = result.ok ? "completed" : "warning";
     }
@@ -111,6 +213,16 @@ export async function runAgentScheduledTask(taskId: string) {
     await prisma.agentScheduledTask.update({
       where: { id: task.id },
       data: { lastRunAt: finishedAt, lastStatus: status, lastSummary: summary.slice(0, 2000), nextRunAt },
+    });
+
+    await rememberAgentTaskRun({
+      userId: task.userId,
+      taskId: task.id,
+      taskName: task.name,
+      prompt: task.prompt,
+      url: task.url,
+      runId: updatedRun.id,
+      summary,
     });
 
     if (task.notifyOnRun && task.user?.profile?.notifyAgentTasks !== false) {

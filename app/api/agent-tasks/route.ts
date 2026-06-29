@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { computeNextRunAt } from "@/lib/agent-scheduled-tasks";
+import { isAgentTaskVectorMemoryConfigured } from "@/lib/agent-task-vector-memory";
 
 function cleanString(value: unknown, fallback = "") {
   return String(value ?? fallback).trim();
@@ -21,17 +22,41 @@ function cleanUrl(value: unknown) {
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await requireCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const tasks = await prisma.agentScheduledTask.findMany({
-    where: { userId: user.id },
-    include: { runs: { orderBy: { createdAt: "desc" }, take: 5 } },
-    orderBy: [{ active: "desc" }, { nextRunAt: "asc" }, { createdAt: "desc" }],
-  });
+  const [tasks, lastCronHit, recentCronHits] = await Promise.all([
+    prisma.agentScheduledTask.findMany({
+      where: { userId: user.id },
+      include: { runs: { orderBy: { createdAt: "desc" }, take: 20 } },
+      orderBy: [{ active: "desc" }, { nextRunAt: "asc" }, { createdAt: "desc" }],
+    }),
+    prisma.agentCronHit.findFirst({
+      where: { mode: "cron" },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.agentCronHit.findMany({
+      where: { mode: "cron" },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    }),
+  ]);
 
-  return NextResponse.json({ tasks });
+  const origin = new URL(req.url).origin;
+  return NextResponse.json({
+    tasks,
+    cron: {
+      endpoint: `${origin}/api/agent-tasks/dispatch`,
+      authorizationHeader: "Authorization: Bearer YOUR_CRON_SECRET",
+      lastHit: lastCronHit,
+      recentHits: recentCronHits,
+      secretConfigured: Boolean(process.env.CRON_SECRET),
+    },
+    vectorMemory: {
+      configured: isAgentTaskVectorMemoryConfigured(),
+    },
+  });
 }
 
 export async function POST(req: Request) {
@@ -52,6 +77,8 @@ export async function POST(req: Request) {
       userId: user.id,
       name,
       prompt,
+      outputFormat: cleanString(data.outputFormat) || null,
+      templateId: cleanString(data.templateId) || null,
       url: cleanUrl(data.url),
       scheduleType,
       timeOfDay: scheduleType === "manual" ? null : timeOfDay,
@@ -86,6 +113,7 @@ export async function PATCH(req: Request) {
     data: {
       name: "name" in data ? cleanString(data.name, existing.name) || existing.name : existing.name,
       prompt: "prompt" in data ? cleanString(data.prompt, existing.prompt) || existing.prompt : existing.prompt,
+      outputFormat: "outputFormat" in data ? cleanString(data.outputFormat) || null : existing.outputFormat,
       url: "url" in data ? cleanUrl(data.url) : existing.url,
       scheduleType,
       timeOfDay: scheduleType === "manual" ? null : timeOfDay,

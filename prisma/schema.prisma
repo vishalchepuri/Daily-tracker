@@ -33,6 +33,9 @@ model User {
   reminders     Reminder[]
   agentScheduledTasks AgentScheduledTask[]
   agentScheduledTaskRuns AgentScheduledTaskRun[]
+  agentTaskTemplates AgentTaskTemplate[] @relation("SubmittedAgentTaskTemplates")
+  reviewedAgentTaskTemplates AgentTaskTemplate[] @relation("ReviewedAgentTaskTemplates")
+  agentCronHits AgentCronHit[]
   webPushSubscriptions WebPushSubscription[]
   pushNotificationLogs PushNotificationLog[]
   medications   Medication[]
@@ -417,6 +420,9 @@ model AgentScheduledTask {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   name        String
   prompt      String
+  outputFormat String?
+  templateId  String?
+  template    AgentTaskTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   url         String?
   scheduleType String  @default("daily")
   timeOfDay   String?
@@ -432,6 +438,32 @@ model AgentScheduledTask {
   runs         AgentScheduledTaskRun[]
   @@index([userId, active, nextRunAt])
   @@index([nextRunAt, active])
+  @@index([templateId])
+}
+
+model AgentTaskTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  prompt      String
+  outputFormat String?
+  category    String   @default("general")
+  defaultScheduleType String @default("daily")
+  defaultTimeOfDay String?
+  defaultDaysOfWeek String?
+  status      String   @default("private") // private, pending, approved, rejected
+  shared      Boolean  @default(false)
+  submittedById String
+  submittedBy   User   @relation("SubmittedAgentTaskTemplates", fields: [submittedById], references: [id], onDelete: Cascade)
+  reviewedById String?
+  reviewedBy   User?   @relation("ReviewedAgentTaskTemplates", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt  DateTime?
+  reviewNotes String?
+  tasks       AgentScheduledTask[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  @@index([submittedById, status, createdAt])
+  @@index([status, shared, createdAt])
 }
 
 model AgentScheduledTaskRun {
@@ -448,6 +480,20 @@ model AgentScheduledTaskRun {
   createdAt DateTime @default(now())
   @@index([userId, createdAt])
   @@index([taskId, createdAt])
+}
+
+model AgentCronHit {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mode      String
+  checked   Int      @default(0)
+  ran       Int      @default(0)
+  status    String   @default("ok")
+  error     String?
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([createdAt])
 }
 
 model WebPushSubscription {
