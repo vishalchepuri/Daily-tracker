@@ -6,7 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
   Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
-  Mail, PhoneCall, CalendarClock, Settings, Check,
+  Mail, PhoneCall, CalendarClock, Settings, Check, HeartPulse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,13 +22,14 @@ import { GlobalQuickAdd } from "./global-quick-add";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Reminders", href: "/reminders", icon: ListTodo },
+  { label: "Agent Tasks", href: "/agent-tasks", icon: CalendarClock },
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "Gmail", href: "/gmail", icon: Mail },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
-  { label: "Agent Tasks", href: "/agent-tasks", icon: CalendarClock },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
+  { label: "Recovery", href: "/recovery", icon: HeartPulse },
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
 
@@ -116,6 +117,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Create a workout plan for your goal and available time.",
       "Suggest exercise substitutions.",
       "Review recent training and recommend progression.",
+    ],
+  },
+  "/recovery": {
+    label: "Recovery",
+    suggestions: [
+      "Log sleep, soreness, energy, and mood.",
+      "Adjust today&apos;s workout intensity based on recovery.",
+      "Spot fatigue patterns before they affect consistency.",
     ],
   },
   "/profile": {

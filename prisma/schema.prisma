@@ -20,6 +20,7 @@ model User {
   dietPlans     DietPlan[]
   waterLogs     WaterLog[]
   workoutLogs   WorkoutLog[]
+  recoveryCheckIns RecoveryCheckIn[]
   workoutTemplates WorkoutTemplate[]
   progressEntries ProgressEntry[]
   spends        Spend[]
@@ -95,6 +96,12 @@ model UserProfile {
   telegramChatId String?
   telegramEnabled Boolean @default(false)
   timeZone String?
+  notificationQuietStart String?
+  notificationQuietEnd String?
+  notifyReminders Boolean @default(true)
+  notifyMedications Boolean @default(true)
+  notifyRefills Boolean @default(true)
+  notifyAgentTasks Boolean @default(true)
   linkedinUrl String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -387,6 +394,21 @@ model Reminder {
   @@index([userId, dueDate])
   @@index([userId, completed])
   @@index([userId, contextTag, completed])
+}
+
+model RecoveryCheckIn {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime @default(now())
+  sleepHours Float?
+  energy    Int?
+  soreness  Int?
+  mood      String?
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, date])
 }
 
 model AgentScheduledTask {

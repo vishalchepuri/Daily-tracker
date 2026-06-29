@@ -81,7 +81,10 @@ async function inspectUrl(url: string) {
 }
 
 export async function runAgentScheduledTask(taskId: string) {
-  const task = await prisma.agentScheduledTask.findUnique({ where: { id: taskId } });
+  const task = await prisma.agentScheduledTask.findUnique({
+    where: { id: taskId },
+    include: { user: { select: { profile: { select: { notifyAgentTasks: true } } } } },
+  });
   if (!task) throw new Error("Task not found");
 
   const run = await prisma.agentScheduledTaskRun.create({
@@ -110,7 +113,7 @@ export async function runAgentScheduledTask(taskId: string) {
       data: { lastRunAt: finishedAt, lastStatus: status, lastSummary: summary.slice(0, 2000), nextRunAt },
     });
 
-    if (task.notifyOnRun) {
+    if (task.notifyOnRun && task.user?.profile?.notifyAgentTasks !== false) {
       await sendPushToUser(task.userId, {
         title: `Agent task: ${task.name}`,
         body: summary.slice(0, 240),

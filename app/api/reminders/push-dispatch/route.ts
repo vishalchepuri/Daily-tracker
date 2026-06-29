@@ -13,6 +13,20 @@ function isCronAuthorized(req: Request) {
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
+function minutesFromTime(value?: string | null) {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value ?? ""));
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function inQuietHours(profile: any, date = new Date()) {
+  const start = minutesFromTime(profile?.notificationQuietStart);
+  const end = minutesFromTime(profile?.notificationQuietEnd);
+  if (start == null || end == null || start === end) return false;
+  const now = getZonedDateParts(date, normalizeTimeZone(profile?.timeZone ?? DEFAULT_TIME_ZONE)).minuteOfDay;
+  return start < end ? now >= start && now < end : now >= start || now < end;
+}
+
 async function dispatchPush(req: Request) {
   try {
     const authedUser = await requireCurrentUser();
@@ -38,6 +52,14 @@ async function dispatchPush(req: Request) {
           select: {
             id: true,
             name: true,
+            profile: {
+              select: {
+                timeZone: true,
+                notificationQuietStart: true,
+                notificationQuietEnd: true,
+                notifyReminders: true,
+              },
+            },
           },
         },
       },
@@ -58,7 +80,15 @@ async function dispatchPush(req: Request) {
           select: {
             id: true,
             name: true,
-            profile: { select: { timeZone: true } },
+            profile: {
+              select: {
+                timeZone: true,
+                notificationQuietStart: true,
+                notificationQuietEnd: true,
+                notifyMedications: true,
+                notifyRefills: true,
+              },
+            },
           },
         },
       },
@@ -94,6 +124,7 @@ async function dispatchPush(req: Request) {
       const realertWindowMs = priority === "high" ? 2 * 60 * 60 * 1000 : priority === "medium" ? 6 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000;
       const shouldSend = !lastSentAt || (isOverdue && (now.getTime() - lastSentAt.getTime()) >= realertWindowMs);
       if (!shouldSend) continue;
+      if (reminder.user?.profile?.notifyReminders === false || inQuietHours(reminder.user?.profile, now)) continue;
 
       const due = reminder.dueDate
         ? formatAppTime(reminder.dueDate)
@@ -124,6 +155,7 @@ async function dispatchPush(req: Request) {
     for (const medication of medications) {
       const timeZone = normalizeTimeZone(medication.user?.profile?.timeZone ?? DEFAULT_TIME_ZONE);
       const nowZoned = getZonedDateParts(now, timeZone);
+      if (inQuietHours(medication.user?.profile, now)) continue;
       if (!isMedicationDueOn(medication, now, timeZone)) continue;
       if (!isMedicationTimeDueNow(medication, now, timeZone)) continue;
 
@@ -134,7 +166,7 @@ async function dispatchPush(req: Request) {
       if (!alreadyLogged) {
         const lastPushAt = medication.lastPushSentAt ? new Date(medication.lastPushSentAt) : null;
         const alreadyPushedToday = lastPushAt && getZonedDateParts(lastPushAt, timeZone).dateKey === nowZoned.dateKey;
-        if (!alreadyPushedToday) {
+        if (!alreadyPushedToday && medication.user?.profile?.notifyMedications !== false) {
           const result = await sendPushToUser(medication.userId, {
             title: "Medication reminder",
             body: `Take ${medication.name}${medication.dosage ? ` (${medication.dosage})` : ""} - ${medication.timeOfDay}`,
@@ -155,7 +187,7 @@ async function dispatchPush(req: Request) {
         }
       }
 
-      if (medication.stockCount != null && medication.refillAt != null && medication.stockCount <= medication.refillAt) {
+      if (medication.user?.profile?.notifyRefills !== false && medication.stockCount != null && medication.refillAt != null && medication.stockCount <= medication.refillAt) {
         const lastRefillPushAt = medication.lastRefillPushAt ? new Date(medication.lastRefillPushAt) : null;
         const refillCooldownMs = 24 * 60 * 60 * 1000;
         if (!lastRefillPushAt || (now.getTime() - lastRefillPushAt.getTime()) >= refillCooldownMs) {
