@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { dayzaFetch } from "@/lib/firebase-session-client";
 import { ExerciseReviewActions } from "./exercise-review-actions";
+import { AgentTemplateReviewActions } from "./agent-template-review-actions";
 
 type AdminPanel = "review-queue" | "recent-spends" | "recent-workouts";
 
@@ -23,7 +24,7 @@ type LazyPanelProps<T> = {
 
 type ReviewQueueItem = {
   id: string;
-  kind: "exercise" | "issue";
+  kind: "exercise" | "agent-template" | "issue";
   type: string;
   title: string;
   detail: string;
@@ -143,7 +144,7 @@ export function AdminReviewQueue() {
         <div key={`${item.kind}-${item.id}`} className="grid gap-3 rounded-lg bg-muted/40 p-3 md:grid-cols-[1fr_auto] md:items-center">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={item.kind === "exercise" ? "default" : "secondary"}>{item.type}</Badge>
+              <Badge variant={item.kind === "issue" ? "secondary" : "default"}>{item.type}</Badge>
               <p className="truncate font-semibold">{item.title}</p>
             </div>
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>
@@ -151,6 +152,8 @@ export function AdminReviewQueue() {
           </div>
           {item.kind === "exercise" ? (
             <ExerciseReviewActions id={item.id} name={item.title} />
+          ) : item.kind === "agent-template" ? (
+            <AgentTemplateReviewActions id={item.id} name={item.title} />
           ) : (
             <Badge variant="outline">Open</Badge>
           )}

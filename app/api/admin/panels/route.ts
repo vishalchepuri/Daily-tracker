@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   const panel = request.nextUrl.searchParams.get("panel");
 
   if (panel === "review-queue") {
-    const [pendingExercises, issueReports] = await Promise.all([
+    const [pendingExercises, pendingAgentTemplates, issueReports] = await Promise.all([
       prisma.exercise.findMany({
         where: { status: "pending" },
         orderBy: { createdAt: "asc" },
@@ -34,6 +34,19 @@ export async function GET(request: NextRequest) {
           name: true,
           muscleGroup: true,
           equipment: true,
+          createdAt: true,
+          submittedBy: { select: { name: true, email: true } },
+        },
+      }),
+      prisma.agentTaskTemplate.findMany({
+        where: { status: "pending", shared: true },
+        orderBy: { createdAt: "asc" },
+        take: 20,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          category: true,
           createdAt: true,
           submittedBy: { select: { name: true, email: true } },
         },
@@ -50,6 +63,15 @@ export async function GET(request: NextRequest) {
         user: exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user",
         createdAt: exercise.createdAt.toISOString(),
         kind: "exercise",
+      })),
+      ...pendingAgentTemplates.map((template) => ({
+        id: template.id,
+        type: "Agent Template",
+        title: template.name,
+        detail: `${template.category}${template.description ? ` - ${template.description}` : ""}`,
+        user: template.submittedBy?.name || template.submittedBy?.email || "Unknown user",
+        createdAt: template.createdAt.toISOString(),
+        kind: "agent-template",
       })),
       ...issueReports
         .filter((issue) => issue.status === "open")

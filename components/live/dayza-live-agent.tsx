@@ -25,6 +25,17 @@ type LiveTokenResponse = {
   maxSessionSeconds: number;
 };
 
+type DayzaLiveAgentProps = {
+  title?: string;
+  subtitle?: string;
+  initialSystemMessage?: string;
+  tokenPayload?: Record<string, unknown>;
+  toolEndpoint?: string;
+  className?: string;
+  compact?: boolean;
+  onTranscript?: (item: { role: TranscriptRole; text: string }) => void;
+};
+
 const LIVE_WS_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained";
 
@@ -97,7 +108,16 @@ function formatTimer(seconds: number) {
   return `${minutes}:${rest.toString().padStart(2, "0")}`;
 }
 
-export function DayzaLiveAgent() {
+export function DayzaLiveAgent({
+  title = "Live Dayza",
+  subtitle = "Voice-first agent with confirmation before app changes. No raw audio is stored.",
+  initialSystemMessage = "Tap Start Live and talk to Dayza. Reads are instant; app changes require confirmation.",
+  tokenPayload,
+  toolEndpoint = "/api/live/tool",
+  className = "",
+  compact = false,
+  onTranscript,
+}: DayzaLiveAgentProps = {}) {
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [muted, setMuted] = useState(false);
   const [text, setText] = useState("");
@@ -108,7 +128,7 @@ export function DayzaLiveAgent() {
     {
       id: uid(),
       role: "system",
-      text: "Tap Start Live and talk to Dayza. Reads are instant; app changes require confirmation.",
+      text: initialSystemMessage,
     },
   ]);
 
@@ -132,8 +152,9 @@ export function DayzaLiveAgent() {
   const pushTranscript = useCallback((role: TranscriptRole, nextText: string) => {
     const clean = String(nextText || "").trim();
     if (!clean) return;
+    onTranscript?.({ role, text: clean });
     setTranscript((items) => [...items.slice(-40), { id: uid(), role, text: clean }]);
-  }, []);
+  }, [onTranscript]);
 
   const showLiveError = useCallback((message: string) => {
     const clean = String(message || "Live Agent had a problem. Use typed chat below.").trim();
@@ -293,7 +314,7 @@ export function DayzaLiveAgent() {
     const functionResponses = await Promise.all(
       functionCalls.map(async (call) => {
         try {
-          const res = await dayzaFetch("/api/live/tool", {
+          const res = await dayzaFetch(toolEndpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name: call?.name, args: call?.args ?? {} }),
@@ -317,7 +338,7 @@ export function DayzaLiveAgent() {
     );
 
     sendJson({ toolResponse: { functionResponses } });
-  }, [pushTranscript, sendJson]);
+  }, [pushTranscript, sendJson, toolEndpoint]);
 
   const handleLiveMessage = useCallback((message: any) => {
     if (message?.error) {
@@ -383,7 +404,11 @@ export function DayzaLiveAgent() {
       setLiveError("");
       setTranscript([{ id: uid(), role: "system", text: "Starting secure Live Agent session..." }]);
 
-      const tokenRes = await dayzaFetch("/api/live/token", { method: "POST" });
+      const tokenRes = await dayzaFetch("/api/live/token", {
+        method: "POST",
+        headers: tokenPayload ? { "Content-Type": "application/json" } : undefined,
+        body: tokenPayload ? JSON.stringify(tokenPayload) : undefined,
+      });
       const tokenData = (await readResponseJson(tokenRes)) as Partial<LiveTokenResponse> & { error?: string };
       if (!tokenRes.ok || !tokenData.token || !tokenData.setup) {
         throw new Error(tokenData?.error ? `Live setup failed: ${tokenData.error}` : "Live setup failed. Use typed chat below.");
@@ -435,7 +460,7 @@ export function DayzaLiveAgent() {
       captureContextRef.current?.close().catch(() => undefined);
       playbackContextRef.current?.close().catch(() => undefined);
     }
-  }, [handleLiveMessage, pushTranscript, setupPlayback, showLiveError, status, stopLive]);
+  }, [handleLiveMessage, pushTranscript, setupPlayback, showLiveError, status, stopLive, tokenPayload]);
 
   const sendText = useCallback(() => {
     const clean = text.trim();
@@ -453,7 +478,7 @@ export function DayzaLiveAgent() {
   const progress = Math.min(100, Math.round((elapsedSeconds / maxSessionSeconds) * 100));
 
   return (
-    <Card className="mb-3 overflow-hidden rounded-2xl border-primary/20 bg-gradient-to-b from-primary/10 via-card to-card sm:mb-4">
+    <Card className={`mb-3 overflow-hidden rounded-2xl border-primary/20 bg-gradient-to-b from-primary/10 via-card to-card sm:mb-4 ${className}`}>
       <div className="border-b border-border/70 px-3 py-3 sm:px-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
@@ -462,10 +487,10 @@ export function DayzaLiveAgent() {
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="font-display text-lg font-bold tracking-tight">Live Dayza</h2>
+                <h2 className="font-display text-lg font-bold tracking-tight">{title}</h2>
               </div>
               <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-                Voice-first agent with confirmation before app changes. No raw audio is stored.
+                {subtitle}
               </p>
             </div>
           </div>
@@ -484,7 +509,7 @@ export function DayzaLiveAgent() {
         )}
       </div>
 
-      <div className="grid gap-3 p-3 sm:p-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <div className={`grid gap-3 p-3 sm:p-4 ${compact ? "" : "lg:grid-cols-[16rem_minmax(0,1fr)]"}`}>
         <div className="rounded-2xl border border-border/80 bg-background/60 p-3">
           <button
             type="button"
