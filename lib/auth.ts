@@ -60,6 +60,31 @@ export async function requireCurrentUser() {
   }
 }
 
+export async function requireCurrentFirebaseUser() {
+  const token = await getFirebaseTokenFromRequest();
+  if (!token?.value) return null;
+
+  try {
+    const auth = getAuth(getFirebaseAdminApp());
+    const decoded = token.type === "sessionCookie"
+      ? await auth.verifySessionCookie(token.value, true)
+      : await auth.verifyIdToken(token.value);
+    const email = normalizeEmail(decoded.email);
+    if (!email || !decoded.uid) return null;
+
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: { name: decoded.name ?? undefined },
+      create: { email, name: decoded.name ?? email.split("@")[0] },
+      select: { id: true, email: true, name: true },
+    });
+    return { ...user, firebaseUid: decoded.uid };
+  } catch (error) {
+    console.warn("Firebase auth verification failed", error);
+    return null;
+  }
+}
+
 export async function requireAdminUser() {
   const user = await requireCurrentUser();
   if (!user || !isAdminEmail(user.email)) return null;

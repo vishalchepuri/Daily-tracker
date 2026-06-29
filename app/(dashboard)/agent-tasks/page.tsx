@@ -34,11 +34,64 @@ const dayOptions = [
   ["sat", "Sat"],
 ];
 
+const taskTemplates = [
+  {
+    name: "Daily IPO check",
+    prompt: "Check this IPO page for newly added or changed IPO listings. Summarize only new, changed, or important items.",
+    url: "",
+    scheduleType: "daily",
+    timeOfDay: "09:00",
+    daysOfWeek: "mon,tue,wed,thu,fri",
+  },
+  {
+    name: "Price drop monitor",
+    prompt: "Check this product or listing page and tell me if the visible price changed or if there is a meaningful discount.",
+    url: "",
+    scheduleType: "daily",
+    timeOfDay: "08:30",
+    daysOfWeek: "mon,tue,wed,thu,fri,sat,sun",
+  },
+  {
+    name: "Bill due check",
+    prompt: "Check this account or bill page and summarize any due date, amount due, or payment status shown.",
+    url: "",
+    scheduleType: "weekly",
+    timeOfDay: "10:00",
+    daysOfWeek: "mon",
+  },
+  {
+    name: "Morning link summary",
+    prompt: "Read this link and summarize the important updates, deadlines, and actions I should take.",
+    url: "",
+    scheduleType: "daily",
+    timeOfDay: "07:30",
+    daysOfWeek: "mon,tue,wed,thu,fri",
+  },
+];
+
 function formatDate(value?: string | null) {
   if (!value) return "-";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "-";
-  return date.toLocaleString();
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function scheduleLabel(task: any) {
+  if (task.scheduleType === "manual") return "Manual only";
+  if (task.scheduleType === "weekly") {
+    const days = String(task.daysOfWeek ?? "")
+      .split(",")
+      .filter(Boolean)
+      .map((day) => day.charAt(0).toUpperCase() + day.slice(1))
+      .join(", ");
+    return `Weekly${days ? ` on ${days}` : ""} at ${task.timeOfDay || "-"}`;
+  }
+  return `Daily at ${task.timeOfDay || "-"}`;
 }
 
 export default function AgentTasksPage() {
@@ -50,6 +103,12 @@ export default function AgentTasksPage() {
   const [form, setForm] = useState(blankForm);
 
   const activeCount = useMemo(() => tasks.filter((task) => task.active).length, [tasks]);
+  const upcomingTasks = useMemo(() => (
+    tasks
+      .filter((task) => task.active && task.nextRunAt)
+      .sort((a, b) => new Date(a.nextRunAt).getTime() - new Date(b.nextRunAt).getTime())
+      .slice(0, 5)
+  ), [tasks]);
 
   const loadTasks = async () => {
     setLoading(true);
@@ -151,6 +210,16 @@ export default function AgentTasksPage() {
     setForm({ ...form, daysOfWeek: Array.from(selected).join(",") });
   };
 
+  const applyTemplate = (template: typeof taskTemplates[number]) => {
+    setForm({
+      ...blankForm,
+      ...template,
+      active: "true",
+      notifyOnRun: "true",
+    });
+    setDialogOpen(true);
+  };
+
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
@@ -243,8 +312,63 @@ export default function AgentTasksPage() {
       <div className="grid gap-3 sm:grid-cols-3">
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total tasks</p><p className="font-mono text-2xl font-bold">{tasks.length}</p></CardContent></Card>
         <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Active</p><p className="font-mono text-2xl font-bold">{activeCount}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Next run</p><p className="truncate text-sm font-semibold">{formatDate(tasks.find((task) => task.nextRunAt)?.nextRunAt)}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Next run</p><p className="truncate text-sm font-semibold">{formatDate(upcomingTasks[0]?.nextRunAt)}</p></CardContent></Card>
       </div>
+
+      <FadeIn delay={0.06}>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CalendarClock className="h-5 w-5 text-primary" />
+              Upcoming Runs
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">These are the scheduled agent tasks that will run automatically.</p>
+          </CardHeader>
+          <CardContent>
+            {loading ? (
+              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">Loading schedule...</div>
+            ) : upcomingTasks.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+                No upcoming automatic runs. Create an active daily or weekly task to see it here.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {upcomingTasks.map((task) => (
+                  <div key={task.id} className="grid gap-2 rounded-2xl border border-border bg-muted/20 p-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold">{task.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{scheduleLabel(task)}</p>
+                    </div>
+                    <Badge variant="secondary" className="justify-center">{formatDate(task.nextRunAt)}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      <FadeIn delay={0.08}>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg">Quick Templates</CardTitle>
+            <p className="text-sm text-muted-foreground">Start from a common recurring task, then add the link.</p>
+          </CardHeader>
+          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {taskTemplates.map((template) => (
+              <button
+                key={template.name}
+                type="button"
+                onClick={() => applyTemplate(template)}
+                className="rounded-2xl border border-border bg-muted/20 p-3 text-left transition hover:border-primary/40 hover:bg-primary/5 active:scale-[0.99]"
+              >
+                <p className="font-semibold">{template.name}</p>
+                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{template.prompt}</p>
+              </button>
+            ))}
+          </CardContent>
+        </Card>
+      </FadeIn>
 
       <div className="grid gap-3">
         {loading ? (
@@ -283,9 +407,9 @@ export default function AgentTasksPage() {
                 </div>
               </div>
               <div className="grid gap-2 rounded-lg bg-muted/35 p-3 text-sm sm:grid-cols-3">
-                <div><span className="text-muted-foreground">Next</span><p>{formatDate(task.nextRunAt)}</p></div>
+                <div><span className="text-muted-foreground">Next run</span><p>{formatDate(task.nextRunAt)}</p></div>
                 <div><span className="text-muted-foreground">Last</span><p>{formatDate(task.lastRunAt)}</p></div>
-                <div><span className="text-muted-foreground">Time</span><p>{task.timeOfDay || "-"}</p></div>
+                <div><span className="text-muted-foreground">Schedule</span><p>{scheduleLabel(task)}</p></div>
               </div>
               {task.lastSummary && (
                 <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground [overflow-wrap:anywhere]">
