@@ -7,6 +7,7 @@ type AgentTaskMemoryInput = {
   url?: string | null;
   runId: string;
   summary: string;
+  structuredSummary?: string | null;
 };
 
 type AgentTaskMemoryQuery = {
@@ -14,6 +15,13 @@ type AgentTaskMemoryQuery = {
   taskId?: string;
   prompt: string;
   url?: string | null;
+};
+
+type AgentTaskMemoryResult = {
+  text: string;
+  used: boolean;
+  searchedAt: Date | null;
+  matchCount: number;
 };
 
 const DEFAULT_DIMENSION = 384;
@@ -38,6 +46,10 @@ function vectorDimension() {
 
 export function isAgentTaskVectorMemoryConfigured() {
   return Boolean(pineconeApiKey() && pineconeHost());
+}
+
+export function agentTaskVectorNamespace() {
+  return pineconeNamespace();
 }
 
 function hashToken(token: string) {
@@ -93,8 +105,33 @@ async function pineconePost(path: string, body: unknown) {
   return res.json().catch(() => null);
 }
 
-export async function queryAgentTaskMemory(input: AgentTaskMemoryQuery) {
-  if (!isAgentTaskVectorMemoryConfigured()) return "";
+export async function describeAgentTaskMemory() {
+  if (!isAgentTaskVectorMemoryConfigured()) {
+    return {
+      configured: false,
+      namespace: pineconeNamespace(),
+      totalVectorCount: 0,
+      namespaceVectorCount: 0,
+      dimension: vectorDimension(),
+    };
+  }
+
+  const data: any = await pineconePost("/describe_index_stats", {}).catch(() => null);
+  const namespaces = data?.namespaces ?? {};
+  const namespaceStats = namespaces[pineconeNamespace()] ?? {};
+  return {
+    configured: true,
+    namespace: pineconeNamespace(),
+    totalVectorCount: Number(data?.totalVectorCount ?? data?.total_vector_count ?? 0),
+    namespaceVectorCount: Number(namespaceStats?.vectorCount ?? namespaceStats?.vector_count ?? 0),
+    dimension: Number(data?.dimension ?? vectorDimension()),
+  };
+}
+
+export async function queryAgentTaskMemory(input: AgentTaskMemoryQuery): Promise<AgentTaskMemoryResult> {
+  if (!isAgentTaskVectorMemoryConfigured()) return { text: "", used: false, searchedAt: null, matchCount: 0 };
+
+  const searchedAt = new Date();
 
   const queryText = [
     `Instruction: ${input.prompt}`,
@@ -121,24 +158,25 @@ export async function queryAgentTaskMemory(input: AgentTaskMemoryQuery) {
       return `Past run ${index + 1} (score ${score}): ${String(match.metadata.text).slice(0, 1800)}`;
     });
 
-  return snippets.join("\n\n").slice(0, 5000);
+  const text = snippets.join("\n\n").slice(0, 5000);
+  return { text, used: snippets.length > 0, searchedAt, matchCount: snippets.length };
 }
 
 export async function rememberAgentTaskRun(input: AgentTaskMemoryInput) {
-  if (!isAgentTaskVectorMemoryConfigured()) return;
+  if (!isAgentTaskVectorMemoryConfigured()) return { ok: false, vectorCount: 0, writtenAt: null as Date | null };
 
   const text = [
     `Task: ${input.taskName}`,
     `Instruction: ${input.prompt}`,
     input.trainingNotes ? `Training notes: ${input.trainingNotes}` : "",
     input.url ? `URL: ${input.url}` : "",
-    `Result:\n${input.summary}`,
+    `Result summary:\n${input.structuredSummary || input.summary}`,
   ].filter(Boolean).join("\n");
   const chunks = chunksForMemory(text);
-  if (!chunks.length) return;
+  if (!chunks.length) return { ok: false, vectorCount: 0, writtenAt: null as Date | null };
 
   const createdAt = new Date().toISOString();
-  await pineconePost("/vectors/upsert", {
+  const response = await pineconePost("/vectors/upsert", {
     namespace: pineconeNamespace(),
     vectors: chunks.map((chunk, index) => ({
       id: `agent-task-${input.runId}-${index}`,
@@ -154,4 +192,18 @@ export async function rememberAgentTaskRun(input: AgentTaskMemoryInput) {
       },
     })),
   }).catch(() => null);
+  if (!response) return { ok: false, vectorCount: 0, writtenAt: null as Date | null };
+  return { ok: true, vectorCount: chunks.length, writtenAt: new Date(createdAt) };
+}
+
+export async function clearAgentTaskMemory(input: { userId: string; taskId?: string | null }) {
+  if (!isAgentTaskVectorMemoryConfigured()) return { ok: false, deleted: false };
+  const filter = input.taskId
+    ? { userId: { $eq: input.userId }, taskId: { $eq: input.taskId } }
+    : { userId: { $eq: input.userId } };
+  const response = await pineconePost("/vectors/delete", {
+    namespace: pineconeNamespace(),
+    filter,
+  }).catch(() => null);
+  return { ok: Boolean(response), deleted: Boolean(response) };
 }

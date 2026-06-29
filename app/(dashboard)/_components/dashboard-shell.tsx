@@ -205,6 +205,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
   const chatHref = `/chat?from=${encodeURIComponent(pathname || "/dashboard")}`;
   const chatPanelHref = `${chatHref}&embed=1`;
   const isEmbeddedChat = pathname === "/chat" && searchParams.get("embed") === "1";
+  const agentOverlayOpen = agentPanelOpen && pathname !== "/chat";
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
@@ -554,12 +555,12 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         </div>
       )}
 
-      <GlobalQuickAdd hidden={pathname === "/chat" || !profileComplete} />
+      <GlobalQuickAdd hidden={pathname === "/chat" || agentOverlayOpen || mobileNavOpen || !profileComplete} />
 
-      {agentPanelOpen && pathname !== "/chat" && (
-        <div className="fixed inset-0 z-50 bg-background/70 backdrop-blur-sm lg:pointer-events-none lg:bg-transparent lg:backdrop-blur-none" onClick={() => setAgentPanelOpen(false)}>
+      {agentOverlayOpen && (
+        <div className="fixed inset-0 z-[70] bg-background/80 backdrop-blur-sm lg:pointer-events-none lg:bg-transparent lg:backdrop-blur-none" onClick={() => setAgentPanelOpen(false)}>
           <section
-            className="fixed bottom-[calc(5.6rem+env(safe-area-inset-bottom))] right-3 top-16 z-50 flex w-[min(calc(100vw-1.5rem),27rem)] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl lg:pointer-events-auto lg:bottom-4 lg:right-4 lg:top-auto lg:h-[min(82dvh,44rem)]"
+            className="fixed inset-x-2 bottom-[calc(5.35rem_+_env(safe-area-inset-bottom))] top-[calc(3.75rem_+_env(safe-area-inset-top))] z-[80] flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:inset-x-auto sm:right-4 sm:w-[min(calc(100vw_-_2rem),28rem)] lg:pointer-events-auto lg:bottom-4 lg:top-auto lg:h-[min(82dvh,44rem)]"
             onClick={(event) => event.stopPropagation()}
             aria-label="Dayza live chat"
           >
@@ -589,7 +590,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         </div>
       )}
 
-      {pathname !== "/chat" && (
+      {pathname !== "/chat" && !agentPanelOpen && (
       <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
         {coachOpen && (
           <div className="hidden max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl ios-scroll lg:block">
