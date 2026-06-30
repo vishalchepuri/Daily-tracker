@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, CalendarClock, CheckCircle2, Clipboard, ExternalLink, History, Mic, Play, Plus, RefreshCw, Save, Send, Share2, Sparkles, Trash2, XCircle } from "lucide-react";
+import { Bot, CalendarClock, CheckCircle2, Clipboard, ExternalLink, History, Pause, Play, Plus, RefreshCw, Save, Send, Share2, Sparkles, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +26,7 @@ const blankForm = {
   daysOfWeek: "mon,tue,wed,thu,fri",
   active: "true",
   notifyOnRun: "true",
+  previewSummary: "",
 };
 
 const blankTrainerDraft = {
@@ -37,6 +38,7 @@ const blankTrainerDraft = {
   prompt: "",
   trainingNotes: "",
   outputFormat: "Return a short summary with: new items, changed items, important dates or amounts, and the action I should take.",
+  previewSummary: "",
   category: "general",
   scheduleType: "daily",
   timeOfDay: "09:00",
@@ -115,6 +117,29 @@ function scheduleLabel(task: any) {
   return `Daily at ${task.timeOfDay || "-"}`;
 }
 
+function parseJsonValue<T>(value: unknown, fallback: T): T {
+  if (typeof value !== "string" || !value.trim()) return fallback;
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function cleanList(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
+}
+
+function structuredRun(run: any) {
+  const summaryData = parseJsonValue<any>(run?.structuredSummaryJson, {});
+  return {
+    summary: String(summaryData?.summary ?? "").trim(),
+    actionItems: cleanList(summaryData?.actionItems),
+    changes: cleanList(parseJsonValue<any[]>(run?.changesJson, [])),
+    importantItems: cleanList(parseJsonValue<any[]>(run?.importantItemsJson, [])),
+  };
+}
+
 export default function AgentTasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -124,6 +149,8 @@ export default function AgentTasksPage() {
   const [saving, setSaving] = useState(false);
   const [trainerBusy, setTrainerBusy] = useState<string | null>(null);
   const [runningTaskId, setRunningTaskId] = useState<string | null>(null);
+  const [memoryBusyId, setMemoryBusyId] = useState<string | null>(null);
+  const [versionBusyId, setVersionBusyId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [trainerOpen, setTrainerOpen] = useState(false);
   const [logTask, setLogTask] = useState<any>(null);
@@ -199,6 +226,7 @@ export default function AgentTasksPage() {
           ...form,
           active: form.active === "true",
           notifyOnRun: form.notifyOnRun === "true",
+          versionSource: "manual",
         }),
       });
       const data = await res.json();
@@ -235,6 +263,7 @@ export default function AgentTasksPage() {
       daysOfWeek: seed?.daysOfWeek ?? seed?.defaultDaysOfWeek ?? "mon,tue,wed,thu,fri",
       active: String(seed?.active ?? true),
       notifyOnRun: String(seed?.notifyOnRun ?? true),
+      previewSummary: seed?.previewSummary ?? seed?.lastSummary ?? "",
     };
     setTrainerDraft(draft);
     setTrainerReady(Boolean(draft.name && draft.url && draft.prompt && draft.outputFormat));
@@ -301,6 +330,9 @@ export default function AgentTasksPage() {
         toast.error(data?.error ?? "Preview failed");
         return;
       }
+      if (data?.preview?.summary) {
+        setTrainerDraft((current) => ({ ...current, previewSummary: String(data.preview.summary).slice(0, 2000) }));
+      }
       setTrainerReady(Boolean(data?.readyToSave));
       setTrainerMessages((items) => [...items, { role: "assistant", text: data?.assistantMessage ?? "Preview finished." }]);
     } catch {
@@ -330,6 +362,8 @@ export default function AgentTasksPage() {
         daysOfWeek: trainerDraft.daysOfWeek,
         active: trainerDraft.active === "true",
         notifyOnRun: trainerDraft.notifyOnRun === "true",
+        previewSummary: trainerDraft.previewSummary,
+        versionSource: trainerDraft.taskId ? "train" : "create",
       };
       const res = await fetch("/api/agent-tasks", {
         method: trainerDraft.taskId ? "PATCH" : "POST",
@@ -430,6 +464,54 @@ export default function AgentTasksPage() {
     }
     toast.success("Task deleted");
     loadTasks();
+  };
+
+  const clearMemory = async (task?: any) => {
+    const label = task?.name ? `"${task.name}"` : "all agent tasks";
+    if (!window.confirm(`Clear vector memory for ${label}? This keeps tasks and run logs.`)) return;
+    const busyId = task?.id ?? "all";
+    setMemoryBusyId(busyId);
+    try {
+      const res = await fetch("/api/agent-task-memory", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(task?.id ? { taskId: task.id } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to clear memory");
+        return;
+      }
+      toast.success(task?.id ? "Task memory cleared" : "All agent memory cleared");
+      loadTasks();
+    } catch {
+      toast.error("Failed to clear memory");
+    } finally {
+      setMemoryBusyId(null);
+    }
+  };
+
+  const rollbackVersion = async (task: any, version: any) => {
+    if (!window.confirm(`Restore "${task.name}" to v${version.version}?`)) return;
+    setVersionBusyId(version.id);
+    try {
+      const res = await fetch("/api/agent-tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, rollbackVersionId: version.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to restore version");
+        return;
+      }
+      toast.success(`Restored v${version.version}`);
+      loadTasks();
+    } catch {
+      toast.error("Failed to restore version");
+    } finally {
+      setVersionBusyId(null);
+    }
   };
 
   const toggleDay = (day: string) => {
@@ -560,14 +642,20 @@ export default function AgentTasksPage() {
 
       <FadeIn delay={0.04}>
         <Card className="border-primary/25">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <CalendarClock className="h-5 w-5 text-primary" />
-              Cron Setup
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">Use this in cron-job.org. Vercel cron is not needed.</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
+          <details>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 font-semibold">
+                <CalendarClock className="h-5 w-5 text-primary" />
+                Setup & Memory
+              </span>
+              <span className="mt-1 block truncate text-xs text-muted-foreground">
+                {cronInfo?.secretConfigured ? "Cron ready" : "Cron secret missing"} / {vectorMemoryInfo?.configured ? `${vectorMemoryInfo.namespaceVectorCount ?? 0} memory chunks` : "Memory missing"}
+              </span>
+            </span>
+            <Badge variant="outline">Open</Badge>
+          </summary>
+          <CardContent className="space-y-3 pt-0">
             <div className="grid gap-2 lg:grid-cols-[1fr_auto] lg:items-center">
               <div className="min-w-0 rounded-2xl border border-border bg-muted/25 p-3">
                 <p className="text-xs text-muted-foreground">Endpoint</p>
@@ -606,7 +694,38 @@ export default function AgentTasksPage() {
                 <p className="mt-1 font-semibold">{cronInfo?.lastHit ? `${cronInfo.lastHit.ran} ran / ${cronInfo.lastHit.checked} checked` : "-"}</p>
               </div>
             </div>
+            <div className="rounded-2xl border border-border bg-muted/20 p-3">
+              <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Agent Memory</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {vectorMemoryInfo?.configured
+                      ? `${vectorMemoryInfo.namespaceVectorCount ?? 0} saved chunks in ${vectorMemoryInfo.namespace ?? "default"}`
+                      : "Pinecone is not configured for this environment."}
+                  </p>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => clearMemory()} loading={memoryBusyId === "all"} disabled={!vectorMemoryInfo?.configured || Boolean(memoryBusyId)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear All
+                </Button>
+              </div>
+              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                <div className="rounded-xl bg-background/50 p-2">
+                  <p className="text-muted-foreground">Total vectors</p>
+                  <p className="font-mono font-semibold">{vectorMemoryInfo?.totalVectorCount ?? 0}</p>
+                </div>
+                <div className="rounded-xl bg-background/50 p-2">
+                  <p className="text-muted-foreground">Namespace vectors</p>
+                  <p className="font-mono font-semibold">{vectorMemoryInfo?.namespaceVectorCount ?? 0}</p>
+                </div>
+                <div className="rounded-xl bg-background/50 p-2">
+                  <p className="text-muted-foreground">Dimension</p>
+                  <p className="font-mono font-semibold">{vectorMemoryInfo?.dimension ?? "-"}</p>
+                </div>
+              </div>
+            </div>
           </CardContent>
+          </details>
         </Card>
       </FadeIn>
 
@@ -645,14 +764,18 @@ export default function AgentTasksPage() {
 
       <FadeIn delay={0.08}>
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-lg">
-              <Sparkles className="h-5 w-5 text-primary" />
-              Trained Templates
-            </CardTitle>
-            <p className="text-sm text-muted-foreground">Save your task instruction and expected output once, then reuse it for new links.</p>
-          </CardHeader>
-          <CardContent>
+          <details>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 font-semibold">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Trained Templates
+              </span>
+              <span className="mt-1 block text-xs text-muted-foreground">{templates.length} saved templates</span>
+            </span>
+            <Badge variant="outline">Open</Badge>
+          </summary>
+          <CardContent className="pt-0">
             {templates.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
                 No trained templates yet. Use Train to create one before scheduling a task.
@@ -679,16 +802,21 @@ export default function AgentTasksPage() {
               </div>
             )}
           </CardContent>
+          </details>
         </Card>
       </FadeIn>
 
       <FadeIn delay={0.1}>
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Quick Templates</CardTitle>
-            <p className="text-sm text-muted-foreground">Start from a common recurring task, then add the link.</p>
-          </CardHeader>
-          <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <details>
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+            <span className="min-w-0">
+              <span className="font-semibold">Quick Templates</span>
+              <span className="mt-1 block text-xs text-muted-foreground">Use a starter only when you need it</span>
+            </span>
+            <Badge variant="outline">Open</Badge>
+          </summary>
+          <CardContent className="grid gap-2 pt-0 sm:grid-cols-2 lg:grid-cols-4">
             {taskTemplates.map((template) => (
               <button
                 key={template.name}
@@ -701,6 +829,7 @@ export default function AgentTasksPage() {
               </button>
             ))}
           </CardContent>
+          </details>
         </Card>
       </FadeIn>
 
@@ -729,19 +858,20 @@ export default function AgentTasksPage() {
                   )}
                 </div>
                 <div className="grid grid-cols-5 gap-2 sm:flex">
-                  <Button type="button" variant="outline" size="sm" onClick={() => runNow(task)} loading={runningTaskId === task.id} disabled={Boolean(runningTaskId)}>
-                    <Play className="mr-1 h-4 w-4" />Run
+                  <Button type="button" variant="outline" size="sm" className="min-w-0 px-2 sm:px-3" onClick={() => runNow(task)} loading={runningTaskId === task.id} disabled={Boolean(runningTaskId)} title="Run now" aria-label="Run now">
+                    <Play className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Run</span>
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => toggleTask(task)}>
-                    {task.active ? "Pause" : "Resume"}
+                  <Button type="button" variant="outline" size="sm" className="min-w-0 px-2 sm:px-3" onClick={() => toggleTask(task)} title={task.active ? "Pause" : "Resume"} aria-label={task.active ? "Pause" : "Resume"}>
+                    {task.active ? <Pause className="h-4 w-4 sm:mr-1" /> : <RefreshCw className="h-4 w-4 sm:mr-1" />}
+                    <span className="hidden sm:inline">{task.active ? "Pause" : "Resume"}</span>
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => setLogTask(task)}>
+                  <Button type="button" variant="outline" size="sm" className="min-w-0 px-2 sm:px-3" onClick={() => setLogTask(task)} title="Run logs" aria-label="Run logs">
                     <History className="h-4 w-4" />
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => openTrainer(task)}>
+                  <Button type="button" variant="outline" size="sm" className="min-w-0 px-2 sm:px-3" onClick={() => openTrainer(task)} title="Train task" aria-label="Train task">
                     <Bot className="h-4 w-4" />
                   </Button>
-                  <Button type="button" variant="outline" size="sm" onClick={() => deleteTask(task)} className="hover:text-destructive">
+                  <Button type="button" variant="outline" size="sm" onClick={() => deleteTask(task)} className="min-w-0 px-2 hover:text-destructive sm:px-3" title="Delete task" aria-label="Delete task">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -751,6 +881,72 @@ export default function AgentTasksPage() {
                 <div><span className="text-muted-foreground">Last</span><p>{formatDate(task.lastRunAt)}</p></div>
                 <div><span className="text-muted-foreground">Schedule</span><p>{scheduleLabel(task)}</p></div>
               </div>
+              <details className="rounded-lg border border-border bg-muted/20 p-3">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold [&::-webkit-details-marker]:hidden">
+                  <span>Memory & versions</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <Badge variant={task.lastMemorySearchUsed ? "secondary" : "outline"}>{task.lastMemorySearchUsed ? "Memory used" : "No memory"}</Badge>
+                    <Badge variant="outline">v{task.versions?.[0]?.version ?? 1}</Badge>
+                  </span>
+                </summary>
+                <div className="mt-3 space-y-3">
+              <div className="grid gap-3 rounded-lg bg-background/45 p-3 text-sm sm:grid-cols-[1fr_auto] sm:items-center">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold">Memory</p>
+                    <Badge variant={task.lastMemorySearchUsed ? "secondary" : "outline"}>{task.lastMemorySearchUsed ? "Used" : "No match"}</Badge>
+                    <Badge variant="outline">{task.lastMemoryVectorCount ?? 0} chunks</Badge>
+                  </div>
+                  <div className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                    <span>Last search: {formatDate(task.lastMemorySearchAt)}</span>
+                    <span>Last write: {formatDate(task.lastMemoryWriteAt)}</span>
+                  </div>
+                </div>
+                <Button type="button" variant="outline" size="sm" onClick={() => clearMemory(task)} loading={memoryBusyId === task.id} disabled={!vectorMemoryInfo?.configured || Boolean(memoryBusyId)}>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Clear
+                </Button>
+              </div>
+              {task.versions?.length > 0 && (
+                <div className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold">Versions</p>
+                    <Badge variant="outline">{task.versions.length} saved</Badge>
+                  </div>
+                  <div className="grid gap-2">
+                    {task.versions.map((version: any) => {
+                      const activeVersion = task.activeVersionId === version.id;
+                      return (
+                        <div key={version.id} className="grid gap-2 rounded-md bg-background/55 p-2 text-xs sm:grid-cols-[1fr_auto] sm:items-center">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant={activeVersion ? "secondary" : "outline"}>v{version.version}</Badge>
+                              <span className="font-medium">{version.source || "manual"}</span>
+                              <span className="text-muted-foreground">{formatDate(version.createdAt)}</span>
+                            </div>
+                            {version.previewSummary && (
+                              <p className="mt-1 line-clamp-2 text-muted-foreground">{version.previewSummary}</p>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => rollbackVersion(task, version)}
+                            loading={versionBusyId === version.id}
+                            disabled={activeVersion || Boolean(versionBusyId)}
+                          >
+                            <RefreshCw className="mr-2 h-3.5 w-3.5" />
+                            {activeVersion ? "Active" : "Restore"}
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+                </div>
+              </details>
               {task.lastSummary && (
                 <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground [overflow-wrap:anywhere]">
                   {task.lastSummary}
@@ -773,7 +969,7 @@ export default function AgentTasksPage() {
       </div>
 
       <Dialog open={trainerOpen} onOpenChange={setTrainerOpen}>
-        <DialogContent className="h-[94svh] max-w-[min(72rem,calc(100vw-1rem))] overflow-hidden p-0">
+        <DialogContent className="h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-w-[min(68rem,calc(100vw_-_1rem))] overflow-hidden rounded-2xl p-0 sm:h-[90svh] sm:max-h-[90svh]">
           <DialogHeader className="border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -789,7 +985,7 @@ export default function AgentTasksPage() {
             </div>
           </DialogHeader>
 
-          <div className="grid h-[calc(94svh-4.5rem)] min-h-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(22rem,0.95fr)]">
+          <div className="grid h-[calc(100%-4.5rem)] min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.85fr)]">
             <div className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
                 <DayzaLiveAgent
@@ -812,7 +1008,7 @@ export default function AgentTasksPage() {
                       Run
                     </Button>
                   </div>
-                  <div className="max-h-72 space-y-2 overflow-y-auto p-3">
+                  <div className="max-h-56 space-y-2 overflow-y-auto p-3 sm:max-h-72">
                     {trainerMessages.map((message, index) => (
                       <div
                         key={`${message.role}-${index}`}
@@ -943,6 +1139,8 @@ export default function AgentTasksPage() {
             ) : (logTask?.runs ?? []).map((run: any) => {
               const failed = run.status === "failed";
               const StatusIcon = failed ? XCircle : CheckCircle2;
+              const details = structuredRun(run);
+              const hasDetails = Boolean(details.summary || details.changes.length || details.importantItems.length || details.actionItems.length);
               return (
                 <div key={run.id} className="rounded-2xl border border-border bg-muted/20 p-3">
                   <div className="flex items-start gap-3">
@@ -953,9 +1151,52 @@ export default function AgentTasksPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <Badge variant={failed ? "destructive" : "secondary"}>{run.status}</Badge>
                         <span className="text-xs text-muted-foreground">{formatDate(run.finishedAt || run.startedAt)}</span>
+                        {run.memoryUsed && <Badge variant="outline">memory used</Badge>}
+                        {typeof run.confidence === "number" && <Badge variant="outline">{Math.round(run.confidence * 100)}% confidence</Badge>}
                       </div>
                       {run.error && <p className="mt-2 text-sm text-destructive">{run.error}</p>}
-                      {run.summary && <pre className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-xl bg-background/70 p-3 text-xs text-muted-foreground [overflow-wrap:anywhere]">{run.summary}</pre>}
+                      {hasDetails ? (
+                        <div className="mt-3 space-y-2 text-sm">
+                          {details.summary && (
+                            <div className="rounded-xl bg-background/70 p-3">
+                              <p className="text-xs font-semibold uppercase text-muted-foreground">Summary</p>
+                              <p className="mt-1 text-foreground">{details.summary}</p>
+                            </div>
+                          )}
+                          {details.changes.length > 0 && (
+                            <div className="rounded-xl bg-background/70 p-3">
+                              <p className="text-xs font-semibold uppercase text-muted-foreground">Changes</p>
+                              <ul className="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                                {details.changes.map((item, index) => <li key={`change-${index}`}>{item}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                          {details.importantItems.length > 0 && (
+                            <div className="rounded-xl bg-background/70 p-3">
+                              <p className="text-xs font-semibold uppercase text-muted-foreground">Important</p>
+                              <ul className="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                                {details.importantItems.map((item, index) => <li key={`important-${index}`}>{item}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                          {details.actionItems.length > 0 && (
+                            <div className="rounded-xl bg-background/70 p-3">
+                              <p className="text-xs font-semibold uppercase text-muted-foreground">Action</p>
+                              <ul className="mt-1 list-disc space-y-1 pl-4 text-muted-foreground">
+                                {details.actionItems.map((item, index) => <li key={`action-${index}`}>{item}</li>)}
+                              </ul>
+                            </div>
+                          )}
+                        </div>
+                      ) : run.summary ? (
+                        <pre className="mt-2 max-h-44 overflow-y-auto whitespace-pre-wrap rounded-xl bg-background/70 p-3 text-xs text-muted-foreground [overflow-wrap:anywhere]">{run.summary}</pre>
+                      ) : null}
+                      {run.rawPreview && (
+                        <details className="mt-2 rounded-xl bg-background/50 p-3 text-xs text-muted-foreground">
+                          <summary className="cursor-pointer font-semibold text-foreground">Raw page preview</summary>
+                          <pre className="mt-2 max-h-36 overflow-y-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{run.rawPreview}</pre>
+                        </details>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { computeNextRunAt } from "@/lib/agent-scheduled-tasks";
-import { isAgentTaskVectorMemoryConfigured } from "@/lib/agent-task-vector-memory";
+import { describeAgentTaskMemory } from "@/lib/agent-task-vector-memory";
 
 function cleanString(value: unknown, fallback = "") {
   return String(value ?? fallback).trim();
@@ -22,6 +22,41 @@ function cleanUrl(value: unknown) {
   }
 }
 
+async function createTaskVersion(task: any, source = "manual", previewSummary?: string | null) {
+  const latest = await prisma.agentTaskVersion.findFirst({
+    where: { taskId: task.id },
+    orderBy: { version: "desc" },
+    select: { version: true },
+  });
+  const version = await prisma.agentTaskVersion.create({
+    data: {
+      userId: task.userId,
+      taskId: task.id,
+      version: (latest?.version ?? 0) + 1,
+      name: task.name,
+      prompt: task.prompt,
+      trainingNotes: task.trainingNotes,
+      outputFormat: task.outputFormat,
+      url: task.url,
+      scheduleType: task.scheduleType,
+      timeOfDay: task.timeOfDay,
+      daysOfWeek: task.daysOfWeek,
+      previewSummary: previewSummary ?? null,
+      source,
+      activatedAt: new Date(),
+    },
+  });
+  await prisma.agentScheduledTask.update({
+    where: { id: task.id },
+    data: { activeVersionId: version.id },
+  });
+  return version;
+}
+
+function hasVersionedChange(data: any) {
+  return ["name", "prompt", "trainingNotes", "outputFormat", "url", "scheduleType", "timeOfDay", "daysOfWeek", "previewSummary"].some((key) => key in data);
+}
+
 export async function GET(req: Request) {
   const user = await requireCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -29,7 +64,10 @@ export async function GET(req: Request) {
   const [tasks, lastCronHit, recentCronHits] = await Promise.all([
     prisma.agentScheduledTask.findMany({
       where: { userId: user.id },
-      include: { runs: { orderBy: { createdAt: "desc" }, take: 20 } },
+      include: {
+        runs: { orderBy: { createdAt: "desc" }, take: 20 },
+        versions: { orderBy: { version: "desc" }, take: 8 },
+      },
       orderBy: [{ active: "desc" }, { nextRunAt: "asc" }, { createdAt: "desc" }],
     }),
     prisma.agentCronHit.findFirst({
@@ -43,7 +81,7 @@ export async function GET(req: Request) {
     }),
   ]);
 
-  const origin = new URL(req.url).origin;
+  const [origin, vectorMemory] = [new URL(req.url).origin, await describeAgentTaskMemory()];
   return NextResponse.json({
     tasks,
     cron: {
@@ -53,9 +91,7 @@ export async function GET(req: Request) {
       recentHits: recentCronHits,
       secretConfigured: Boolean(process.env.CRON_SECRET),
     },
-    vectorMemory: {
-      configured: isAgentTaskVectorMemoryConfigured(),
-    },
+    vectorMemory,
   });
 }
 
@@ -89,8 +125,9 @@ export async function POST(req: Request) {
       nextRunAt: data.active === false ? null : computeNextRunAt({ scheduleType, timeOfDay, daysOfWeek }),
     },
   });
+  const version = await createTaskVersion(task, cleanString(data.versionSource, "create"), cleanString(data.previewSummary) || null);
 
-  return NextResponse.json({ task });
+  return NextResponse.json({ task: { ...task, activeVersionId: version.id } });
 }
 
 export async function PATCH(req: Request) {
@@ -103,6 +140,30 @@ export async function PATCH(req: Request) {
 
   const existing = await prisma.agentScheduledTask.findFirst({ where: { id, userId: user.id } });
   if (!existing) return NextResponse.json({ error: "Task not found" }, { status: 404 });
+
+  if (data.rollbackVersionId) {
+    const version = await prisma.agentTaskVersion.findFirst({
+      where: { id: cleanString(data.rollbackVersionId), taskId: existing.id, userId: user.id },
+    });
+    if (!version) return NextResponse.json({ error: "Version not found" }, { status: 404 });
+    const task = await prisma.agentScheduledTask.update({
+      where: { id },
+      data: {
+        name: version.name,
+        prompt: version.prompt,
+        trainingNotes: version.trainingNotes,
+        outputFormat: version.outputFormat,
+        url: version.url,
+        scheduleType: version.scheduleType,
+        timeOfDay: version.scheduleType === "manual" ? null : version.timeOfDay,
+        daysOfWeek: version.scheduleType === "weekly" ? version.daysOfWeek : null,
+        activeVersionId: version.id,
+        nextRunAt: existing.active ? computeNextRunAt(version) : null,
+      },
+    });
+    await prisma.agentTaskVersion.update({ where: { id: version.id }, data: { activatedAt: new Date() } });
+    return NextResponse.json({ task });
+  }
 
   const scheduleType = ["daily", "weekly", "manual"].includes(data.scheduleType) ? data.scheduleType : existing.scheduleType;
   const timeOfDay = cleanString(data.timeOfDay, existing.timeOfDay ?? "09:00") || "09:00";
@@ -125,6 +186,9 @@ export async function PATCH(req: Request) {
       nextRunAt: active ? computeNextRunAt({ scheduleType, timeOfDay, daysOfWeek }) : null,
     },
   });
+  if (hasVersionedChange(data)) {
+    await createTaskVersion(task, cleanString(data.versionSource, "manual"), cleanString(data.previewSummary) || null);
+  }
 
   return NextResponse.json({ task });
 }

@@ -33,6 +33,7 @@ model User {
   reminders     Reminder[]
   agentScheduledTasks AgentScheduledTask[]
   agentScheduledTaskRuns AgentScheduledTaskRun[]
+  agentTaskVersions AgentTaskVersion[]
   agentTaskTemplates AgentTaskTemplate[] @relation("SubmittedAgentTaskTemplates")
   reviewedAgentTaskTemplates AgentTaskTemplate[] @relation("ReviewedAgentTaskTemplates")
   agentCronHits AgentCronHit[]
@@ -430,16 +431,46 @@ model AgentScheduledTask {
   daysOfWeek  String?
   active      Boolean  @default(true)
   notifyOnRun Boolean  @default(true)
+  activeVersionId String?
   nextRunAt   DateTime?
   lastRunAt   DateTime?
   lastStatus  String?
   lastSummary String?
+  lastMemorySearchAt DateTime?
+  lastMemorySearchUsed Boolean @default(false)
+  lastMemoryWriteAt DateTime?
+  lastMemoryVectorCount Int @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   runs         AgentScheduledTaskRun[]
+  versions     AgentTaskVersion[]
   @@index([userId, active, nextRunAt])
   @@index([nextRunAt, active])
   @@index([templateId])
+  @@index([activeVersionId])
+}
+
+model AgentTaskVersion {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  taskId      String
+  task        AgentScheduledTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  version     Int
+  name        String
+  prompt      String
+  trainingNotes String?
+  outputFormat String?
+  url         String?
+  scheduleType String @default("daily")
+  timeOfDay   String?
+  daysOfWeek  String?
+  previewSummary String?
+  source      String   @default("manual") // create, train, rollback, manual
+  activatedAt DateTime?
+  createdAt   DateTime @default(now())
+  @@unique([taskId, version])
+  @@index([userId, taskId, createdAt])
 }
 
 model AgentTaskTemplate {
@@ -476,6 +507,14 @@ model AgentScheduledTaskRun {
   task      AgentScheduledTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
   status    String
   summary   String?
+  structuredSummaryJson String?
+  changesJson String?
+  importantItemsJson String?
+  rawPreview String?
+  confidence Float?
+  memoryUsed Boolean @default(false)
+  memorySearchAt DateTime?
+  memoryWriteAt DateTime?
   error     String?
   startedAt DateTime @default(now())
   finishedAt DateTime?

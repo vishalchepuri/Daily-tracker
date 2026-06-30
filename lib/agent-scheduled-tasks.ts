@@ -104,8 +104,116 @@ function extractPageContext(html: string) {
   ].filter(Boolean).join("\n\n");
 }
 
+function financialYearFor(date: Date) {
+  const month = date.getMonth() + 1;
+  const year = date.getFullYear();
+  return month < 4 ? `${year - 1}-${String(year).slice(-2)}` : `${year}-${String(year + 1).slice(-2)}`;
+}
+
+function formatRowsForContext(rows: any[], maxRows = 16) {
+  return rows.slice(0, maxRows).map((row, index) => {
+    const cells = Object.entries(row ?? {})
+      .filter(([key]) => !key.startsWith("~"))
+      .map(([key, value]) => {
+        const text = cleanText(decodeHtml(String(value ?? "")));
+        return text ? `${key}: ${text}` : "";
+      })
+      .filter(Boolean)
+      .slice(0, 14);
+    return cells.length ? `${index + 1}. ${cells.join(" | ")}` : "";
+  }).filter(Boolean).join("\n");
+}
+
+async function extractInvestorGainReportContext(pageUrl: string) {
+  const parsed = new URL(pageUrl);
+  if (!parsed.hostname.includes("investorgain.com")) return "";
+  const reportId = parsed.pathname.match(/\/report\/[^/]+\/(\d+)/i)?.[1];
+  if (!reportId) return "";
+
+  const headers = {
+    Accept: "application/json",
+    Origin: "https://www.investorgain.com",
+    Referer: pageUrl,
+    "User-Agent": "Mozilla/5.0 Dayza-Agent-Task/1.0",
+  };
+  const infoRes = await fetch(`https://webnodejs.investorgain.com/cloud/v2/report/info-read/${reportId}`, {
+    headers,
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!infoRes.ok) return "";
+  const info = await infoRes.json().catch(() => null);
+  const reportInfo = info?.reportInfo?.[0] ?? {};
+  const pathParts = parsed.pathname.split("/").filter(Boolean);
+  const reportIdIndex = pathParts.findIndex((part) => part === reportId);
+  const urlParameter = reportIdIndex >= 0 ? pathParts[reportIdIndex + 1] : "";
+  const parameterCodes = [
+    urlParameter,
+    ...(Array.isArray(info?.reportParameterData) ? info.reportParameterData.map((item: any) => item?.code) : []),
+    "all",
+    "current",
+  ].map((item) => String(item ?? "").trim()).filter(Boolean);
+  const uniqueCodes = Array.from(new Set(parameterCodes));
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  const financialYear = financialYearFor(now);
+  const version = info?.version ? `&v=${encodeURIComponent(String(info.version))}` : "";
+
+  for (const code of uniqueCodes.slice(0, 8)) {
+    const dataUrl = `https://webnodejs.investorgain.com/cloud/v2/report/data-read/${reportId}/1/${month}/${year}/${financialYear}/0/${encodeURIComponent(code)}?search=${version}`;
+    const dataRes = await fetch(dataUrl, { headers, signal: AbortSignal.timeout(12000) }).catch(() => null);
+    if (!dataRes?.ok) continue;
+    const data = await dataRes.json().catch(() => null);
+    const rows = Array.isArray(data?.reportTableData) ? data.reportTableData : [];
+    if (data?.msg !== 1 || rows.length === 0) continue;
+    const rowText = formatRowsForContext(rows);
+    if (!rowText) continue;
+    return [
+      "CLIENT-RENDERED REPORT DATA:",
+      `Report: ${reportInfo.report_title || reportInfo.table_heading || reportId}`,
+      `Parameter: ${code}`,
+      `Total records: ${data.totalRecords ?? rows.length}`,
+      "Rows:",
+      rowText,
+    ].join("\n");
+  }
+
+  return "";
+}
+
+async function extractSupplementalPageContext(pageUrl: string, _html: string) {
+  return [
+    await extractInvestorGainReportContext(pageUrl).catch(() => ""),
+  ].filter(Boolean).join("\n\n");
+}
+
+function extractJsonObject(text: string) {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i)?.[1];
+  const raw = fenced || text.match(/\{[\s\S]*\}/)?.[0] || "";
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function stringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, 12);
+}
+
+function formatStructuredSummary(input: { summary?: string; changes?: string[]; importantItems?: string[]; actionItems?: string[] }) {
+  return [
+    input.summary ? `Summary: ${input.summary}` : "",
+    input.changes?.length ? `Changes:\n${input.changes.map((item) => `- ${item}`).join("\n")}` : "",
+    input.importantItems?.length ? `Important:\n${input.importantItems.map((item) => `- ${item}`).join("\n")}` : "",
+    input.actionItems?.length ? `Action:\n${input.actionItems.map((item) => `- ${item}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
 async function summarizeWithAi(input: { taskName: string; prompt: string; trainingNotes?: string | null; outputFormat?: string | null; url: string; title: string; status: number; context: string; memory?: string }) {
-  if (!process.env.ABACUSAI_API_KEY || !input.context.trim()) return "";
+  if (!process.env.ABACUSAI_API_KEY || !input.context.trim()) return { text: "", structured: null as any };
   const aiPrompt = `You are Dayza Agent running a scheduled web-check task.
 
 Task name: ${input.taskName}
@@ -116,7 +224,16 @@ URL: ${input.url}
 HTTP status: ${input.status}
 Page title: ${input.title || "-"}
 
-Use the page context below to answer the user's instruction. Extract concrete data such as names, dates, amounts, status, table rows, changes, and alerts when present. If related past runs are available, compare the current page with them and call out only new, changed, or important items. Do not say the page has no data just because a placeholder table says "No data available" if useful names or data appear elsewhere. Keep it concise, plain text, and useful.
+Use the page context below to answer the user's instruction. Extract concrete data such as names, dates, amounts, status, table rows, changes, and alerts when present. If related past runs are available, compare the current page with them and call out only new, changed, or important items. Do not say the page has no data just because a placeholder table says "No data available" if useful names or data appear elsewhere.
+
+Return ONLY JSON:
+{
+  "summary": "short clean answer",
+  "changes": ["new or changed items only"],
+  "importantItems": ["important unchanged or notable items"],
+  "actionItems": ["things the user should do, if any"],
+  "confidence": 0.0
+}
 
 ${input.memory ? `RELATED PAST RUNS:\n${input.memory.slice(0, 5000)}\n\n` : ""}
 
@@ -132,14 +249,24 @@ ${input.context.slice(0, 9000)}`;
     body: JSON.stringify({
       model: "gpt-5.4-mini",
       stream: false,
-      max_tokens: 700,
+      max_tokens: 900,
       messages: [{ role: "user", content: aiPrompt }],
     }),
     signal: AbortSignal.timeout(25000),
   });
-  if (!res.ok) return "";
+  if (!res.ok) return { text: "", structured: null as any };
   const data = await res.json().catch(() => ({}));
-  return String(data?.choices?.[0]?.message?.content ?? "").trim();
+  const content = String(data?.choices?.[0]?.message?.content ?? "").trim();
+  const parsed = extractJsonObject(content);
+  if (!parsed) return { text: content, structured: null as any };
+  const structured = {
+    summary: String(parsed.summary ?? "").trim(),
+    changes: stringArray(parsed.changes),
+    importantItems: stringArray(parsed.importantItems),
+    actionItems: stringArray(parsed.actionItems),
+    confidence: Number.isFinite(Number(parsed.confidence)) ? Math.max(0, Math.min(1, Number(parsed.confidence))) : null,
+  };
+  return { text: formatStructuredSummary(structured) || content, structured };
 }
 
 async function inspectUrl(task: { name: string; prompt: string; trainingNotes?: string | null; outputFormat?: string | null; url: string }, memory?: string) {
@@ -151,7 +278,9 @@ async function inspectUrl(task: { name: string; prompt: string; trainingNotes?: 
   const contentType = res.headers.get("content-type") ?? "";
   const body = await res.text();
   const title = contentType.includes("html") ? extractPageTitle(body) : "";
-  const context = contentType.includes("html") ? extractPageContext(body) : cleanText(body).slice(0, 5000);
+  const baseContext = contentType.includes("html") ? extractPageContext(body) : cleanText(body).slice(0, 5000);
+  const supplementalContext = contentType.includes("html") ? await extractSupplementalPageContext(url, body) : "";
+  const context = [supplementalContext, baseContext].filter(Boolean).join("\n\n");
   const aiSummary = await summarizeWithAi({
     taskName: task.name,
     prompt: task.prompt,
@@ -162,18 +291,21 @@ async function inspectUrl(task: { name: string; prompt: string; trainingNotes?: 
     status: res.status,
     context,
     memory,
-  }).catch(() => "");
+  }).catch(() => ({ text: "", structured: null as any }));
   const text = cleanText(body).slice(0, 1400);
+  const rawPreview = text.slice(0, 500);
   return {
     ok: res.ok,
     status: res.status,
     title,
+    structured: aiSummary.structured,
+    rawPreview,
     summary: [
       `URL checked: ${url}`,
       `HTTP ${res.status}${res.ok ? " OK" : ""}`,
       title ? `Title: ${title}` : "",
-      aiSummary ? `Agent summary:\n${aiSummary}` : "",
-      text ? `Preview: ${text.slice(0, 500)}` : "",
+      aiSummary.text ? `Agent summary:\n${aiSummary.text}` : "",
+      rawPreview ? `Preview: ${rawPreview}` : "",
     ].filter(Boolean).join("\n"),
   };
 }
@@ -190,7 +322,7 @@ export async function previewAgentTaskDraft(input: { userId: string; name: strin
     trainingNotes: input.trainingNotes,
     outputFormat: input.outputFormat,
     url: input.url,
-  }, memory);
+  }, memory.text);
 }
 
 export async function runAgentScheduledTask(taskId: string) {
@@ -207,6 +339,10 @@ export async function runAgentScheduledTask(taskId: string) {
   try {
     let summary = `Task: ${task.name}\nInstruction: ${task.prompt}`;
     let status = "completed";
+    let structured: any = null;
+    let rawPreview = "";
+    let memoryUsed = false;
+    let memorySearchAt: Date | null = null;
 
     if (task.url) {
       const memory = await queryAgentTaskMemory({
@@ -215,7 +351,11 @@ export async function runAgentScheduledTask(taskId: string) {
         prompt: task.prompt,
         url: task.url,
       });
-      const result = await inspectUrl({ name: task.name, prompt: task.prompt, trainingNotes: task.trainingNotes, outputFormat: task.outputFormat, url: task.url }, memory);
+      memoryUsed = memory.used;
+      memorySearchAt = memory.searchedAt;
+      const result = await inspectUrl({ name: task.name, prompt: task.prompt, trainingNotes: task.trainingNotes, outputFormat: task.outputFormat, url: task.url }, memory.text);
+      structured = result.structured;
+      rawPreview = result.rawPreview;
       summary = `${summary}\n\n${result.summary}`;
       status = result.ok ? "completed" : "warning";
     }
@@ -223,16 +363,34 @@ export async function runAgentScheduledTask(taskId: string) {
     const finishedAt = new Date();
     const updatedRun = await prisma.agentScheduledTaskRun.update({
       where: { id: run.id },
-      data: { status, summary, finishedAt },
+      data: {
+        status,
+        summary,
+        structuredSummaryJson: structured ? JSON.stringify({ summary: structured.summary, actionItems: structured.actionItems }) : null,
+        changesJson: structured ? JSON.stringify(structured.changes ?? []) : null,
+        importantItemsJson: structured ? JSON.stringify(structured.importantItems ?? []) : null,
+        rawPreview: rawPreview || null,
+        confidence: structured?.confidence ?? null,
+        memoryUsed,
+        memorySearchAt,
+        finishedAt,
+      },
     });
 
     const nextRunAt = computeNextRunAt(task, finishedAt);
     await prisma.agentScheduledTask.update({
       where: { id: task.id },
-      data: { lastRunAt: finishedAt, lastStatus: status, lastSummary: summary.slice(0, 2000), nextRunAt },
+      data: {
+        lastRunAt: finishedAt,
+        lastStatus: status,
+        lastSummary: (structured?.summary || summary).slice(0, 2000),
+        lastMemorySearchAt: memorySearchAt,
+        lastMemorySearchUsed: memoryUsed,
+        nextRunAt,
+      },
     });
 
-    await rememberAgentTaskRun({
+    const memoryWrite = await rememberAgentTaskRun({
       userId: task.userId,
       taskId: task.id,
       taskName: task.name,
@@ -241,12 +399,33 @@ export async function runAgentScheduledTask(taskId: string) {
       url: task.url,
       runId: updatedRun.id,
       summary,
+      structuredSummary: structured ? formatStructuredSummary(structured) : null,
     });
+    if (memoryWrite.ok) {
+      await Promise.all([
+        prisma.agentScheduledTaskRun.update({
+          where: { id: updatedRun.id },
+          data: { memoryWriteAt: memoryWrite.writtenAt },
+        }),
+        prisma.agentScheduledTask.update({
+          where: { id: task.id },
+          data: { lastMemoryWriteAt: memoryWrite.writtenAt, lastMemoryVectorCount: memoryWrite.vectorCount },
+        }),
+      ]);
+    }
 
     if (task.notifyOnRun && task.user?.profile?.notifyAgentTasks !== false) {
+      const notificationBody = structured?.summary
+        ? [
+            structured.summary,
+            structured?.actionItems?.[0] ? `Action: ${structured.actionItems[0]}` : "",
+          ].filter(Boolean).join(" • ")
+        : status === "completed"
+          ? "Task completed. Open Dayza to view the result."
+          : "Task needs attention. Open Dayza to view the result.";
       await sendPushToUser(task.userId, {
         title: `Agent task: ${task.name}`,
-        body: summary.slice(0, 240),
+        body: notificationBody.slice(0, 180),
         url: "/agent-tasks",
         tag: `agent-task-${task.id}`,
         data: { taskId: task.id, kind: "agent-task" },
