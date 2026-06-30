@@ -150,6 +150,33 @@
       hsl(var(--background)) 70%
     );
   }
+
+  .live-voice-wave {
+    display: inline-flex;
+    height: 0.9rem;
+    width: 0.9rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.09rem;
+  }
+
+  .live-voice-wave > span {
+    display: block;
+    width: 0.12rem;
+    height: 0.38rem;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: live-voice-wave 0.8s ease-in-out infinite;
+  }
+
+  .live-voice-wave > span:nth-child(2) {
+    height: 0.65rem;
+    animation-delay: 0.12s;
+  }
+
+  .live-voice-wave > span:nth-child(3) {
+    animation-delay: 0.24s;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -174,6 +201,18 @@
   }
   100% {
     transform: translateX(240%);
+  }
+}
+
+@keyframes live-voice-wave {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scaleY(1.15);
+    opacity: 1;
   }
 }
 

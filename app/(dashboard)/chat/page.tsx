@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, PhoneCall } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, PhoneCall, Sparkles } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
@@ -834,58 +834,49 @@ export default function ChatPage() {
         )}
         <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2.5 py-3 sm:space-y-4 sm:p-4">
           {(messages ?? [])?.length === 0 && (
-            <div className="mx-auto flex min-h-full max-w-md flex-col justify-center py-6 text-center sm:py-10">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Bot className="h-7 w-7" />
-              </div>
-              <h3 className="font-display text-lg font-bold tracking-tight">{interactionMode ? "Talk to Dayza" : "How can Dayza help?"}</h3>
-              <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                {interactionMode
-                  ? "Use voice for a hands-free chat, or show Dayza a meal, receipt, medicine, or workout screen."
-                  : "Pick a quick action or type naturally. Dayza can log, plan, review, and explain."}
-              </p>
-              {interactionMode && (
-                <div className="mx-auto mt-5 grid w-full max-w-sm grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleVoiceInput({ autoSend: true })}
-                    disabled={streaming}
-                    className={`rounded-2xl border px-4 py-5 text-center transition active:scale-95 ${listening ? "border-primary bg-primary/15 text-primary" : "border-border bg-background/70 hover:border-primary/40 hover:bg-muted/40"}`}
-                  >
-                    <span className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
-                      {listening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                    </span>
-                    <span className="block text-sm font-semibold">{listening ? "Listening..." : "Talk"}</span>
-                    <span className="mt-1 block text-[0.7rem] text-muted-foreground">Auto-send voice</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={streaming}
-                    className="rounded-2xl border border-border bg-background/70 px-4 py-5 text-center transition hover:border-primary/40 hover:bg-muted/40 active:scale-95"
-                  >
-                    <span className="mx-auto mb-2 flex h-11 w-11 items-center justify-center rounded-full bg-sky-500/15 text-sky-400">
-                      <Video className="h-5 w-5" />
-                    </span>
-                    <span className="block text-sm font-semibold">Show</span>
-                    <span className="mt-1 block text-[0.7rem] text-muted-foreground">Camera/photo</span>
-                  </button>
+            interactionMode ? (
+              <div className="mx-auto flex min-h-full max-w-md flex-col items-center justify-center px-4 pb-24 pt-8 text-center sm:pb-28 sm:pt-12">
+                <div className="mb-5 grid h-10 w-10 place-items-center text-primary">
+                  <Sparkles className={`h-9 w-9 ${listening || streaming || speaking ? "animate-pulse" : ""}`} />
                 </div>
-              )}
-              <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    onClick={() => setInput(action.label)}
-                    className="rounded-lg border border-border bg-background/70 px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/40"
-                  >
-                    <span className="block text-sm font-semibold leading-tight">{action.label}</span>
-                    <span className="mt-1 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
-                  </button>
-                ))}
+                <h3 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                  Hi Vishal, what's the move?
+                </h3>
+                {listening && (
+                  <div className="mt-5 flex items-center gap-3 rounded-full border border-primary/25 bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
+                    <span className="live-voice-wave" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    Listening
+                  </div>
+                )}
               </div>
-            </div>
+            ) : (
+              <div className="mx-auto flex min-h-full max-w-md flex-col justify-center py-6 text-center sm:py-10">
+                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Bot className="h-7 w-7" />
+                </div>
+                <h3 className="font-display text-lg font-bold tracking-tight">How can Dayza help?</h3>
+                <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
+                  Pick a quick action or type naturally. Dayza can log, plan, review, and explain.
+                </p>
+                <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
+                  {quickActions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => setInput(action.label)}
+                      className="rounded-lg border border-border bg-background/70 px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/40"
+                    >
+                      <span className="block text-sm font-semibold leading-tight">{action.label}</span>
+                      <span className="mt-1 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
           )}
           {(messages ?? []).map((msg: any, i: number) => (
             <div key={msg?.id ?? i} className={`flex gap-2 sm:gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
@@ -964,7 +955,7 @@ export default function ChatPage() {
               </Button>
             </div>
           )}
-          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] gap-1.5 rounded-2xl border border-border bg-background p-1.5 sm:grid-cols-[auto_auto_1fr_auto] sm:gap-2 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
+          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className={`grid gap-1.5 rounded-2xl border border-border bg-background p-1.5 sm:gap-2 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 ${interactionMode ? "grid-cols-[2.5rem_2.5rem_minmax(0,1fr)_2.5rem] sm:grid-cols-[auto_auto_1fr_auto]" : "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] sm:grid-cols-[auto_auto_1fr_auto]"}`}>
             <input
               ref={fileInputRef}
               type="file"
@@ -994,9 +985,18 @@ export default function ChatPage() {
               onClick={() => toggleVoiceInput()}
               disabled={streaming}
               title={listening ? "Stop listening" : "Speak message"}
-              className="hidden h-10 w-10 shrink-0 rounded-xl sm:flex sm:h-11 sm:w-11"
+              className={`relative h-10 w-10 shrink-0 rounded-xl sm:h-11 sm:w-11 ${interactionMode ? "flex" : "hidden sm:flex"}`}
             >
               {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              {interactionMode && (
+                <span className={`absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full border border-background ${listening ? "bg-emerald-500 text-white" : "bg-primary text-primary-foreground"}`} aria-hidden="true">
+                  <span className={`live-voice-wave scale-75 ${listening ? "" : "opacity-80"}`}>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </span>
+              )}
             </Button>
             <Input
               value={input}
