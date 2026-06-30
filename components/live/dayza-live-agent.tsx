@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Clock3, Loader2, Mic, MicOff, PhoneOff, Radio, Send, ShieldCheck, Sparkles, Square } from "lucide-react";
+import { Clock3, Loader2, Mic, MicOff, PhoneOff, Send, Square } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { BrandLogo } from "@/components/brand-logo";
 import { dayzaFetch } from "@/lib/firebase-session-client";
 
 type LiveStatus = "idle" | "starting" | "listening" | "thinking" | "speaking" | "ended" | "error";
@@ -439,8 +439,8 @@ export function DayzaLiveAgent({
           const messageText = await readSocketMessage(event.data);
           handleLiveMessage(JSON.parse(messageText));
         } catch (error) {
-          console.error("Gemini Live message parse failed", error);
-          showLiveError("Could not read a Gemini Live response. Please end the call and start again.");
+          console.error("Dayza Live message parse failed", error);
+          showLiveError("Could not read a Dayza Live response. Please end the call and start again.");
         }
       };
       socket.onerror = () => {
@@ -475,142 +475,119 @@ export function DayzaLiveAgent({
   }, [pushTranscript, sendJson, text]);
 
   const liveActive = status === "starting" || status === "listening" || status === "speaking" || status === "thinking";
-  const progress = Math.min(100, Math.round((elapsedSeconds / maxSessionSeconds) * 100));
+  const visibleTranscript = transcript.filter((item) => item.role === "user" || item.role === "assistant");
 
   return (
-    <Card className={`${compact ? "mb-0 rounded-xl" : "mb-3 rounded-2xl sm:mb-4"} overflow-hidden border-primary/20 bg-gradient-to-b from-primary/10 via-card to-card ${className}`}>
-      <div className={`border-b border-border/70 ${compact ? "px-3 py-2" : "px-3 py-3 sm:px-4"}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className={`${compact ? "h-9 w-9 rounded-xl" : "h-11 w-11 rounded-2xl"} flex shrink-0 items-center justify-center bg-primary text-primary-foreground shadow-lg shadow-primary/20`}>
-              <Bot className={compact ? "h-4 w-4" : "h-5 w-5"} />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className={`font-display font-bold tracking-tight ${compact ? "text-base" : "text-lg"}`}>{title}</h2>
-              </div>
-              <p className={`mt-0.5 text-xs leading-relaxed text-muted-foreground ${compact ? "hidden sm:block" : ""}`}>
-                {subtitle}
-              </p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background/70 px-2 py-1 text-[0.7rem] font-semibold text-muted-foreground">
-            <Clock3 className="h-3.5 w-3.5" />
-            {formatTimer(elapsedSeconds)}
-          </div>
-        </div>
-        <div className={`${compact ? "mt-2 h-1" : "mt-3 h-1.5"} overflow-hidden rounded-full bg-muted`}>
-          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${progress}%` }} />
-        </div>
-        {liveError && (
-          <div className="mt-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs leading-relaxed text-destructive">
-            {liveError}
-          </div>
-        )}
+    <div className={`flex flex-col ${className}`}>
+      <div className="flex items-center justify-between px-1">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+            status === "error"
+              ? "border-destructive/30 bg-destructive/10 text-destructive"
+              : liveActive
+                ? "border-primary/30 bg-primary/10 text-primary"
+                : "border-border bg-muted/50 text-muted-foreground"
+          }`}
+        >
+          <span className={`h-1.5 w-1.5 rounded-full bg-current ${liveActive ? "animate-pulse" : "opacity-50"}`} />
+          {statusLabel(status)}
+        </span>
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-xs font-medium tabular-nums text-muted-foreground">
+          <Clock3 className="h-3.5 w-3.5" />
+          {formatTimer(elapsedSeconds)}
+        </span>
       </div>
 
-      <div className={`grid gap-3 ${compact ? "p-2 sm:p-3" : "p-3 sm:p-4 lg:grid-cols-[16rem_minmax(0,1fr)]"}`}>
-        <div className={`${compact ? "rounded-xl p-2" : "rounded-2xl p-3"} border border-border/80 bg-background/60`}>
-          <button
-            type="button"
-            onClick={liveActive ? () => stopLive("Live call ended by user.") : startLive}
-            className={`group flex w-full items-center justify-center border text-center transition active:scale-[0.98] ${
-              compact ? "h-14 flex-row gap-3 rounded-xl px-3" : "aspect-square flex-col rounded-[2rem]"
-            } ${
-              liveActive
-                ? "border-destructive/35 bg-destructive/10 text-destructive"
-                : "border-primary/30 bg-primary/15 text-primary hover:bg-primary/20"
+      <div className="flex flex-col items-center justify-center py-6 sm:py-8">
+        <button
+          type="button"
+          onClick={liveActive ? () => stopLive("Live call ended by user.") : startLive}
+          className="relative flex h-44 w-44 items-center justify-center outline-none"
+          aria-label={liveActive ? "End live call" : "Start live call"}
+        >
+          <span
+            className={`absolute inset-0 rounded-full bg-[linear-gradient(145deg,#052e2b_0%,#047857_48%,#22c55e_100%)] blur-2xl transition-opacity duration-500 ${
+              liveActive ? "animate-pulse opacity-80" : "opacity-40"
             }`}
-          >
-            <span className={`${compact ? "h-9 w-9" : "mb-4 h-20 w-20"} flex items-center justify-center rounded-full ${liveActive ? "bg-destructive/15" : "bg-primary text-primary-foreground"}`}>
-              {status === "starting" ? <Loader2 className={`${compact ? "h-4 w-4" : "h-8 w-8"} animate-spin`} /> : liveActive ? <PhoneOff className={compact ? "h-4 w-4" : "h-8 w-8"} /> : <Radio className={compact ? "h-4 w-4" : "h-8 w-8"} />}
-            </span>
-            <span className="min-w-0">
-              <span className={`block font-bold ${compact ? "text-sm" : "text-xl"}`}>{liveActive ? "End Call" : "Start Live"}</span>
-              <span className="mt-1 block text-xs text-muted-foreground">{statusLabel(status)}</span>
-            </span>
-          </button>
-
-          <div className={`${compact ? "mt-2" : "mt-3"} grid grid-cols-2 gap-2`}>
-            <Button
-              type="button"
-              variant={muted ? "default" : "outline"}
-              className={`${compact ? "h-10" : "h-11"} rounded-xl`}
-              onClick={() => setMuted((value) => !value)}
-              disabled={!liveActive}
-            >
-              {muted ? <MicOff className="mr-2 h-4 w-4" /> : <Mic className="mr-2 h-4 w-4" />}
-              {muted ? "Muted" : "Mic"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              className={`${compact ? "h-10" : "h-11"} rounded-xl`}
-              onClick={interruptPlayback}
-              disabled={!liveActive}
-            >
-              <Square className="mr-2 h-4 w-4" />
-              Stop
-            </Button>
-          </div>
-          <div className={`${compact ? "hidden" : "mt-3"} rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs leading-relaxed text-emerald-200`}>
-            <ShieldCheck className="mr-1.5 inline h-3.5 w-3.5" />
-            Reads run directly. Logging spends, food, water, reminders, and workouts needs your confirmation.
-          </div>
-        </div>
-
-        <div className={`${compact ? "min-h-[12rem] max-h-[18rem] rounded-xl" : "min-h-[18rem] rounded-2xl"} flex flex-col overflow-hidden border border-border/80 bg-background/60`}>
-          <div className="flex items-center justify-between border-b border-border px-3 py-2">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Sparkles className="h-4 w-4 text-primary" />
-              Conversation
-            </div>
-            <span className={`rounded-full px-2 py-0.5 text-[0.7rem] font-semibold ${
-              status === "error" ? "bg-destructive/15 text-destructive" : liveActive ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"
-            }`}>
-              {statusLabel(status)}
-            </span>
-          </div>
-
-          <div className={`${compact ? "p-2" : "p-3"} min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain`}>
-            {transcript.map((item) => (
-              <div
-                key={item.id}
-                className={`rounded-2xl px-3 py-2 leading-relaxed ${compact ? "text-xs" : "text-sm"} ${
-                  item.role === "user"
-                    ? "ml-auto max-w-[86%] bg-primary text-primary-foreground"
-                    : item.role === "assistant"
-                      ? "max-w-[90%] bg-muted text-foreground"
-                      : item.role === "tool"
-                        ? "max-w-[90%] border border-primary/20 bg-primary/10 text-primary"
-                        : "max-w-[95%] border border-border bg-background/70 text-muted-foreground"
-                }`}
-              >
-                {item.text}
-                {item.streaming && <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current align-middle" />}
-              </div>
-            ))}
-          </div>
-
-          <form
-            className="grid grid-cols-[minmax(0,1fr)_2.75rem] gap-2 border-t border-border p-2"
-            onSubmit={(event) => {
-              event.preventDefault();
-              sendText();
-            }}
-          >
-            <Input
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={liveActive ? "Type fallback message..." : "Start Live, or use chat below..."}
-              className="h-11 rounded-xl"
-            />
-            <Button type="submit" className="h-11 rounded-xl px-0" disabled={!text.trim()}>
-              <Send className="h-4 w-4" />
-            </Button>
-          </form>
-        </div>
+          />
+          {status === "listening" && <span className="absolute inset-6 animate-ping rounded-full border border-white/20" />}
+          <span className="relative flex h-32 w-32 items-center justify-center rounded-full bg-gradient-to-br from-slate-900 to-slate-800 shadow-2xl ring-1 ring-white/10">
+            {status === "starting" ? (
+              <Loader2 className="h-10 w-10 animate-spin text-white/90" />
+            ) : (
+              <BrandLogo size="lg" showText={false} className={liveActive ? "animate-pulse" : ""} />
+            )}
+          </span>
+        </button>
+        <p className="mt-7 text-lg font-medium tracking-tight">{liveActive ? statusLabel(status) : "Tap to start"}</p>
+        <p className="mt-1.5 max-w-xs text-center text-xs leading-relaxed text-muted-foreground">
+          {liveError || subtitle}
+        </p>
       </div>
-    </Card>
+
+      {visibleTranscript.length > 0 && (
+        <div className="mx-auto mb-5 max-h-28 w-full space-y-1.5 overflow-y-auto overscroll-contain rounded-2xl border border-white/5 bg-white/[0.02] p-3">
+          {visibleTranscript.slice(-6).map((item) => (
+            <p
+              key={item.id}
+              className={`text-xs leading-relaxed ${item.role === "user" ? "text-right font-medium text-foreground" : "text-muted-foreground"}`}
+            >
+              {item.text}
+              {item.streaming && <span className="ml-1 inline-block h-1 w-1 animate-pulse rounded-full bg-current align-middle" />}
+            </p>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-center gap-5">
+        <button
+          type="button"
+          onClick={() => setMuted((value) => !value)}
+          disabled={!liveActive}
+          className={`flex h-14 w-14 items-center justify-center rounded-full border transition active:scale-95 disabled:opacity-40 ${
+            muted ? "border-transparent bg-white text-slate-900" : "border-white/10 bg-white/5 text-foreground hover:bg-white/10"
+          }`}
+          title={muted ? "Unmute" : "Mute"}
+        >
+          {muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+        </button>
+        <button
+          type="button"
+          onClick={() => stopLive("Live call ended by user.")}
+          disabled={!liveActive}
+          className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition active:scale-95 hover:bg-red-600 disabled:opacity-40"
+          title="End call"
+        >
+          <PhoneOff className="h-7 w-7" />
+        </button>
+        <button
+          type="button"
+          onClick={interruptPlayback}
+          disabled={!liveActive}
+          className="flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-white/5 text-foreground transition active:scale-95 hover:bg-white/10 disabled:opacity-40"
+          title="Stop speaking"
+        >
+          <Square className="h-5 w-5" />
+        </button>
+      </div>
+
+      <form
+        className="mt-5 flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1.5 backdrop-blur"
+        onSubmit={(event) => {
+          event.preventDefault();
+          sendText();
+        }}
+      >
+        <Input
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={liveActive ? "Type a message..." : "Start live, or type here..."}
+          className="h-9 min-w-0 flex-1 border-0 bg-transparent px-3 text-base shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+        />
+        <Button type="submit" size="icon" className="h-9 w-9 shrink-0 rounded-full px-0" disabled={!text.trim()}>
+          <Send className="h-4 w-4" />
+        </Button>
+      </form>
+    </div>
   );
 }

@@ -5,11 +5,12 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, PhoneCall, Sparkles } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, AudioLines } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
 import { DayzaLiveAgent } from "@/components/live/dayza-live-agent";
+import { BrandLogo } from "@/components/brand-logo";
 
 declare global {
   interface Window {
@@ -576,42 +577,27 @@ export default function ChatPage() {
   const showLegacyVoicePanel = false;
 
   return (
-    <div className={`flex min-h-0 min-w-0 flex-col ${embedded ? "h-dvh p-2" : "h-[calc(100svh_-_4.5rem_-_env(safe-area-inset-bottom))] sm:h-[calc(100dvh-8rem)]"}`}>
-      {!embedded && <FadeIn>
-        <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3 sm:items-start">
-          <div className="min-w-0">
-            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
-            <p className="hidden text-sm text-muted-foreground sm:mt-1 sm:block">Ask about fitness, food, spends, reminders, and progress</p>
-          </div>
-          <div className="flex items-center gap-1 sm:shrink-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={() => setLiveOpen(true)}
-              aria-label="Start live voice"
-              title="Start live voice"
-            >
-              <PhoneCall className="h-5 w-5" />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={refreshChat}
-              disabled={loading || streaming}
-              aria-label="Reload chat"
-              title="Reload chat"
-            >
-              <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
-            </Button>
-            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-              <DialogTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" aria-label="Open chat history" title="Chat history">
-                  <History className="h-5 w-5" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[82svh] max-w-md overflow-hidden p-0">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-0 h-[45%] bg-[radial-gradient(120%_80%_at_50%_120%,hsl(217_91%_60%/0.28)_0%,transparent_70%)]" />
+      {!embedded && (
+        <div className="relative z-10 flex items-center justify-end gap-1 px-3 pt-2 sm:px-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setLiveOpen(true)}
+            className="h-9 w-9 rounded-full text-muted-foreground hover:bg-white/5"
+            title="Live voice"
+          >
+            <AudioLines className="h-5 w-5" />
+          </Button>
+          <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-white/5" title="Chat history">
+                <History className="h-5 w-5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[82svh] max-w-md overflow-hidden p-0">
                 <DialogHeader className="border-b border-border p-4">
                   <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
                     <DialogTitle className="flex min-w-0 items-center gap-2">
@@ -671,32 +657,22 @@ export default function ChatPage() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button type="button" variant="ghost" size="icon" onClick={startNewChat} disabled={streaming} aria-label="New chat" title="New chat">
+            <Button type="button" variant="ghost" size="icon" onClick={startNewChat} disabled={streaming} className="h-9 w-9 rounded-full text-muted-foreground hover:bg-white/5" title="New chat">
               <Plus className="h-5 w-5" />
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={closeChat}
-              aria-label="Close Dayza Agent"
-              title="Close Dayza Agent"
-            >
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
         </div>
-      </FadeIn>}
+      )}
 
       <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
-        <DialogContent className="h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-w-[min(28rem,calc(100vw_-_1rem))] overflow-hidden rounded-2xl p-0 sm:h-auto sm:max-h-[90svh]">
-          <DialogHeader className="border-b border-border px-4 py-3">
-            <DialogTitle className="flex items-center gap-2">
-              <PhoneCall className="h-5 w-5 text-primary" />
-              Live Voice
+        <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-background p-0 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[90svh] sm:max-w-[min(26rem,calc(100vw_-_1rem))] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-3xl sm:border">
+          <div className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[55%] bg-[radial-gradient(120%_90%_at_50%_-10%,hsl(217_91%_60%/0.22)_0%,transparent_70%)]" />
+          <DialogHeader className="relative z-10 px-5 pt-5">
+            <DialogTitle className="flex items-center gap-2 text-base font-medium">
+              <BrandLogo size="sm" showText={false} />
+              Live Dayza
             </DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto p-3">
+          <div className="relative z-10 min-h-0 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-2">
             <DayzaLiveAgent compact className="mb-0" />
           </div>
         </DialogContent>
@@ -795,223 +771,215 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border-border/70 bg-card sm:rounded-lg">
-        {loading && (
-          <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            Loading chat...
-          </div>
-        )}
-        {lastFailedMessage && !streaming && (
-          <div className="grid gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs sm:flex sm:items-center sm:justify-between">
-            <span className="text-destructive">Last message failed.</span>
-            <Button type="button" size="sm" variant="outline" onClick={retryLastMessage} className="w-full sm:w-auto">
-              Retry
-            </Button>
-          </div>
-        )}
-        {streaming && (
-          <div className="grid gap-2 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="truncate font-medium text-foreground">{agentStatus || "Dayza is working..."}</span>
-                  <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">
-                    {agentElapsedSeconds}s
-                  </span>
-                </div>
-                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                  Your message is already in chat. Stop anytime if you want to change direction.
-                </p>
-              </div>
+      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
+          {loading && (
+            <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              Loading chat...
             </div>
-            <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse} className="w-full sm:w-auto">
-              Stop
-            </Button>
-          </div>
-        )}
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2.5 py-3 sm:space-y-4 sm:p-4">
-          {(messages ?? [])?.length === 0 && (
-            interactionMode ? (
-              <div className="mx-auto flex min-h-full max-w-md flex-col items-center justify-center px-4 pb-24 pt-8 text-center sm:pb-28 sm:pt-12">
-                <div className="mb-5 grid h-10 w-10 place-items-center text-primary">
-                  <Sparkles className={`h-9 w-9 ${listening || streaming || speaking ? "animate-pulse" : ""}`} />
-                </div>
-                <h3 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
-                  Hi Vishal, what's the move?
-                </h3>
-                {listening && (
-                  <div className="mt-5 flex items-center gap-3 rounded-full border border-primary/25 bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
-                    <span className="live-voice-wave" aria-hidden="true">
-                      <span />
-                      <span />
-                      <span />
+          )}
+          {lastFailedMessage && !streaming && (
+            <div className="grid gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs sm:flex sm:items-center sm:justify-between">
+              <span className="text-destructive">Last message failed.</span>
+              <Button type="button" size="sm" variant="outline" onClick={retryLastMessage} className="w-full sm:w-auto">
+                Retry
+              </Button>
+            </div>
+          )}
+          {streaming && (
+            <div className="grid gap-2 border-b border-border bg-primary/5 px-4 py-2 text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium text-foreground">{agentStatus || "Dayza is working..."}</span>
+                    <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">
+                      {agentElapsedSeconds}s
                     </span>
-                    Listening
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="mx-auto flex min-h-full max-w-md flex-col justify-center py-6 text-center sm:py-10">
-                <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                  <Bot className="h-7 w-7" />
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    Your message is already in chat. Stop anytime if you want to change direction.
+                  </p>
                 </div>
-                <h3 className="font-display text-lg font-bold tracking-tight">How can Dayza help?</h3>
-                <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                  Pick a quick action or type naturally. Dayza can log, plan, review, and explain.
-                </p>
-                <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse} className="w-full sm:w-auto">
+                Stop
+              </Button>
+            </div>
+          )}
+          <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-4 sm:space-y-4 sm:p-4">
+            {(messages ?? [])?.length === 0 && (
+              <div className="mx-auto flex min-h-full max-w-md flex-col items-center justify-center px-4 py-8 text-center">
+                <BrandLogo size="lg" showText={false} className="mb-5" />
+                <h3 className="text-3xl font-medium leading-tight tracking-tight text-foreground sm:text-4xl">
+                  What should we<br />focus on?
+                </h3>
+                <div className="mt-8 grid w-full gap-2 min-[390px]:grid-cols-2">
                   {quickActions.map((action) => (
                     <button
                       key={action.label}
                       type="button"
                       onClick={() => setInput(action.label)}
-                      className="rounded-lg border border-border bg-background/70 px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/40"
+                      className="rounded-2xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-left backdrop-blur transition hover:border-white/20 hover:bg-white/[0.06] active:scale-[0.98]"
                     >
-                      <span className="block text-sm font-semibold leading-tight">{action.label}</span>
-                      <span className="mt-1 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
+                      <span className="block text-sm font-medium leading-tight">{action.label}</span>
+                      <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
                     </button>
                   ))}
                 </div>
               </div>
-            )
-          )}
-          {(messages ?? []).map((msg: any, i: number) => (
-            <div key={msg?.id ?? i} className={`flex gap-2 sm:gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
-              {msg?.role === "assistant" && (
-                <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex">
-                  <Bot className="w-4 h-4 text-primary" />
-                </div>
-              )}
-              <div className={`max-w-[94%] overflow-hidden rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] sm:max-w-[80%] sm:px-4 ${
-                msg?.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              }`}>
-                {(msg?.imageDataUrl || msg?.attachments?.[0]?.url) && (
-                  <img
-                    src={msg.imageDataUrl || msg.attachments[0].url}
-                    alt="Chat attachment"
-                    className="mb-2 max-h-48 w-full rounded-md object-cover"
-                  />
+            )}
+            {(messages ?? []).map((msg: any, i: number) => (
+              <div key={msg?.id ?? i} className={`flex gap-2 sm:gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg?.role === "assistant" && (
+                  <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex">
+                    <Bot className="w-4 h-4 text-primary" />
+                  </div>
                 )}
-                {!msg?.imageDataUrl && !msg?.attachments?.[0]?.url && msg?.attachments?.[0]?.hasImage && (
-                  <button
+                <div className={`max-w-[85%] overflow-hidden rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] sm:max-w-[70%] ${
+                  msg?.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-none"
+                    : "bg-muted rounded-bl-none"
+                }`}>
+                  {(msg?.imageDataUrl || msg?.attachments?.[0]?.url) && (
+                    <img
+                      src={msg.imageDataUrl || msg.attachments[0].url}
+                      alt="Chat attachment"
+                      className="mb-2 max-h-48 w-full rounded-lg object-cover"
+                    />
+                  )}
+                  {!msg?.imageDataUrl && !msg?.attachments?.[0]?.url && msg?.attachments?.[0]?.hasImage && (
+                    <button
+                      type="button"
+                      className="mb-2 flex w-full items-center justify-center rounded-lg border border-dashed border-border bg-background/40 px-3 py-4 text-xs text-muted-foreground hover:bg-background"
+                      onClick={() => loadAttachmentImage(msg.id, msg.attachments[0])}
+                      disabled={loadingAttachmentId === msg.attachments[0].id}
+                    >
+                      {loadingAttachmentId === msg.attachments[0].id ? "Loading image..." : "Tap to load image"}
+                    </button>
+                  )}
+                  {!msg?.imageDataUrl && msg?.attachments?.[0]?.deleted && (
+                    <div className="mb-2 rounded-lg border border-dashed border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                      {msg.attachments[0].deletedReason || "Image expired"}
+                    </div>
+                  )}
+                  {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
+                  {msg?.role === "assistant" && Array.isArray(msg?.undoActions) && msg.undoActions.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-2">
+                      {msg.undoActions.map((action: any) => (
+                        <Button
+                          key={action.id}
+                          type="button"
+                          size="sm"
+                          variant={action.undone ? "secondary" : "outline"}
+                          className="h-8 rounded-full px-3 text-xs"
+                          disabled={Boolean(action.undone) || undoingId === action.id}
+                          onClick={() => undoAgentAction(msg.id, action.id)}
+                          title={action.actionLabel ? `Undo: ${action.actionLabel}` : "Undo this agent action"}
+                        >
+                          {undoingId === action.id && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                          {action.undone ? "Undone" : action.label || "Undo"}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {msg?.role === "user" && (
+                  <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary/20 sm:flex">
+                    <User className="w-4 h-4 text-primary" />
+                  </div>
+                )}
+              </div>
+             ))}
+           </div>
+            <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+4.9rem)] pt-2 sm:px-4 lg:pb-4">
+             <div className="mx-auto w-full max-w-3xl">
+             {imageDataUrl && (
+               <div className="mb-3 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
+                 <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded-lg object-cover" />
+                 <div className="min-w-0 flex-1 text-sm">
+                   <p className="font-medium">Image selected</p>
+                   <p className="hidden text-muted-foreground min-[390px]:block">Send photos for logging.</p>
+                 </div>
+                 <Button type="button" variant="ghost" size="icon" onClick={() => setImageDataUrl(null)} disabled={streaming}>
+                   <X className="h-4 w-4" />
+                 </Button>
+               </div>
+             )}
+             <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+               <input
+                 ref={fileInputRef}
+                 type="file"
+                 accept="image/png,image/jpeg,image/webp"
+                 capture="environment"
+                 className="hidden"
+                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                   handleImageSelect(e.target.files?.[0]);
+                   e.target.value = "";
+                 }}
+               />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={streaming}
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-white/10"
+                  title="Attach photo"
+                >
+                  <Plus className="h-5 w-5" />
+                </Button>
+                <Input
+                  value={input}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
+                  placeholder="Ask Dayza"
+                  disabled={streaming}
+                  className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-base shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => toggleVoiceInput()}
+                  disabled={streaming}
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-white/10"
+                  title={listening ? "Stop listening" : "Speak"}
+                >
+                  {listening ? <MicOff className="h-5 w-5 text-red-400" /> : <Mic className="h-5 w-5" />}
+                </Button>
+                {streaming ? (
+                  <Button
                     type="button"
-                    className="mb-2 flex w-full items-center justify-center rounded-md border border-dashed border-border bg-background/40 px-3 py-4 text-xs text-muted-foreground hover:bg-background"
-                    onClick={() => loadAttachmentImage(msg.id, msg.attachments[0])}
-                    disabled={loadingAttachmentId === msg.attachments[0].id}
+                    onClick={stopAgentResponse}
+                    className="h-9 w-9 shrink-0 rounded-full bg-foreground px-0 text-background hover:bg-foreground/90"
+                    title="Stop"
                   >
-                    {loadingAttachmentId === msg.attachments[0].id ? "Loading image..." : "Tap to load image"}
-                  </button>
+                    <X className="h-5 w-5" />
+                  </Button>
+                ) : (input?.trim() || imageDataUrl) ? (
+                  <Button
+                    type="submit"
+                    className="h-9 w-9 shrink-0 rounded-full bg-foreground px-0 text-background hover:bg-foreground/90"
+                    title="Send"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    onClick={() => setLiveOpen(true)}
+                    className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 px-0 text-white shadow-lg shadow-blue-500/30 hover:opacity-90"
+                    title="Live voice"
+                  >
+                    <AudioLines className="h-5 w-5" />
+                  </Button>
                 )}
-                {!msg?.imageDataUrl && msg?.attachments?.[0]?.deleted && (
-                  <div className="mb-2 rounded-md border border-dashed border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
-                    {msg.attachments[0].deletedReason || "Image expired"}
-                  </div>
-                )}
-                {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
-                {msg?.role === "assistant" && Array.isArray(msg?.undoActions) && msg.undoActions.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-2">
-                    {msg.undoActions.map((action: any) => (
-                      <Button
-                        key={action.id}
-                        type="button"
-                        size="sm"
-                        variant={action.undone ? "secondary" : "outline"}
-                        className="h-8 rounded-full px-3 text-xs"
-                        disabled={Boolean(action.undone) || undoingId === action.id}
-                        onClick={() => undoAgentAction(msg.id, action.id)}
-                        title={action.actionLabel ? `Undo: ${action.actionLabel}` : "Undo this agent action"}
-                      >
-                        {undoingId === action.id && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                        {action.undone ? "Undone" : action.label || "Undo"}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {msg?.role === "user" && (
-                <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary sm:flex">
-                  <User className="w-4 h-4 text-secondary-foreground" />
-                </div>
-              )}
+              </form>
+             </div>
             </div>
-          ))}
+          </Card>
         </div>
-
-        <div className="shrink-0 border-t border-border bg-card/95 p-2.5 backdrop-blur sm:p-4">
-          {imageDataUrl && (
-            <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
-              <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
-              <div className="min-w-0 flex-1 text-sm">
-                <p className="font-medium">Image selected</p>
-                <p className="hidden text-muted-foreground min-[390px]:block">Send food photos or payment screenshots for logging.</p>
-              </div>
-              <Button type="button" variant="ghost" size="icon" onClick={() => setImageDataUrl(null)} disabled={streaming}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          )}
-          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className={`grid gap-1.5 rounded-2xl border border-border bg-background p-1.5 sm:gap-2 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0 ${interactionMode ? "grid-cols-[2.5rem_2.5rem_minmax(0,1fr)_2.5rem] sm:grid-cols-[auto_auto_1fr_auto]" : "grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] sm:grid-cols-[auto_auto_1fr_auto]"}`}>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              capture="environment"
-              className="hidden"
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                handleImageSelect(e.target.files?.[0]);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={streaming}
-              title="Attach food photo"
-              className="h-10 w-10 shrink-0 rounded-xl border-0 bg-transparent sm:h-11 sm:w-11 sm:border"
-            >
-              <ImagePlus className="w-4 h-4" />
-            </Button>
-            <Button
-              type="button"
-              variant={listening ? "default" : "outline"}
-              size="icon"
-              onClick={() => toggleVoiceInput()}
-              disabled={streaming}
-              title={listening ? "Stop listening" : "Speak message"}
-              className={`relative h-10 w-10 shrink-0 rounded-xl sm:h-11 sm:w-11 ${interactionMode ? "flex" : "hidden sm:flex"}`}
-            >
-              {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-              {interactionMode && (
-                <span className={`absolute -right-1 -top-1 grid h-5 w-5 place-items-center rounded-full border border-background ${listening ? "bg-emerald-500 text-white" : "bg-primary text-primary-foreground"}`} aria-hidden="true">
-                  <span className={`live-voice-wave scale-75 ${listening ? "" : "opacity-80"}`}>
-                    <span />
-                    <span />
-                    <span />
-                  </span>
-                </span>
-              )}
-            </Button>
-            <Input
-              value={input}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
-              placeholder={listening ? "Listening..." : "Ask, log food/spends, attach image..."}
-              disabled={streaming}
-              className="h-10 min-w-0 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0 sm:h-11 sm:border sm:bg-background sm:px-3 sm:shadow-sm sm:focus-visible:ring-2"
-            />
-            <Button type={streaming ? "button" : "submit"} onClick={streaming ? stopAgentResponse : undefined} disabled={!streaming && (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 rounded-xl px-0 sm:h-11 sm:w-11" title={streaming ? "Stop response" : "Send"}>
-              {streaming ? <X className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-            </Button>
-          </form>
-        </div>
-      </Card>
-      </div>
     </div>
   );
 }

@@ -19,5 +19,7 @@ prisma/*.db-journal
 
 tsconfig.tsbuildinfo
 
+.abacusai/
+
 .DS_Store
 Thumbs.db

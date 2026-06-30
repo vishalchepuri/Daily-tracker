@@ -180,8 +180,9 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     gender: initialProfile?.gender ?? "male",
   });
   const pathname = usePathname();
-  const searchParams = useSearchParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEmbedded = searchParams?.get("embed") === "1";
   const mainRef = useRef<HTMLElement | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [isRoutePending, startRouteTransition] = useTransition();
@@ -204,7 +205,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
   }, [mobileNavHrefs, mobileNavOptions]);
   const chatHref = `/chat?from=${encodeURIComponent(pathname || "/dashboard")}`;
   const chatPanelHref = `${chatHref}&embed=1`;
-  const isEmbeddedChat = pathname === "/chat" && searchParams.get("embed") === "1";
+  const isChatPage = pathname === "/chat";
   const agentOverlayOpen = agentPanelOpen && pathname !== "/chat";
 
   useEffect(() => {
@@ -293,7 +294,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     }
   };
 
-  if (isEmbeddedChat) {
+  if (isChatPage && isEmbedded) {
     return (
       <main className="h-dvh overflow-hidden bg-background text-foreground">
         {children}
@@ -454,7 +455,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
             <Menu className="w-6 h-6" />
           </button>
           <h1 className="min-w-0 truncate font-display text-base font-semibold tracking-tight sm:text-lg">
-            {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
+            {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? currentFeature.label}
           </h1>
           <button
             type="button"
@@ -466,19 +467,31 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
           </button>
         </header>
 
-        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={pathname}
-              className="mx-auto w-full max-w-[1600px]"
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.995 }}
-              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.998 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+        <main
+          ref={mainRef}
+          className={cn(
+            "min-h-0 flex-1 scroll-smooth ios-scroll",
+            isChatPage
+              ? "overflow-hidden"
+              : "overflow-y-auto p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10"
+          )}
+        >
+          {isChatPage ? (
+            children
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={pathname}
+                className="mx-auto w-full max-w-[1600px]"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.995 }}
+                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.998 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
+          )}
         </main>
       </div>
 
@@ -535,7 +548,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
               <button
                 key={item.href}
                 type="button"
-                onClick={() => item.agent ? setAgentPanelOpen(true) : goToFeature(item.href)}
+                onClick={() => item.agent ? goToFeature(chatHref) : goToFeature(item.href)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
                   (isActive || (item.agent && agentPanelOpen)) ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
@@ -560,7 +573,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       {agentOverlayOpen && (
         <div className="fixed inset-0 z-[70] bg-background/80 backdrop-blur-sm lg:pointer-events-none lg:bg-transparent lg:backdrop-blur-none" onClick={() => setAgentPanelOpen(false)}>
           <section
-            className="fixed inset-x-2 bottom-[calc(5.35rem_+_env(safe-area-inset-bottom))] top-[calc(3.75rem_+_env(safe-area-inset-top))] z-[80] flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl sm:inset-x-auto sm:right-4 sm:w-[min(calc(100vw_-_2rem),28rem)] lg:pointer-events-auto lg:bottom-4 lg:top-auto lg:h-[min(82dvh,44rem)]"
+            className="fixed inset-0 z-[80] flex flex-col overflow-hidden border-0 bg-card shadow-2xl sm:inset-x-auto sm:bottom-[calc(5.35rem_+_env(safe-area-inset-bottom))] sm:right-4 sm:top-[calc(3.75rem_+_env(safe-area-inset-top))] sm:w-[min(calc(100vw_-_2rem),28rem)] sm:rounded-2xl sm:border sm:border-border lg:pointer-events-auto lg:bottom-4 lg:top-auto lg:h-[min(82dvh,44rem)]"
             onClick={(event) => event.stopPropagation()}
             aria-label="Dayza live chat"
           >
