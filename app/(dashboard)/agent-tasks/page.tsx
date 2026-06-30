@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Bot, CalendarClock, CheckCircle2, Clipboard, ExternalLink, History, Pause, Play, Plus, RefreshCw, Save, Send, Share2, Sparkles, Trash2, XCircle } from "lucide-react";
+import { AlertCircle, Bot, CalendarClock, CheckCircle2, Clipboard, ExternalLink, History, Pause, Play, Plus, RefreshCw, Save, Send, Share2, Sparkles, Trash2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -140,6 +140,28 @@ function structuredRun(run: any) {
   };
 }
 
+function taskAnswer(task: any) {
+  const latestRun = task?.runs?.[0];
+  const structured = structuredRun(latestRun);
+  return structured.summary || task?.lastSummary || latestRun?.summary || "";
+}
+
+function taskStatusTone(task: any) {
+  if (task?.lastStatus === "failed") return { label: "Needs attention", variant: "destructive" as const, icon: AlertCircle };
+  if (!task?.active) return { label: "Paused", variant: "outline" as const, icon: Pause };
+  if (task?.lastStatus === "completed") return { label: "Healthy", variant: "secondary" as const, icon: CheckCircle2 };
+  return { label: "Ready", variant: "secondary" as const, icon: CheckCircle2 };
+}
+
+function trainerMissingFields(draft: typeof blankTrainerDraft) {
+  return [
+    !draft.name.trim() ? "Name" : "",
+    !draft.url.trim() ? "Link" : "",
+    !draft.prompt.trim() ? "Instruction" : "",
+    !draft.outputFormat.trim() ? "Output" : "",
+  ].filter(Boolean);
+}
+
 export default function AgentTasksPage() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [templates, setTemplates] = useState<any[]>([]);
@@ -161,12 +183,19 @@ export default function AgentTasksPage() {
   const [trainerMessages, setTrainerMessages] = useState<Array<{ role: "user" | "assistant" | "system"; text: string }>>([]);
 
   const activeCount = useMemo(() => tasks.filter((task) => task.active).length, [tasks]);
+  const failingCount = useMemo(() => tasks.filter((task) => task.lastStatus === "failed").length, [tasks]);
+  const completedTodayCount = useMemo(() => {
+    const todayKey = new Date().toDateString();
+    return tasks.filter((task) => task.lastStatus === "completed" && task.lastRunAt && new Date(task.lastRunAt).toDateString() === todayKey).length;
+  }, [tasks]);
   const upcomingTasks = useMemo(() => (
     tasks
       .filter((task) => task.active && task.nextRunAt)
       .sort((a, b) => new Date(a.nextRunAt).getTime() - new Date(b.nextRunAt).getTime())
       .slice(0, 5)
   ), [tasks]);
+  const latestAnswers = useMemo(() => tasks.filter((task) => taskAnswer(task)).slice(0, 3), [tasks]);
+  const missingTrainerFields = useMemo(() => trainerMissingFields(trainerDraft), [trainerDraft]);
   const trainerLivePayload = useMemo(() => ({
     mode: "agent-task-training",
     taskContext: {
@@ -536,12 +565,40 @@ export default function AgentTasksPage() {
   return (
     <div className="space-y-3 sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="font-display text-xl font-bold leading-tight tracking-tight sm:text-2xl">Agent Tasks</h2>
-            <p className="hidden text-sm text-muted-foreground sm:mt-1 sm:block">Schedule Dayza Agent to check links and run recurring tasks.</p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 sm:flex">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
+          <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">Agent Tasks</h2>
+                {failingCount > 0 ? (
+                  <Badge variant="destructive">{failingCount} need attention</Badge>
+                ) : (
+                  <Badge variant="secondary">All clear</Badge>
+                )}
+              </div>
+              <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
+                Train Dayza to check links, compare new runs with memory, and bring back only the changes that matter.
+              </p>
+              <div className="mt-4 grid gap-2 sm:grid-cols-4">
+                <div className="rounded-lg border border-border bg-muted/25 p-3">
+                  <p className="text-[0.68rem] uppercase text-muted-foreground">Tasks</p>
+                  <p className="mt-1 font-mono text-2xl font-bold">{tasks.length}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/25 p-3">
+                  <p className="text-[0.68rem] uppercase text-muted-foreground">Active</p>
+                  <p className="mt-1 font-mono text-2xl font-bold">{activeCount}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/25 p-3">
+                  <p className="text-[0.68rem] uppercase text-muted-foreground">Ran today</p>
+                  <p className="mt-1 font-mono text-2xl font-bold">{completedTodayCount}</p>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/25 p-3">
+                  <p className="text-[0.68rem] uppercase text-muted-foreground">Next</p>
+                  <p className="mt-1 truncate text-sm font-semibold">{formatDate(upcomingTasks[0]?.nextRunAt)}</p>
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-2 sm:flex lg:justify-end">
             <Button type="button" variant="outline" onClick={loadTasks} disabled={loading} className="px-2 sm:px-3">
               <RefreshCw className={`h-4 w-4 min-[370px]:mr-2 ${loading ? "animate-spin" : ""}`} />
               <span className="hidden min-[370px]:inline">Refresh</span>
@@ -630,15 +687,36 @@ export default function AgentTasksPage() {
                 </div>
               </DialogContent>
             </Dialog>
+            </div>
           </div>
         </div>
       </FadeIn>
 
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <Card><CardContent className="p-3 sm:p-4"><p className="text-[0.68rem] text-muted-foreground sm:text-xs">Tasks</p><p className="font-mono text-lg font-bold sm:text-2xl">{tasks.length}</p></CardContent></Card>
-        <Card><CardContent className="p-3 sm:p-4"><p className="text-[0.68rem] text-muted-foreground sm:text-xs">Active</p><p className="font-mono text-lg font-bold sm:text-2xl">{activeCount}</p></CardContent></Card>
-        <Card><CardContent className="p-3 sm:p-4"><p className="text-[0.68rem] text-muted-foreground sm:text-xs">Next</p><p className="truncate text-xs font-semibold sm:text-sm">{formatDate(upcomingTasks[0]?.nextRunAt)}</p></CardContent></Card>
-      </div>
+      {latestAnswers.length > 0 && (
+        <FadeIn delay={0.03}>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {latestAnswers.map((task) => {
+              const tone = taskStatusTone(task);
+              const StatusIcon = tone.icon;
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => setLogTask(task)}
+                  className="rounded-xl border border-border bg-card p-3 text-left transition hover:border-primary/40 hover:bg-muted/30 active:scale-[0.99]"
+                >
+                  <div className="flex items-center gap-2">
+                    <StatusIcon className="h-4 w-4 text-primary" />
+                    <p className="min-w-0 flex-1 truncate text-sm font-semibold">{task.name}</p>
+                    <Badge variant={tone.variant}>{tone.label}</Badge>
+                  </div>
+                  <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-muted-foreground">{taskAnswer(task)}</p>
+                </button>
+              );
+            })}
+          </div>
+        </FadeIn>
+      )}
 
       <FadeIn delay={0.04} className="hidden sm:block">
         <Card className="border-primary/25">
@@ -838,18 +916,22 @@ export default function AgentTasksPage() {
           <Card><CardContent className="p-6 text-sm text-muted-foreground">Loading tasks...</CardContent></Card>
         ) : tasks.length === 0 ? (
           <Card><CardContent className="flex flex-col items-center py-12 text-center text-muted-foreground"><Bot className="mb-3 h-10 w-10 text-primary/40" /><p className="font-semibold text-foreground">No scheduled agent tasks yet</p><p className="mt-1 text-sm">Create one for daily IPO checks, price checks, or link monitoring.</p></CardContent></Card>
-        ) : tasks.map((task) => (
-          <Card key={task.id}>
+        ) : tasks.map((task) => {
+          const tone = taskStatusTone(task);
+          const StatusIcon = tone.icon;
+          const answer = taskAnswer(task);
+          return (
+          <Card key={task.id} className={task.lastStatus === "failed" ? "border-destructive/40" : ""}>
             <CardContent className="space-y-3 p-3 sm:hidden">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <h3 className="truncate font-semibold">{task.name}</h3>
-                    <Badge variant={task.active ? "secondary" : "outline"} className="shrink-0">{task.active ? "On" : "Off"}</Badge>
+                    <Badge variant={tone.variant} className="shrink-0">{tone.label}</Badge>
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{task.prompt}</p>
                 </div>
-                {task.lastStatus && <Badge variant={task.lastStatus === "failed" ? "destructive" : "outline"} className="shrink-0">{task.lastStatus}</Badge>}
+                <StatusIcon className={`h-5 w-5 shrink-0 ${task.lastStatus === "failed" ? "text-destructive" : "text-primary"}`} />
               </div>
 
               <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted/35 p-2 text-xs">
@@ -875,8 +957,11 @@ export default function AgentTasksPage() {
                 </Button>
               </div>
 
-              {task.lastSummary && (
-                <p className="line-clamp-3 rounded-xl bg-muted/35 p-2 text-xs leading-relaxed text-muted-foreground">{task.lastSummary}</p>
+              {answer && (
+                <button type="button" onClick={() => setLogTask(task)} className="w-full rounded-xl border border-border bg-muted/25 p-3 text-left">
+                  <p className="text-[0.68rem] font-semibold uppercase text-muted-foreground">Latest answer</p>
+                  <p className="mt-1 line-clamp-4 text-xs leading-relaxed text-foreground">{answer}</p>
+                </button>
               )}
 
               <details className="rounded-xl border border-border bg-muted/20 p-2">
@@ -908,10 +993,10 @@ export default function AgentTasksPage() {
               <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
+                    <StatusIcon className={`h-4 w-4 ${task.lastStatus === "failed" ? "text-destructive" : "text-primary"}`} />
                     <h3 className="font-semibold">{task.name}</h3>
-                    <Badge variant={task.active ? "secondary" : "outline"}>{task.active ? "Active" : "Paused"}</Badge>
+                    <Badge variant={tone.variant}>{tone.label}</Badge>
                     <Badge variant="outline">{task.scheduleType}</Badge>
-                    {task.lastStatus && <Badge variant={task.lastStatus === "failed" ? "destructive" : "outline"}>{task.lastStatus}</Badge>}
                   </div>
                   <p className="mt-1 text-sm text-muted-foreground">{task.prompt}</p>
                   {task.url && (
@@ -1011,9 +1096,16 @@ export default function AgentTasksPage() {
               )}
                 </div>
               </details>
-              {task.lastSummary && (
-                <div className="max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-muted/35 p-3 text-xs text-muted-foreground [overflow-wrap:anywhere]">
-                  {task.lastSummary}
+              {answer && (
+                <div className="rounded-lg border border-border bg-muted/25 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold uppercase text-muted-foreground">Latest answer</p>
+                    <Button type="button" variant="ghost" size="sm" className="h-7 px-2" onClick={() => setLogTask(task)}>
+                      <History className="mr-1.5 h-3.5 w-3.5" />
+                      Logs
+                    </Button>
+                  </div>
+                  <p className="line-clamp-5 whitespace-pre-wrap text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]">{answer}</p>
                 </div>
               )}
               {task.runs?.length > 0 && (
@@ -1029,56 +1121,63 @@ export default function AgentTasksPage() {
               )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
 
       <Dialog open={trainerOpen} onOpenChange={setTrainerOpen}>
-        <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none p-0 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-[90svh] sm:max-h-[90svh] sm:max-w-[min(68rem,calc(100vw_-_1rem))] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl">
-          <DialogHeader className="border-b border-border px-4 py-3">
+        <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none p-0 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-[94svh] sm:max-h-[94svh] sm:max-w-[min(76rem,calc(100vw_-_1rem))] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-xl">
+          <DialogHeader className="border-b border-border bg-card/95 px-4 py-3 backdrop-blur">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <DialogTitle className="flex items-center gap-2">
-                  <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                     <Sparkles className="h-4 w-4" />
                   </span>
                   Agent Studio
                 </DialogTitle>
-                <p className="mt-1 text-sm text-muted-foreground">Train, preview, and save one scheduled task.</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {trainerBusy === "chat"
+                    ? "Dayza is refining the task draft..."
+                    : trainerBusy === "run"
+                      ? "Dayza is checking the link and preparing a preview..."
+                      : missingTrainerFields.length > 0
+                        ? `Missing: ${missingTrainerFields.join(", ")}`
+                        : "Ready to preview and schedule."}
+                </p>
               </div>
               <Badge variant={trainerReady ? "secondary" : "outline"}>{trainerReady ? "Ready" : "Draft"}</Badge>
             </div>
           </DialogHeader>
 
-          <div className="grid h-[calc(100%-4.5rem)] min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.85fr)]">
+          <div className="grid h-[calc(100%-4.5rem)] min-h-0 xl:grid-cols-[minmax(24rem,0.95fr)_minmax(24rem,1.05fr)]">
             <div className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
-                <div className="hidden sm:block">
-                  <DayzaLiveAgent
-                    compact
-                    title="Task Voice Coach"
-                    subtitle="Talk through this task, test a draft by voice, then save when the preview is right."
-                    initialSystemMessage="Start Live and explain how this task should behave."
-                    tokenPayload={trainerLivePayload}
-                    className="mb-0"
-                  />
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={trainerDraft.name.trim() ? "secondary" : "outline"}>Name</Badge>
+                    <Badge variant={trainerDraft.url.trim() ? "secondary" : "outline"}>Link</Badge>
+                    <Badge variant={trainerDraft.prompt.trim() ? "secondary" : "outline"}>Instruction</Badge>
+                    <Badge variant={trainerDraft.outputFormat.trim() ? "secondary" : "outline"}>Output</Badge>
+                  </div>
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-border bg-background/60">
-                  <div className="flex items-center justify-between border-b border-border px-3 py-2">
+                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <div className="flex items-center justify-between border-b border-border bg-muted/20 px-3 py-2">
                     <div className="flex items-center gap-2 text-sm font-semibold">
                       <Bot className="h-4 w-4 text-primary" />
-                      Task Chat
+                      Trainer Chat
                     </div>
                     <Button type="button" size="sm" variant="outline" onClick={runTrainerPreview} loading={trainerBusy === "run"} disabled={Boolean(trainerBusy)}>
                       <Play className="mr-2 h-4 w-4" />
-                      Run
+                      Preview
                     </Button>
                   </div>
-                  <div className="max-h-56 space-y-2 overflow-y-auto p-3 sm:max-h-72">
+                  <div className="max-h-[min(48svh,28rem)] min-h-[16rem] space-y-2 overflow-y-auto p-3">
                     {trainerMessages.map((message, index) => (
                       <div
                         key={`${message.role}-${index}`}
-                        className={`whitespace-pre-wrap rounded-2xl px-3 py-2 text-sm leading-relaxed ${
+                        className={`whitespace-pre-wrap rounded-lg px-3 py-2 text-sm leading-relaxed ${
                           message.role === "user"
                             ? "ml-auto max-w-[88%] bg-primary text-primary-foreground"
                             : message.role === "assistant"
@@ -1089,6 +1188,16 @@ export default function AgentTasksPage() {
                         {message.text}
                       </div>
                     ))}
+                    {trainerBusy === "chat" && (
+                      <div className="max-w-[92%] rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                        Updating the draft...
+                      </div>
+                    )}
+                    {trainerBusy === "run" && (
+                      <div className="max-w-[92%] rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
+                        Checking the page and building a preview...
+                      </div>
+                    )}
                   </div>
                   <form
                     className="grid grid-cols-[minmax(0,1fr)_2.75rem] gap-2 border-t border-border p-2"
@@ -1101,13 +1210,27 @@ export default function AgentTasksPage() {
                       value={trainerInput}
                       onChange={(event) => setTrainerInput(event.target.value)}
                       placeholder="Tell the agent what to improve..."
-                      className="h-11 rounded-xl"
+                      className="h-11 rounded-lg"
                     />
-                    <Button type="submit" className="h-11 rounded-xl px-0" disabled={!trainerInput.trim() || Boolean(trainerBusy)} loading={trainerBusy === "chat"}>
+                    <Button type="submit" className="h-11 rounded-lg px-0" disabled={!trainerInput.trim() || Boolean(trainerBusy)} loading={trainerBusy === "chat"}>
                       <Send className="h-4 w-4" />
                     </Button>
                   </form>
                 </div>
+
+                <details className="hidden rounded-lg border border-border bg-muted/15 p-3 sm:block">
+                  <summary className="cursor-pointer list-none text-sm font-semibold [&::-webkit-details-marker]:hidden">Voice coach</summary>
+                  <div className="mt-3">
+                    <DayzaLiveAgent
+                      compact
+                      title="Task Voice Coach"
+                      subtitle="Talk through this task, test a draft by voice, then save when the preview is right."
+                      initialSystemMessage="Start Live and explain how this task should behave."
+                      tokenPayload={trainerLivePayload}
+                      className="mb-0"
+                    />
+                  </div>
+                </details>
               </div>
             </div>
 
@@ -1171,6 +1294,27 @@ export default function AgentTasksPage() {
                     </div>
                   </div>
                 )}
+
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="h-4 w-4 text-primary" />
+                      <p className="text-sm font-semibold">Preview answer</p>
+                    </div>
+                    <Badge variant={trainerDraft.previewSummary ? "secondary" : "outline"}>
+                      {trainerDraft.previewSummary ? "Tested" : "Not run"}
+                    </Badge>
+                  </div>
+                  {trainerDraft.previewSummary ? (
+                    <p className="mt-3 max-h-44 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-foreground [overflow-wrap:anywhere]">
+                      {trainerDraft.previewSummary}
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                      Run a preview to see exactly what Dayza will answer before this becomes a scheduled task.
+                    </p>
+                  )}
+                </div>
 
                 <div className="grid gap-2 sm:grid-cols-2">
                   <Button type="button" onClick={runTrainerPreview} variant="outline" loading={trainerBusy === "run"} disabled={Boolean(trainerBusy)}>
