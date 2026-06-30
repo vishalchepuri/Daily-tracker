@@ -73,7 +73,7 @@ export async function POST(req: Request) {
     });
 
     if (!token.name) {
-      return NextResponse.json({ error: "Gemini did not return a Live token." }, { status: 502 });
+      return NextResponse.json({ error: "Dayza did not return a Live token." }, { status: 502 });
     }
 
     return NextResponse.json({

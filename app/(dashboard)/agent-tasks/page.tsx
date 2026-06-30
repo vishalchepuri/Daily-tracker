@@ -554,7 +554,7 @@ export default function AgentTasksPage() {
               <DialogTrigger asChild>
                 <Button type="button" className="px-2 sm:px-3"><Plus className="h-4 w-4 min-[370px]:mr-2" /><span className="hidden min-[370px]:inline">Task</span></Button>
               </DialogTrigger>
-              <DialogContent className="max-h-[90svh] max-w-xl overflow-y-auto">
+              <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none p-4 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[90svh] sm:max-w-xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:p-6">
                 <DialogHeader><DialogTitle>Schedule Agent Task</DialogTitle></DialogHeader>
                 <div className="space-y-4">
                   <div>
@@ -1033,7 +1033,7 @@ export default function AgentTasksPage() {
       </div>
 
       <Dialog open={trainerOpen} onOpenChange={setTrainerOpen}>
-        <DialogContent className="h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-w-[min(68rem,calc(100vw_-_1rem))] overflow-hidden rounded-2xl p-0 sm:h-[90svh] sm:max-h-[90svh]">
+        <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none p-0 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-[90svh] sm:max-h-[90svh] sm:max-w-[min(68rem,calc(100vw_-_1rem))] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-2xl">
           <DialogHeader className="border-b border-border px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -1197,7 +1197,7 @@ export default function AgentTasksPage() {
       </Dialog>
 
       <Dialog open={Boolean(logTask)} onOpenChange={(open) => !open && setLogTask(null)}>
-        <DialogContent className="max-h-[90svh] max-w-3xl overflow-y-auto">
+        <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-y-auto rounded-none p-4 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[90svh] sm:max-w-3xl sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:p-6">
           <DialogHeader><DialogTitle>{logTask?.name ?? "Task"} Run Logs</DialogTitle></DialogHeader>
           <div className="space-y-3">
             {(logTask?.runs ?? []).length === 0 ? (
