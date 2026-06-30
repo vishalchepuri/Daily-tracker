@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { previewAgentTaskDraft } from "@/lib/agent-scheduled-tasks";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import { generateGeminiText } from "@/lib/gemini";
 
 type Draft = {
   name: string;
@@ -71,7 +72,7 @@ function fallbackRefine(draft: Draft, message: string) {
 }
 
 async function refineWithAi(input: { draft: Draft; message: string; messages: any[] }) {
-  if (!process.env.ABACUSAI_API_KEY) return fallbackRefine(input.draft, input.message);
+  if (!process.env.GEMINI_API_KEY) return fallbackRefine(input.draft, input.message);
 
   const aiPrompt = `You are Dayza's Agent Task Trainer.
 
@@ -110,24 +111,16 @@ ${JSON.stringify((input.messages ?? []).slice(-12))}
 Latest user message:
 ${input.message}`;
 
-  const res = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 900,
+  let text = "";
+  try {
+    text = await generateGeminiText({
+      maxOutputTokens: 900,
+      timeoutMs: 25000,
       messages: [{ role: "user", content: aiPrompt }],
-    }),
-    signal: AbortSignal.timeout(25000),
-  });
-
-  if (!res.ok) return fallbackRefine(input.draft, input.message);
-  const data = await res.json().catch(() => ({}));
-  const text = String(data?.choices?.[0]?.message?.content ?? "");
+    });
+  } catch {
+    return fallbackRefine(input.draft, input.message);
+  }
   const parsed = extractJsonObject(text);
   if (!parsed) return fallbackRefine(input.draft, input.message);
 

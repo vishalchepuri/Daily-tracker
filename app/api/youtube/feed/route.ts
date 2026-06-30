@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { cacheGetJson, cacheSetJson } from "@/lib/cache";
+import { generateGeminiText } from "@/lib/gemini";
 import { youtubeFetch } from "@/lib/youtube";
 
 const MAX_CHANNELS = 50;
@@ -154,46 +155,36 @@ async function loadVideoDetails(userId: string, videoIds: string[]) {
 }
 
 async function aiScoreVideos(videos: any[]) {
-  if (!process.env.ABACUSAI_API_KEY || videos.length === 0) return new Map<string, any>();
+  if (!process.env.GEMINI_API_KEY || videos.length === 0) return new Map<string, any>();
   try {
-    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-5.4-mini",
-        stream: false,
-        max_tokens: 4500,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Score YouTube subscription items for a personal learning queue. Think mainly from the video title line, channel, description, duration, views, and recency. Return ONLY JSON array. Each item: id, priorityScore 0-100, matchedTopics string array, kind video|short, reason. Long useful tutorials/explainers should score higher. Shorts should stay kind short and usually score lower unless highly useful. Avoid treating Shorts as normal videos.",
-          },
-          {
-            role: "user",
-            content: JSON.stringify(
-              videos.map((video) => ({
-                id: video.id,
-                title: video.title,
-                channelTitle: video.channelTitle,
-                description: video.description,
-                publishedAt: video.publishedAt,
-                durationSeconds: video.durationSeconds,
-                kind: video.kind,
-                viewCount: video.viewCount,
-                fallbackPriorityScore: video.priorityScore,
-              }))
-            ),
-          },
-        ],
-      }),
+    const text = await generateGeminiText({
+      maxOutputTokens: 4500,
+      timeoutMs: 30000,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Score YouTube subscription items for a personal learning queue. Think mainly from the video title line, channel, description, duration, views, and recency. Return ONLY JSON array. Each item: id, priorityScore 0-100, matchedTopics string array, kind video|short, reason. Long useful tutorials/explainers should score higher. Shorts should stay kind short and usually score lower unless highly useful. Avoid treating Shorts as normal videos.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            videos.map((video) => ({
+              id: video.id,
+              title: video.title,
+              channelTitle: video.channelTitle,
+              description: video.description,
+              publishedAt: video.publishedAt,
+              durationSeconds: video.durationSeconds,
+              kind: video.kind,
+              viewCount: video.viewCount,
+              fallbackPriorityScore: video.priorityScore,
+            }))
+          ),
+        },
+      ],
     });
-    if (!response.ok) return new Map();
-    const data = await response.json().catch(() => ({}));
-    const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]"));
+    const parsed = JSON.parse(cleanAiJson(text || "[]"));
     if (!Array.isArray(parsed)) return new Map();
     const entries: Array<[string, any]> = parsed
         .map((item: any) => [

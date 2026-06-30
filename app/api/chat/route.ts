@@ -22,6 +22,7 @@ import {
 import { BODY_PART_REFERENCE, GYM_TRAINING_SPLITS } from "@/lib/workout-split-library";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
 import { estimateMicronutrientsForFood } from "@/lib/micronutrient-estimator";
+import { generateGeminiText } from "@/lib/gemini";
 
 const CHAT_IMAGE_RETENTION_DAYS = 5;
 const CHAT_SESSION_RETENTION_LIMIT = 7;
@@ -2981,35 +2982,19 @@ Available action examples:
         ]
       : message;
 
-    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-5.4-mini",
-        stream: false,
-        max_tokens: 1600,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `Dashboard context:\n${JSON.stringify(context)}` },
-          ...recentChat.map((m: any) => ({
-            role: m.role === "assistant" ? "assistant" : "user",
-            content: m.content ?? "",
-          })),
-          { role: "user", content: userContent },
-        ],
-      }),
+    const rawContent = await generateGeminiText({
+      maxOutputTokens: 1600,
+      timeoutMs: 25000,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: `Dashboard context:\n${JSON.stringify(context)}` },
+        ...recentChat.map((m: any) => ({
+          role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+          content: m.content ?? "",
+        })),
+        { role: "user", content: userContent },
+      ],
     });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      return new Response(JSON.stringify({ error: `LLM API error: ${errText}` }), { status: 500 });
-    }
-
-    const llmData = await response.json();
-    const rawContent = llmData?.choices?.[0]?.message?.content ?? "";
     let agentResult: { response?: string; actions?: AgentAction[] };
 
     try {
