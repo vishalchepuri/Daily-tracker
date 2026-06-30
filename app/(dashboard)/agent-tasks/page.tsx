@@ -534,25 +534,25 @@ export default function AgentTasksPage() {
   };
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       <FadeIn>
         <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
           <div className="min-w-0">
-            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Agent Tasks</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Schedule Dayza Agent to check links and run recurring tasks.</p>
+            <h2 className="font-display text-xl font-bold leading-tight tracking-tight sm:text-2xl">Agent Tasks</h2>
+            <p className="hidden text-sm text-muted-foreground sm:mt-1 sm:block">Schedule Dayza Agent to check links and run recurring tasks.</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:flex">
-            <Button type="button" variant="outline" onClick={loadTasks} disabled={loading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Refresh
+          <div className="grid grid-cols-3 gap-2 sm:flex">
+            <Button type="button" variant="outline" onClick={loadTasks} disabled={loading} className="px-2 sm:px-3">
+              <RefreshCw className={`h-4 w-4 min-[370px]:mr-2 ${loading ? "animate-spin" : ""}`} />
+              <span className="hidden min-[370px]:inline">Refresh</span>
             </Button>
-            <Button type="button" variant="outline" onClick={() => openTrainer()}>
-              <Sparkles className="mr-2 h-4 w-4" />
-              Train
+            <Button type="button" variant="outline" onClick={() => openTrainer()} className="px-2 sm:px-3">
+              <Sparkles className="h-4 w-4 min-[370px]:mr-2" />
+              <span className="hidden min-[370px]:inline">Train</span>
             </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button type="button"><Plus className="mr-2 h-4 w-4" />Task</Button>
+                <Button type="button" className="px-2 sm:px-3"><Plus className="h-4 w-4 min-[370px]:mr-2" /><span className="hidden min-[370px]:inline">Task</span></Button>
               </DialogTrigger>
               <DialogContent className="max-h-[90svh] max-w-xl overflow-y-auto">
                 <DialogHeader><DialogTitle>Schedule Agent Task</DialogTitle></DialogHeader>
@@ -634,13 +634,13 @@ export default function AgentTasksPage() {
         </div>
       </FadeIn>
 
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Total tasks</p><p className="font-mono text-2xl font-bold">{tasks.length}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Active</p><p className="font-mono text-2xl font-bold">{activeCount}</p></CardContent></Card>
-        <Card><CardContent className="p-4"><p className="text-xs text-muted-foreground">Next run</p><p className="truncate text-sm font-semibold">{formatDate(upcomingTasks[0]?.nextRunAt)}</p></CardContent></Card>
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <Card><CardContent className="p-3 sm:p-4"><p className="text-[0.68rem] text-muted-foreground sm:text-xs">Tasks</p><p className="font-mono text-lg font-bold sm:text-2xl">{tasks.length}</p></CardContent></Card>
+        <Card><CardContent className="p-3 sm:p-4"><p className="text-[0.68rem] text-muted-foreground sm:text-xs">Active</p><p className="font-mono text-lg font-bold sm:text-2xl">{activeCount}</p></CardContent></Card>
+        <Card><CardContent className="p-3 sm:p-4"><p className="text-[0.68rem] text-muted-foreground sm:text-xs">Next</p><p className="truncate text-xs font-semibold sm:text-sm">{formatDate(upcomingTasks[0]?.nextRunAt)}</p></CardContent></Card>
       </div>
 
-      <FadeIn delay={0.04}>
+      <FadeIn delay={0.04} className="hidden sm:block">
         <Card className="border-primary/25">
           <details>
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -729,7 +729,7 @@ export default function AgentTasksPage() {
         </Card>
       </FadeIn>
 
-      <FadeIn delay={0.06}>
+      <FadeIn delay={0.06} className="hidden sm:block">
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -762,7 +762,7 @@ export default function AgentTasksPage() {
         </Card>
       </FadeIn>
 
-      <FadeIn delay={0.08}>
+      <FadeIn delay={0.08} className="hidden sm:block">
         <Card>
           <details>
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -806,7 +806,7 @@ export default function AgentTasksPage() {
         </Card>
       </FadeIn>
 
-      <FadeIn delay={0.1}>
+      <FadeIn delay={0.1} className="hidden sm:block">
         <Card>
           <details>
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
@@ -840,7 +840,71 @@ export default function AgentTasksPage() {
           <Card><CardContent className="flex flex-col items-center py-12 text-center text-muted-foreground"><Bot className="mb-3 h-10 w-10 text-primary/40" /><p className="font-semibold text-foreground">No scheduled agent tasks yet</p><p className="mt-1 text-sm">Create one for daily IPO checks, price checks, or link monitoring.</p></CardContent></Card>
         ) : tasks.map((task) => (
           <Card key={task.id}>
-            <CardContent className="space-y-4 p-4">
+            <CardContent className="space-y-3 p-3 sm:hidden">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="truncate font-semibold">{task.name}</h3>
+                    <Badge variant={task.active ? "secondary" : "outline"} className="shrink-0">{task.active ? "On" : "Off"}</Badge>
+                  </div>
+                  <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{task.prompt}</p>
+                </div>
+                {task.lastStatus && <Badge variant={task.lastStatus === "failed" ? "destructive" : "outline"} className="shrink-0">{task.lastStatus}</Badge>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 rounded-xl bg-muted/35 p-2 text-xs">
+                <div><span className="text-muted-foreground">Next</span><p className="truncate font-semibold">{formatDate(task.nextRunAt)}</p></div>
+                <div><span className="text-muted-foreground">Schedule</span><p className="truncate font-semibold">{scheduleLabel(task)}</p></div>
+              </div>
+
+              <div className="grid grid-cols-5 gap-2">
+                <Button type="button" variant="outline" size="icon" onClick={() => runNow(task)} loading={runningTaskId === task.id} disabled={Boolean(runningTaskId)} title="Run now" aria-label="Run now">
+                  <Play className="h-4 w-4" />
+                </Button>
+                <Button type="button" variant="outline" size="icon" onClick={() => toggleTask(task)} title={task.active ? "Pause" : "Resume"} aria-label={task.active ? "Pause" : "Resume"}>
+                  {task.active ? <Pause className="h-4 w-4" /> : <RefreshCw className="h-4 w-4" />}
+                </Button>
+                <Button type="button" variant="outline" size="icon" onClick={() => setLogTask(task)} title="Run logs" aria-label="Run logs">
+                  <History className="h-4 w-4" />
+                </Button>
+                <Button type="button" variant="outline" size="icon" onClick={() => openTrainer(task)} title="Train task" aria-label="Train task">
+                  <Bot className="h-4 w-4" />
+                </Button>
+                <Button type="button" variant="outline" size="icon" onClick={() => deleteTask(task)} className="hover:text-destructive" title="Delete task" aria-label="Delete task">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+
+              {task.lastSummary && (
+                <p className="line-clamp-3 rounded-xl bg-muted/35 p-2 text-xs leading-relaxed text-muted-foreground">{task.lastSummary}</p>
+              )}
+
+              <details className="rounded-xl border border-border bg-muted/20 p-2">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-2 text-xs font-semibold [&::-webkit-details-marker]:hidden">
+                  <span>Details</span>
+                  <span className="flex items-center gap-1">
+                    <Badge variant={task.lastMemorySearchUsed ? "secondary" : "outline"}>{task.lastMemorySearchUsed ? "Memory" : "No memory"}</Badge>
+                    <Badge variant="outline">v{task.versions?.[0]?.version ?? 1}</Badge>
+                  </span>
+                </summary>
+                <div className="mt-2 space-y-2 text-xs text-muted-foreground">
+                  {task.url && (
+                    <a href={task.url} target="_blank" rel="noreferrer" className="block truncate text-primary hover:underline">{task.url}</a>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <span>Last: {formatDate(task.lastRunAt)}</span>
+                    <span>Chunks: {task.lastMemoryVectorCount ?? 0}</span>
+                  </div>
+                  {task.runs?.length > 0 && (
+                    <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => setLogTask(task)}>
+                      <History className="mr-2 h-4 w-4" />
+                      View runs
+                    </Button>
+                  )}
+                </div>
+              </details>
+            </CardContent>
+            <CardContent className="hidden space-y-4 p-4 sm:block">
               <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
@@ -988,14 +1052,16 @@ export default function AgentTasksPage() {
           <div className="grid h-[calc(100%-4.5rem)] min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(22rem,0.85fr)]">
             <div className="flex min-h-0 flex-col border-b border-border lg:border-b-0 lg:border-r">
               <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
-                <DayzaLiveAgent
-                  compact
-                  title="Task Voice Coach"
-                  subtitle="Talk through this task, test a draft by voice, then save when the preview is right."
-                  initialSystemMessage="Start Live and explain how this task should behave."
-                  tokenPayload={trainerLivePayload}
-                  className="mb-0"
-                />
+                <div className="hidden sm:block">
+                  <DayzaLiveAgent
+                    compact
+                    title="Task Voice Coach"
+                    subtitle="Talk through this task, test a draft by voice, then save when the preview is right."
+                    initialSystemMessage="Start Live and explain how this task should behave."
+                    tokenPayload={trainerLivePayload}
+                    className="mb-0"
+                  />
+                </div>
 
                 <div className="overflow-hidden rounded-2xl border border-border bg-background/60">
                   <div className="flex items-center justify-between border-b border-border px-3 py-2">

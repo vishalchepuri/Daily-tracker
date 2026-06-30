@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, PhoneCall } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
@@ -21,10 +21,12 @@ declare global {
 export default function ChatPage() {
   const router = useRouter();
   const [returnTo, setReturnTo] = useState("/dashboard");
+  const [embedded, setEmbedded] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -115,6 +117,8 @@ export default function ChatPage() {
   useEffect(() => {
     const from = new URLSearchParams(window.location.search).get("from");
     const prompt = new URLSearchParams(window.location.search).get("prompt");
+    const embed = new URLSearchParams(window.location.search).get("embed");
+    setEmbedded(embed === "1");
     if (from?.startsWith("/") && !from.startsWith("//") && !from.startsWith("/chat")) {
       setReturnTo(from);
     }
@@ -572,14 +576,24 @@ export default function ChatPage() {
   const showLegacyVoicePanel = false;
 
   return (
-    <div className="flex h-[calc(100svh_-_7rem_-_env(safe-area-inset-bottom))] min-h-[32rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
-      <FadeIn>
-        <div className="mb-2 flex items-center justify-end gap-2 sm:mb-3 sm:items-start sm:justify-between">
-          <div className="hidden min-w-0 sm:block">
+    <div className={`flex min-h-0 min-w-0 flex-col ${embedded ? "h-dvh p-2" : "h-[calc(100svh_-_4.5rem_-_env(safe-area-inset-bottom))] sm:h-[calc(100dvh-8rem)]"}`}>
+      {!embedded && <FadeIn>
+        <div className="mb-2 flex items-center justify-between gap-2 sm:mb-3 sm:items-start">
+          <div className="min-w-0">
             <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
-            <p className="mt-1 hidden text-sm text-muted-foreground min-[390px]:block">Ask about fitness, food, spends, reminders, and progress</p>
+            <p className="hidden text-sm text-muted-foreground sm:mt-1 sm:block">Ask about fitness, food, spends, reminders, and progress</p>
           </div>
           <div className="flex items-center gap-1 sm:shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setLiveOpen(true)}
+              aria-label="Start live voice"
+              title="Start live voice"
+            >
+              <PhoneCall className="h-5 w-5" />
+            </Button>
             <Button
               type="button"
               variant="ghost"
@@ -672,9 +686,21 @@ export default function ChatPage() {
             </Button>
           </div>
         </div>
-      </FadeIn>
+      </FadeIn>}
 
-      <DayzaLiveAgent />
+      <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
+        <DialogContent className="h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-h-[calc(100svh_-_1rem_-_env(safe-area-inset-bottom))] max-w-[min(28rem,calc(100vw_-_1rem))] overflow-hidden rounded-2xl p-0 sm:h-auto sm:max-h-[90svh]">
+          <DialogHeader className="border-b border-border px-4 py-3">
+            <DialogTitle className="flex items-center gap-2">
+              <PhoneCall className="h-5 w-5 text-primary" />
+              Live Voice
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto p-3">
+            <DayzaLiveAgent compact className="mb-0" />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {showLegacyVoicePanel && interactionMode && (
         <div className="mb-3 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-sm">
@@ -770,7 +796,7 @@ export default function ChatPage() {
       )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border-border/70 bg-card sm:rounded-lg">
         {loading && (
           <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -806,7 +832,7 @@ export default function ChatPage() {
             </Button>
           </div>
         )}
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 pb-4 sm:space-y-4 sm:p-4">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-2.5 py-3 sm:space-y-4 sm:p-4">
           {(messages ?? [])?.length === 0 && (
             <div className="mx-auto flex min-h-full max-w-md flex-col justify-center py-6 text-center sm:py-10">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -925,7 +951,7 @@ export default function ChatPage() {
           ))}
         </div>
 
-        <div className="shrink-0 border-t border-border bg-card p-2.5 sm:p-4">
+        <div className="shrink-0 border-t border-border bg-card/95 p-2.5 backdrop-blur sm:p-4">
           {imageDataUrl && (
             <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
               <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
@@ -938,7 +964,7 @@ export default function ChatPage() {
               </Button>
             </div>
           )}
-          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[2.5rem_2.5rem_minmax(0,1fr)_2.5rem] gap-1.5 sm:grid-cols-[auto_auto_1fr_auto] sm:gap-2">
+          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[2.5rem_minmax(0,1fr)_2.5rem] gap-1.5 rounded-2xl border border-border bg-background p-1.5 sm:grid-cols-[auto_auto_1fr_auto] sm:gap-2 sm:rounded-none sm:border-0 sm:bg-transparent sm:p-0">
             <input
               ref={fileInputRef}
               type="file"
@@ -957,7 +983,7 @@ export default function ChatPage() {
               onClick={() => fileInputRef.current?.click()}
               disabled={streaming}
               title="Attach food photo"
-              className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+              className="h-10 w-10 shrink-0 rounded-xl border-0 bg-transparent sm:h-11 sm:w-11 sm:border"
             >
               <ImagePlus className="w-4 h-4" />
             </Button>
@@ -968,7 +994,7 @@ export default function ChatPage() {
               onClick={() => toggleVoiceInput()}
               disabled={streaming}
               title={listening ? "Stop listening" : "Speak message"}
-              className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
+              className="hidden h-10 w-10 shrink-0 rounded-xl sm:flex sm:h-11 sm:w-11"
             >
               {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
             </Button>
@@ -977,9 +1003,9 @@ export default function ChatPage() {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
               placeholder={listening ? "Listening..." : "Ask, log food/spends, attach image..."}
               disabled={streaming}
-              className="h-10 min-w-0 px-3 text-sm sm:h-11"
+              className="h-10 min-w-0 border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0 sm:h-11 sm:border sm:bg-background sm:px-3 sm:shadow-sm sm:focus-visible:ring-2"
             />
-            <Button type={streaming ? "button" : "submit"} onClick={streaming ? stopAgentResponse : undefined} disabled={!streaming && (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 px-0 sm:h-11 sm:w-11" title={streaming ? "Stop response" : "Send"}>
+            <Button type={streaming ? "button" : "submit"} onClick={streaming ? stopAgentResponse : undefined} disabled={!streaming && (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 rounded-xl px-0 sm:h-11 sm:w-11" title={streaming ? "Stop response" : "Send"}>
               {streaming ? <X className="w-4 h-4" /> : <Send className="w-4 h-4" />}
             </Button>
           </form>
