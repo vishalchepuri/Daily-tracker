@@ -5,8 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
-  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
-  Mail, PhoneCall, CalendarClock, Settings, Check, HeartPulse,
+  LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
+  Mail, CalendarClock, Settings, Check, HeartPulse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -166,8 +166,6 @@ function isProfileComplete(profile: any) {
 
 export function DashboardShell({ children, user, initialProfile, isAdmin = false }: { children: React.ReactNode; user: any; initialProfile?: any; isAdmin?: boolean }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [coachOpen, setCoachOpen] = useState(false);
-  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileNavHrefs, setMobileNavHrefs] = useState<string[]>(defaultMobileNavHrefs);
   const [profileComplete, setProfileComplete] = useState(isProfileComplete(initialProfile));
@@ -204,9 +202,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     return selected.length > 0 ? selected.slice(0, 5) : mobileNavItems;
   }, [mobileNavHrefs, mobileNavOptions]);
   const chatHref = `/chat?from=${encodeURIComponent(pathname || "/dashboard")}`;
-  const chatPanelHref = `${chatHref}&embed=1`;
   const isChatPage = pathname === "/chat";
-  const agentOverlayOpen = agentPanelOpen && pathname !== "/chat";
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
@@ -233,7 +229,6 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
 
   const goToFeature = (href: string) => {
     setSidebarOpen(false);
-    setAgentPanelOpen(false);
     router.prefetch(href);
     startRouteTransition(() => router.push(href));
   };
@@ -551,7 +546,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
                 onClick={() => item.agent ? goToFeature(chatHref) : goToFeature(item.href)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
-                  (isActive || (item.agent && agentPanelOpen)) ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
+                  isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
                 )}
               >
                 <item.icon className="h-5 w-5 shrink-0" />
@@ -568,91 +563,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         </div>
       )}
 
-      <GlobalQuickAdd hidden={pathname === "/chat" || agentOverlayOpen || mobileNavOpen || !profileComplete} />
-
-      {agentOverlayOpen && (
-        <div className="fixed inset-0 z-[70] bg-background/80 backdrop-blur-sm lg:pointer-events-none lg:bg-transparent lg:backdrop-blur-none" onClick={() => setAgentPanelOpen(false)}>
-          <section
-            className="fixed inset-0 z-[80] flex flex-col overflow-hidden border-0 bg-card shadow-2xl sm:inset-x-auto sm:bottom-[calc(5.35rem_+_env(safe-area-inset-bottom))] sm:right-4 sm:top-[calc(3.75rem_+_env(safe-area-inset-top))] sm:w-[min(calc(100vw_-_2rem),28rem)] sm:rounded-2xl sm:border sm:border-border lg:pointer-events-auto lg:bottom-4 lg:top-auto lg:h-[min(82dvh,44rem)]"
-            onClick={(event) => event.stopPropagation()}
-            aria-label="Dayza live chat"
-          >
-            <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
-                <MessageSquare className="h-5 w-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">Dayza Agent</p>
-                <p className="truncate text-xs text-muted-foreground">Live chat</p>
-              </div>
-              <Button asChild size="icon" variant="outline" className="h-9 w-9" title="Open voice chat">
-                <Link href={`${chatHref}&mode=voice`} onClick={() => setAgentPanelOpen(false)}>
-                  <PhoneCall className="h-4 w-4" />
-                </Link>
-              </Button>
-              <Button type="button" size="icon" variant="ghost" className="h-9 w-9" onClick={() => setAgentPanelOpen(false)} aria-label="Close chat">
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <iframe
-              src={chatPanelHref}
-              title="Dayza Agent live chat"
-              className="min-h-0 flex-1 border-0 bg-background"
-            />
-          </section>
-        </div>
-      )}
-
-      {pathname !== "/chat" && !agentPanelOpen && (
-      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
-        {coachOpen && (
-          <div className="hidden max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl ios-scroll lg:block">
-            <div className="mb-3 flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Bot className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">You are in {currentFeature.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">You can do these things with AI:</p>
-              </div>
-              <button
-                type="button"
-                className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setCoachOpen(false)}
-                aria-label="Close AI help"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              {currentFeature.suggestions.map((suggestion) => (
-                <li key={suggestion} className="flex gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                  <span>{suggestion}</span>
-                </li>
-              ))}
-            </ul>
-            <Button className="mt-4 w-full" onClick={() => {
-              setCoachOpen(false);
-              setAgentPanelOpen(true);
-            }}>
-                Open Dayza Agent
-            </Button>
-          </div>
-        )}
-        <Button
-          size="icon"
-          className="h-12 w-12 rounded-full shadow-lg"
-          onClick={() => {
-            setCoachOpen(false);
-            setAgentPanelOpen(true);
-          }}
-          aria-label="Open Dayza Agent"
-        >
-          <MessageSquare className="h-5 w-5" />
-        </Button>
-      </div>
-      )}
+      <GlobalQuickAdd hidden={pathname === "/chat" || mobileNavOpen || !profileComplete} />
     </div>
   );
 }
