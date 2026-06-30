@@ -6,6 +6,7 @@ import {
   listFirestoreChatSessions,
 } from "@/lib/firestore-chat";
 import { formatAppDate } from "@/lib/local-dates";
+import { generateGeminiText } from "@/lib/gemini";
 
 export async function sendTelegramMessage(chatId: string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -228,45 +229,30 @@ async function logWorkoutFromVision(userId: string, details: any, caption: strin
 }
 
 async function analyzeTelegramWorkoutPhoto(userId: string, caption: string, photoFileId: string) {
-  if (!process.env.ABACUSAI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return "I received the workout photo, but AI vision is not configured. Reply with exercise name, sets, reps, and weight.";
   }
 
   const imageDataUrl = await telegramPhotoDataUrl(photoFileId);
-  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 500,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You analyze Telegram workout photos for Dayza. Return only JSON with keys: isWorkoutPhoto boolean, exerciseName string, muscleGroup string, equipment string, sets number|null, reps number|null, weightKg number|null, confidence number from 0 to 1, question string. Use the caption for sets/reps/weight. If exercise is unclear, set confidence below 0.75 and ask one short confirmation question.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: `Caption: ${caption || "(no caption)"}` },
-            { type: "image_url", image_url: { url: imageDataUrl } },
-          ],
-        },
-      ],
-    }),
+  const raw = await generateGeminiText({
+    maxOutputTokens: 500,
+    timeoutMs: 25000,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You analyze Telegram workout photos for Dayza. Return only JSON with keys: isWorkoutPhoto boolean, exerciseName string, muscleGroup string, equipment string, sets number|null, reps number|null, weightKg number|null, confidence number from 0 to 1, question string. Use the caption for sets/reps/weight. If exercise is unclear, set confidence below 0.75 and ask one short confirmation question.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `Caption: ${caption || "(no caption)"}` },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ],
+      },
+    ],
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Workout vision failed: ${errorText}`);
-  }
-
-  const data = await response.json();
-  const raw = data?.choices?.[0]?.message?.content ?? "{}";
   const details = extractJsonObject(raw);
 
   if (!details?.isWorkoutPhoto) {

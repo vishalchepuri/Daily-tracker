@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { queryAgentTaskMemory, rememberAgentTaskRun } from "@/lib/agent-task-vector-memory";
 import { sendPushToUser } from "@/lib/web-push";
+import { generateGeminiText } from "@/lib/gemini";
 
 const WEEK_DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 
@@ -213,7 +214,7 @@ function formatStructuredSummary(input: { summary?: string; changes?: string[]; 
 }
 
 async function summarizeWithAi(input: { taskName: string; prompt: string; trainingNotes?: string | null; outputFormat?: string | null; url: string; title: string; status: number; context: string; memory?: string }) {
-  if (!process.env.ABACUSAI_API_KEY || !input.context.trim()) return { text: "", structured: null as any };
+  if (!process.env.GEMINI_API_KEY || !input.context.trim()) return { text: "", structured: null as any };
   const aiPrompt = `You are Dayza Agent running a scheduled web-check task.
 
 Task name: ${input.taskName}
@@ -240,23 +241,16 @@ ${input.memory ? `RELATED PAST RUNS:\n${input.memory.slice(0, 5000)}\n\n` : ""}
 PAGE CONTEXT:
 ${input.context.slice(0, 9000)}`;
 
-  const res = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 900,
+  let content = "";
+  try {
+    content = await generateGeminiText({
+      maxOutputTokens: 900,
+      timeoutMs: 25000,
       messages: [{ role: "user", content: aiPrompt }],
-    }),
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!res.ok) return { text: "", structured: null as any };
-  const data = await res.json().catch(() => ({}));
-  const content = String(data?.choices?.[0]?.message?.content ?? "").trim();
+    });
+  } catch {
+    return { text: "", structured: null as any };
+  }
   const parsed = extractJsonObject(content);
   if (!parsed) return { text: content, structured: null as any };
   const structured = {

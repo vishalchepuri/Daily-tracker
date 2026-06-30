@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { generateGeminiText } from "@/lib/gemini";
 
 function slugify(value: string) {
   return value
@@ -167,17 +168,12 @@ function dedupeRanked(items: Array<{ exercise: any; score: number }>) {
 }
 
 async function createAiExercises(muscleGroup: string, currentExercise: any, usedNames: string[], recentReplacementNames: string[], userId: string) {
-  if (!process.env.ABACUSAI_API_KEY) return [];
-  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 1400,
+  if (!process.env.GEMINI_API_KEY) return [];
+  let text = "";
+  try {
+    text = await generateGeminiText({
+      maxOutputTokens: 1400,
+      timeoutMs: 25000,
       messages: [
         {
           role: "system",
@@ -198,11 +194,11 @@ Return:
 {"exercises":[{"name":"Exercise Name","muscleGroup":"${muscleGroup}","equipment":"dumbbell","category":"compound","description":"short description","formTips":"short coaching cue"}]}`,
         },
       ],
-    }),
-  });
-  if (!response.ok) return [];
-  const data = await response.json().catch(() => ({}));
-  const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "{}"));
+    });
+  } catch {
+    return [];
+  }
+  const parsed = JSON.parse(cleanAiJson(text || "{}"));
   const options = Array.isArray(parsed?.exercises) ? parsed.exercises : [parsed];
   const normalizedUsed = new Set([...usedNames, ...recentReplacementNames].map(normalize).filter(Boolean));
   const created = [];

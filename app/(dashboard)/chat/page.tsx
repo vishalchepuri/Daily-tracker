@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, AudioLines } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, AudioLines, ArrowLeft } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
@@ -229,14 +229,12 @@ export default function ChatPage() {
     const attachedImage = outgoingImage;
     setInput("");
     setImageDataUrl(null);
-    const assistantMessageId = `stream-${Date.now()}`;
     setMessages(prev => [...(prev ?? []), {
       role: "user",
       content: userMsg || "Analyze this image.",
       imageDataUrl: attachedImage,
       id: `temp-${Date.now()}`,
     }]);
-    setMessages(prev => [...(prev ?? []), { role: "assistant", content: "", id: assistantMessageId }]);
 
     try {
       const controller = new AbortController();
@@ -244,7 +242,6 @@ export default function ChatPage() {
       const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
       if (!targetSessionId) {
         setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
-        setMessages(prev => (prev ?? []).filter((message) => message.id !== assistantMessageId));
         finishAgentStream();
         return;
       }
@@ -294,6 +291,8 @@ export default function ChatPage() {
                   const last = updated[updated.length - 1];
                   if (last?.role === "assistant") {
                     updated[updated.length - 1] = { ...last, content: (last.content ?? "") + parsed.content };
+                  } else {
+                    updated.push({ role: "assistant", content: parsed.content, id: `stream-${Date.now()}` });
                   }
                   return updated;
                 });
@@ -305,6 +304,8 @@ export default function ChatPage() {
                   const last = updated[updated.length - 1];
                   if (last?.role === "assistant") {
                     updated[updated.length - 1] = { ...last, content: parsed.replaceContent };
+                  } else {
+                    updated.push({ role: "assistant", content: parsed.replaceContent, id: `stream-${Date.now()}` });
                   }
                   return updated;
                 });
@@ -318,6 +319,8 @@ export default function ChatPage() {
                       ...last,
                       undoActions: [...(last.undoActions ?? []), ...parsed.undoActions],
                     };
+                  } else {
+                    updated.push({ role: "assistant", content: "", id: `stream-${Date.now()}`, undoActions: parsed.undoActions });
                   }
                   return updated;
                 });
@@ -333,7 +336,6 @@ export default function ChatPage() {
         setMessages(prev => {
           const updated = [...(prev ?? [])];
           const last = updated[updated.length - 1];
-          if (last?.role === "assistant" && !last.content) return updated.slice(0, -1);
           if (last?.role === "assistant") updated[updated.length - 1] = { ...last, content: `${last.content}\n\nStopped.`.trim() };
           return updated;
         });
@@ -664,16 +666,47 @@ export default function ChatPage() {
       )}
 
       <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
-        <DialogContent className="inset-0 bottom-0 top-0 h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-none border-0 bg-background p-0 sm:bottom-auto sm:left-[50%] sm:top-[50%] sm:h-auto sm:max-h-[90svh] sm:max-w-[min(26rem,calc(100vw_-_1rem))] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-3xl sm:border">
+        <DialogContent hideClose className="inset-0 bottom-0 top-0 flex h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0">
           <div className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[55%] bg-[radial-gradient(120%_90%_at_50%_-10%,hsl(217_91%_60%/0.22)_0%,transparent_70%)]" />
-          <DialogHeader className="relative z-10 px-5 pt-5">
-            <DialogTitle className="flex items-center gap-2 text-base font-medium">
-              <BrandLogo size="sm" showText={false} />
-              Live Dayza
-            </DialogTitle>
+          <DialogHeader className="relative z-10 shrink-0 border-b border-border bg-background/85 px-3 py-3 text-left backdrop-blur sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setLiveOpen(false)}
+                className="h-9 w-9 shrink-0 rounded-full"
+                aria-label="Back to Dayza Agent"
+                title="Back"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <BrandLogo size="sm" showText={false} />
+                <div className="min-w-0">
+                  <DialogTitle className="truncate text-base font-semibold">
+                    Live Dayza
+                  </DialogTitle>
+                  <p className="truncate text-xs text-muted-foreground">Dayza Agent voice mode</p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setLiveOpen(false)}
+                className="h-9 w-9 shrink-0 rounded-full"
+                aria-label="Close Live Dayza"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
           </DialogHeader>
-          <div className="relative z-10 min-h-0 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.25rem)] pt-2">
-            <DayzaLiveAgent compact className="mb-0" />
+          <div className="relative z-10 flex min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 sm:px-6 sm:pt-6">
+            <div className="mx-auto flex w-full max-w-3xl min-h-full flex-col">
+              <DayzaLiveAgent compact className="mb-0 flex min-h-full flex-1 justify-center" />
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -864,7 +897,7 @@ export default function ChatPage() {
                       {msg.attachments[0].deletedReason || "Image expired"}
                     </div>
                   )}
-                  {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
+                  {msg?.content}
                   {msg?.role === "assistant" && Array.isArray(msg?.undoActions) && msg.undoActions.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-2">
                       {msg.undoActions.map((action: any) => (

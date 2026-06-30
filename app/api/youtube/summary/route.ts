@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import { generateGeminiText } from "@/lib/gemini";
 import { getPublicTranscript, youtubeFetch } from "@/lib/youtube";
 
 const YOUTUBE_SUMMARY_CACHE_SECONDS = 30 * 24 * 60 * 60;
@@ -73,36 +74,22 @@ export async function POST(req: Request) {
     const sourceText = transcript || `${video.snippet?.title ?? ""}\n${video.snippet?.description ?? ""}`;
     const sourceLabel = transcript ? "transcript" : "title and description";
 
-    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-5.4-mini",
-        stream: false,
-        max_tokens: 900,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You summarize YouTube videos for a busy builder. Return clean plain text only, with no markdown symbols, no ## headings, no asterisks, and no tables. Keep it simple and useful. Use this exact order with short labels: 1. Verdict, 2. Short summary, 3. Important points, 4. What you can use, 5. Watch or skip. Sort Important points from most important to least important. Capture valuable ideas, tools, models, product updates, risks, numbers, and action items. If only metadata is available, say the summary is based on title and description.",
-          },
-          {
-            role: "user",
-            content: `Video title: ${video.snippet?.title}\nChannel: ${video.snippet?.channelTitle}\nSource: ${sourceLabel}\n\n${sourceText.slice(0, 18000)}`,
-          },
-        ],
-      }),
+    const summaryText = await generateGeminiText({
+      maxOutputTokens: 900,
+      timeoutMs: 30000,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You summarize YouTube videos for a busy builder. Return clean plain text only, with no markdown symbols, no ## headings, no asterisks, and no tables. Keep it simple and useful. Use this exact order with short labels: 1. Verdict, 2. Short summary, 3. Important points, 4. What you can use, 5. Watch or skip. Sort Important points from most important to least important. Capture valuable ideas, tools, models, product updates, risks, numbers, and action items. If only metadata is available, say the summary is based on title and description.",
+        },
+        {
+          role: "user",
+          content: `Video title: ${video.snippet?.title}\nChannel: ${video.snippet?.channelTitle}\nSource: ${sourceLabel}\n\n${sourceText.slice(0, 18000)}`,
+        },
+      ],
     });
-
-    if (!response.ok) {
-      const text = await response.text();
-      return NextResponse.json({ error: `Summary failed: ${text}` }, { status: 500 });
-    }
-    const data = await response.json();
-    const summary = cleanSummaryText(data?.choices?.[0]?.message?.content ?? "No summary generated.");
+    const summary = cleanSummaryText(summaryText || "No summary generated.");
     const payload = {
       video: {
         id: videoId,

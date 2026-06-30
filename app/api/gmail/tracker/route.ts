@@ -10,6 +10,7 @@ import {
 } from "@/lib/firestore-app-data";
 import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import { generateGeminiText } from "@/lib/gemini";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const DEFAULT_QUERY = "newer_than:45d -category:promotions";
@@ -135,44 +136,34 @@ function normalizeImportance(value: any) {
 type GmailClassification = { category: string; importance: string; reason?: string; confidence?: number };
 
 async function aiClassifyMessages(messages: Array<{ id: string; subject: string; from: string; snippet: string; labelIds: string[]; hasAttachments?: boolean }>) {
-  if (!process.env.ABACUSAI_API_KEY || messages.length === 0) return new Map<string, GmailClassification>();
+  if (!process.env.GEMINI_API_KEY || messages.length === 0) return new Map<string, GmailClassification>();
   try {
-    const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-5.4-mini",
-        stream: false,
-        max_tokens: 3000,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are Dayza's Gmail organizer for an Indian personal dashboard. Think about the sender, sender domain, subject intent, Gmail labels, snippet, date, and attachment presence. Return ONLY JSON array. Category must be exactly one of: bills, finance, orders, travel, health, work, security, subscriptions, social, updates, personal, other. Use finance for bank/card statements, debit/credit alerts, UPI, refunds, investment, salary, tax, and wallet emails. Use bills only for payable utilities or due reminders. Use orders for ecommerce/food delivery/shipping. Use security only for login, OTP, password, account safety. Use work for office/task/career/project emails. Use personal for human-to-human messages. Importance must be high, medium, or low. High only when the user likely needs action soon, money/security risk, due dates, travel changes, work deadlines, or failed payments. Low for newsletters, promos, FYI updates. Include a short reason and confidence 0-1.",
-          },
-          {
-            role: "user",
-            content: JSON.stringify(
-              messages.map((message) => ({
-                id: message.id,
-                subject: message.subject,
-                from: message.from,
-                senderDomain: senderDomain(message.from),
-                snippet: message.snippet,
-                labels: message.labelIds,
-                hasAttachments: Boolean((message as any).hasAttachments),
-              }))
-            ),
-          },
-        ],
-      }),
+    const text = await generateGeminiText({
+      maxOutputTokens: 3000,
+      timeoutMs: 25000,
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are Dayza's Gmail organizer for an Indian personal dashboard. Think about the sender, sender domain, subject intent, Gmail labels, snippet, date, and attachment presence. Return ONLY JSON array. Category must be exactly one of: bills, finance, orders, travel, health, work, security, subscriptions, social, updates, personal, other. Use finance for bank/card statements, debit/credit alerts, UPI, refunds, investment, salary, tax, and wallet emails. Use bills only for payable utilities or due reminders. Use orders for ecommerce/food delivery/shipping. Use security only for login, OTP, password, account safety. Use work for office/task/career/project emails. Use personal for human-to-human messages. Importance must be high, medium, or low. High only when the user likely needs action soon, money/security risk, due dates, travel changes, work deadlines, or failed payments. Low for newsletters, promos, FYI updates. Include a short reason and confidence 0-1.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify(
+            messages.map((message) => ({
+              id: message.id,
+              subject: message.subject,
+              from: message.from,
+              senderDomain: senderDomain(message.from),
+              snippet: message.snippet,
+              labels: message.labelIds,
+              hasAttachments: Boolean((message as any).hasAttachments),
+            }))
+          ),
+        },
+      ],
     });
-    if (!response.ok) return new Map();
-    const data = await response.json().catch(() => ({}));
-    const parsed = JSON.parse(cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]"));
+    const parsed = JSON.parse(cleanAiJson(text || "[]"));
     if (!Array.isArray(parsed)) return new Map();
     const entries: Array<[string, GmailClassification]> = parsed
         .map((item: any) => [

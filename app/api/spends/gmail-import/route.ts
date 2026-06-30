@@ -7,6 +7,7 @@ import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 import { createReviewItemOnce } from "@/lib/firestore-app-data";
 import { decryptOAuthTokenFields, encryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
+import { generateGeminiText } from "@/lib/gemini";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const MAX_EMAILS_PER_RUN = 40;
@@ -195,21 +196,16 @@ function cleanAiJson(value: string) {
 }
 
 async function aiExtractSpend(input: { subject: string; from: string; snippet: string; body: string }) {
-  if (!process.env.ABACUSAI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     const fallback = parseSpendWithRegex(`${input.snippet}\n${input.body}`, input.subject);
     return fallback ? { ...fallback, confidence: 0.55, reason: "AI not configured; regex fallback used." } : null;
   }
 
-  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 500,
+  let text = "";
+  try {
+    text = await generateGeminiText({
+      maxOutputTokens: 500,
+      timeoutMs: 25000,
       messages: [
         {
           role: "system",
@@ -229,12 +225,13 @@ Body:
 ${input.body.slice(0, 10000)}`,
         },
       ],
-    }),
-  });
+    });
+  } catch {
+    const fallback = parseSpendWithRegex(`${input.snippet}\n${input.body}`, input.subject);
+    return fallback ? { ...fallback, confidence: 0.55, reason: "AI unavailable; regex fallback used." } : null;
+  }
 
-  if (!response.ok) return null;
-  const data = await response.json().catch(() => ({}));
-  const raw = cleanAiJson(data?.choices?.[0]?.message?.content ?? "{}");
+  const raw = cleanAiJson(text || "{}");
   const parsed = JSON.parse(raw);
   if (!parsed?.isTransaction || parsed.direction === "credit") return null;
 
@@ -294,18 +291,13 @@ async function aiExtractStatementTransactions(input: {
   pdfFilename: string;
   pdfText: string;
 }) {
-  if (!process.env.ABACUSAI_API_KEY || !input.pdfText.trim()) return [] as StatementTransaction[];
+  if (!process.env.GEMINI_API_KEY || !input.pdfText.trim()) return [] as StatementTransaction[];
 
-  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 5000,
+  let text = "";
+  try {
+    text = await generateGeminiText({
+      maxOutputTokens: 5000,
+      timeoutMs: 35000,
       messages: [
         {
           role: "system",
@@ -324,12 +316,12 @@ PDF text:
 ${input.pdfText.slice(0, 24000)}`,
         },
       ],
-    }),
-  });
+    });
+  } catch {
+    return [];
+  }
 
-  if (!response.ok) return [];
-  const data = await response.json().catch(() => ({}));
-  const raw = cleanAiJson(data?.choices?.[0]?.message?.content ?? "[]");
+  const raw = cleanAiJson(text || "[]");
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed)) return [];
 
