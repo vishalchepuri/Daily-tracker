@@ -126,8 +126,38 @@ function parseJsonValue<T>(value: unknown, fallback: T): T {
   }
 }
 
+function humanizeKey(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function formatStructuredItem(item: unknown): string {
+  if (item == null) return "";
+  if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") return String(item).trim();
+  if (Array.isArray(item)) return item.map(formatStructuredItem).filter(Boolean).join(", ");
+  if (typeof item === "object") {
+    const entries = Object.entries(item as Record<string, unknown>)
+      .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
+      .slice(0, 8);
+    if (entries.length === 0) return "";
+    const nameEntry = entries.find(([key]) => /name|company|ipo|title/i.test(key));
+    const otherEntries = entries.filter(([key]) => key !== nameEntry?.[0]);
+    const head = nameEntry ? formatStructuredItem(nameEntry[1]) : "";
+    const detail = otherEntries
+      .map(([key, value]) => `${humanizeKey(key)}: ${formatStructuredItem(value)}`)
+      .filter(Boolean)
+      .join(" | ");
+    return [head, detail].filter(Boolean).join(" - ");
+  }
+  return String(item).trim();
+}
+
 function cleanList(value: unknown) {
-  return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
+  return Array.isArray(value) ? value.map(formatStructuredItem).filter(Boolean) : [];
 }
 
 function structuredRun(run: any) {

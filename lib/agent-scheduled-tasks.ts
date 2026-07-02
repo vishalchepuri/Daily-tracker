@@ -199,9 +199,39 @@ function extractJsonObject(text: string) {
   }
 }
 
+function humanizeStructuredKey(value: string) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (char) => char.toUpperCase());
+}
+
+function structuredItemString(item: unknown): string {
+  if (item == null) return "";
+  if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") return String(item).trim();
+  if (Array.isArray(item)) return item.map(structuredItemString).filter(Boolean).join(", ");
+  if (typeof item === "object") {
+    const entries = Object.entries(item as Record<string, unknown>)
+      .filter(([, value]) => value !== null && value !== undefined && String(value).trim() !== "")
+      .slice(0, 8);
+    if (entries.length === 0) return "";
+    const nameEntry = entries.find(([key]) => /name|company|ipo|title/i.test(key));
+    const otherEntries = entries.filter(([key]) => key !== nameEntry?.[0]);
+    const head = nameEntry ? structuredItemString(nameEntry[1]) : "";
+    const detail = otherEntries
+      .map(([key, value]) => `${humanizeStructuredKey(key)}: ${structuredItemString(value)}`)
+      .filter(Boolean)
+      .join(" | ");
+    return [head, detail].filter(Boolean).join(" - ");
+  }
+  return String(item).trim();
+}
+
 function stringArray(value: unknown) {
   if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item ?? "").trim()).filter(Boolean).slice(0, 12);
+  return value.map(structuredItemString).filter(Boolean).slice(0, 12);
 }
 
 function formatStructuredSummary(input: { summary?: string; changes?: string[]; importantItems?: string[]; actionItems?: string[] }) {
@@ -230,9 +260,9 @@ Use the page context below to answer the user's instruction. Extract concrete da
 Return ONLY JSON:
 {
   "summary": "short clean answer",
-  "changes": ["new or changed items only"],
-  "importantItems": ["important unchanged or notable items"],
-  "actionItems": ["things the user should do, if any"],
+  "changes": ["new or changed items only, each table row as one concise string"],
+  "importantItems": ["important unchanged or notable items, each item as one concise string"],
+  "actionItems": ["things the user should do, if any, each action as one concise string"],
   "confidence": 0.0
 }
 
