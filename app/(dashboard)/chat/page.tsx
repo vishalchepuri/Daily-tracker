@@ -580,7 +580,7 @@ export default function ChatPage() {
 
   return (
     <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-0 h-[45%] bg-[radial-gradient(120%_80%_at_50%_120%,hsl(217_91%_60%/0.28)_0%,transparent_70%)]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-0 h-[45%] bg-[radial-gradient(120%_80%_at_50%_120%,hsl(var(--primary)/0.16)_0%,transparent_70%)]" />
       {!embedded && (
         <div className="relative z-10 flex items-center justify-end gap-1 px-3 pt-2 sm:px-4">
           <Button
@@ -667,7 +667,7 @@ export default function ChatPage() {
 
       <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
         <DialogContent hideClose className="inset-0 bottom-0 top-0 flex h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0">
-          <div className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[55%] bg-[radial-gradient(120%_90%_at_50%_-10%,hsl(217_91%_60%/0.22)_0%,transparent_70%)]" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[55%] bg-[radial-gradient(120%_90%_at_50%_-10%,hsl(var(--primary)/0.14)_0%,transparent_70%)]" />
           <DialogHeader className="relative z-10 shrink-0 border-b border-border bg-background/85 px-3 py-3 text-left backdrop-blur sm:px-5">
             <div className="flex min-w-0 items-center gap-2">
               <Button
@@ -1002,7 +1002,7 @@ export default function ChatPage() {
                   <Button
                     type="button"
                     onClick={() => setLiveOpen(true)}
-                    className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 px-0 text-white shadow-lg shadow-blue-500/30 hover:opacity-90"
+                    className="h-9 w-9 shrink-0 rounded-full bg-primary px-0 text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90"
                     title="Live voice"
                   >
                     <AudioLines className="h-5 w-5" />
