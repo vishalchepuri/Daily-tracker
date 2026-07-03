@@ -247,15 +247,16 @@ async function summarizeWithAi(input: { taskName: string; prompt: string; traini
   if (!process.env.GEMINI_API_KEY || !input.context.trim()) return { text: "", structured: null as any };
   const aiPrompt = `You are Dayza Agent running a scheduled web-check task.
 
-Task name: ${input.taskName}
-User instruction: ${input.prompt}
-Task training notes: ${input.trainingNotes || "-"}
-Expected output: ${input.outputFormat || "Concise plain-text summary with important facts and changes."}
+Task name: ${cleanText(input.taskName).slice(0, 160)}
+User instruction: ${cleanText(input.prompt).slice(0, 1500)}
+Task training notes: ${input.trainingNotes ? cleanText(input.trainingNotes).slice(0, 1500) : "-"}
+Expected output: ${input.outputFormat ? cleanText(input.outputFormat).slice(0, 1000) : "Concise plain-text summary with important facts and changes."}
 URL: ${input.url}
 HTTP status: ${input.status}
 Page title: ${input.title || "-"}
 
 Use the page context below to answer the user's instruction. Extract concrete data such as names, dates, amounts, status, table rows, changes, and alerts when present. If related past runs are available, compare the current page with them and call out only new, changed, or important items. Do not say the page has no data just because a placeholder table says "No data available" if useful names or data appear elsewhere.
+Strict scope: answer only this Dayza scheduled web-check task from the supplied page context and related past runs. If the instruction asks for unrelated general knowledge or content not grounded in the page, say that the task is outside the available page context.
 
 Return ONLY JSON:
 {
@@ -266,15 +267,15 @@ Return ONLY JSON:
   "confidence": 0.0
 }
 
-${input.memory ? `RELATED PAST RUNS:\n${input.memory.slice(0, 5000)}\n\n` : ""}
+${input.memory ? `RELATED PAST RUNS:\n${input.memory.slice(0, 2500)}\n\n` : ""}
 
 PAGE CONTEXT:
-${input.context.slice(0, 9000)}`;
+${input.context.slice(0, 6500)}`;
 
   let content = "";
   try {
     content = await generateGeminiText({
-      maxOutputTokens: 900,
+      maxOutputTokens: 650,
       timeoutMs: 25000,
       messages: [{ role: "user", content: aiPrompt }],
     });
