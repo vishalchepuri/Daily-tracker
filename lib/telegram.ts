@@ -496,7 +496,7 @@ function helpText(chatId: string) {
     "• taken Vitamin D",
     "• log my diet breakfast",
     "",
-    "Link this chat in Dayza > Reminders > Telegram if it is not connected yet.",
+    "Link this chat in Dayza > Profile > Integrations > Telegram if it is not connected yet.",
   ].join("\n");
 }
 
@@ -512,7 +512,7 @@ export async function processTelegramMessage(chatId: string, text: string, optio
   const profile = await prisma.userProfile.findFirst({
     where: { telegramChatId: chatId, telegramEnabled: true },
   });
-  if (!profile) return `This Telegram chat is not linked to a Dayza account yet.\n\nYour chat ID: ${chatId}\n\nOpen Dayza > Reminders > Telegram, paste this chat ID, and enable Telegram.`;
+  if (!profile) return `This Telegram chat is not linked to a Dayza account yet.\n\nYour chat ID: ${chatId}\n\nOpen Dayza > Profile > Integrations > Telegram, paste this chat ID, and enable Telegram.`;
 
   const userId = profile.userId;
   await saveTelegramChat(userId, "user", options?.photoFileId ? `${trimmed || "Photo uploaded"}\n[Photo: ${options.photoFileId}]` : trimmed, options?.photoFileId);

@@ -465,7 +465,7 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         <main
           ref={mainRef}
           className={cn(
-            "min-h-0 flex-1 scroll-smooth ios-scroll",
+            "min-h-0 flex-1 touch-pan-y scroll-smooth ios-scroll",
             isChatPage
               ? "overflow-hidden"
               : "overflow-y-auto p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10"
@@ -563,7 +563,15 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         </div>
       )}
 
-      <GlobalQuickAdd hidden={pathname === "/chat" || mobileNavOpen || !profileComplete} />
+      <GlobalQuickAdd
+        hidden={
+          pathname === "/chat" ||
+          pathname === "/profile" ||
+          pathname === "/reminders" ||
+          mobileNavOpen ||
+          !profileComplete
+        }
+      />
     </div>
   );
 }

@@ -750,6 +750,15 @@ export default function ProfilePage() {
     { label: "Height", value: form.height ? `${form.height} cm` : "--" },
     { label: "Goal", value: form.goal.replace(/_/g, " ") },
   ];
+  const selectProfileTab = useCallback((tab: string) => {
+    setActiveTab(tab);
+    window.requestAnimationFrame(() => {
+      const main = document.querySelector("main.ios-scroll");
+      if (main instanceof HTMLElement) {
+        main.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    });
+  }, []);
   const activeSection = PROFILE_SECTION_OPTIONS.find((section) => section.value === activeTab);
   const ActiveSectionIcon = activeSection?.icon;
   const memoryReviewItems = [
@@ -772,7 +781,7 @@ export default function ProfilePage() {
   ];
 
   return (
-    <div className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6">
+    <div className="w-full max-w-full touch-pan-y space-y-5 overflow-x-hidden pb-4 sm:space-y-6 lg:pb-0">
       <FadeIn className="hidden sm:block">
         <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Profile & Goals</h2>
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
@@ -792,7 +801,7 @@ export default function ProfilePage() {
                   {pendingExercises.length > 3 ? ` and ${pendingExercises.length - 3} more` : ""}
                 </p>
               </div>
-              <Button type="button" variant="outline" onClick={() => setActiveTab("review")}>
+              <Button type="button" variant="outline" onClick={() => selectProfileTab("review")}>
                 View Status
               </Button>
             </CardContent>
@@ -800,14 +809,14 @@ export default function ProfilePage() {
         </FadeIn>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full max-w-full space-y-4 overflow-x-hidden">
+      <Tabs value={activeTab} onValueChange={selectProfileTab} className="w-full max-w-full space-y-4 overflow-x-hidden">
         {activeTab !== "profile" && activeSection && (
           <FadeIn delay={0.02}>
             <div className="rounded-[28px] border border-border/70 bg-card/85 p-3 shadow-sm shadow-black/10">
               <button
                 type="button"
-                onClick={() => setActiveTab("profile")}
-                className="mb-3 inline-flex h-10 items-center gap-2 rounded-full border border-border/70 bg-muted/25 px-3 text-sm font-medium text-muted-foreground transition active:scale-[0.97]"
+                onClick={() => selectProfileTab("profile")}
+                className="mb-3 inline-flex h-10 items-center gap-2 rounded-full border border-border/70 bg-muted/25 px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Profile
@@ -818,7 +827,7 @@ export default function ProfilePage() {
                 </div>
                 <div className="min-w-0">
                   <h3 className="text-xl font-bold tracking-tight">{activeSection.label}</h3>
-                  <p className="mt-1 text-sm text-muted-foreground">{activeSection.detail}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{activeSection.detail}</p>
                 </div>
               </div>
             </div>
@@ -837,16 +846,12 @@ export default function ProfilePage() {
                     <p className="truncate text-xl font-bold">{displayName}</p>
                     <p className="mt-1 text-sm capitalize text-muted-foreground">{form.activityLevel.replace(/_/g, " ")} - {form.gender}</p>
                   </div>
-                  <Button type="button" size="sm" onClick={handleSave} loading={saving} className="h-10 rounded-full px-4">
-                    <Save className="h-4 w-4" />
-                    Save
-                  </Button>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {profileSummary.map((item) => (
                     <div key={item.label} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
                       <p className="text-xs text-muted-foreground">{item.label}</p>
-                      <p className="mt-1 truncate text-sm font-semibold capitalize">{item.value}</p>
+                      <p className="mt-1 text-sm font-semibold capitalize leading-tight [overflow-wrap:anywhere]">{item.value}</p>
                     </div>
                   ))}
                 </div>
@@ -854,7 +859,7 @@ export default function ProfilePage() {
             </Card>
           </FadeIn>
           <FadeIn delay={0.08}>
-            <ProfileSettingsList onSelect={setActiveTab} />
+            <ProfileSettingsList onSelect={selectProfileTab} />
           </FadeIn>
       <FadeIn delay={0.1}>
         <Card className={PROFILE_CARD_CLASS}>
@@ -917,8 +922,8 @@ export default function ProfilePage() {
               </div>
               <button
                 type="button"
-                className="mt-4 w-full rounded-2xl border border-border/70 bg-muted/20 p-3 text-left text-sm text-muted-foreground transition active:scale-[0.99]"
-                onClick={() => setActiveTab("memory")}
+                className="mt-4 w-full touch-pan-y rounded-2xl border border-border/70 bg-muted/20 p-3 text-left text-sm leading-relaxed text-muted-foreground transition-colors hover:bg-muted/30"
+                onClick={() => selectProfileTab("memory")}
               >
                 Advanced workout focus, allergies, timeline, and nutrition depth are in Agent Memory.
               </button>
@@ -1749,28 +1754,26 @@ function ProfileSettingsList({ onSelect }: { onSelect: (value: string) => void }
       {groups.map((group) => {
         const sections = PROFILE_SECTION_OPTIONS.filter((section) => section.group === group);
         return (
-          <section key={group} className="rounded-[28px] border border-border/70 bg-card/85 p-2 shadow-sm shadow-black/10">
-            <p className="px-3 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
-            <div className="overflow-hidden rounded-[22px] border border-border/50 bg-background/40">
-              {sections.map((section, index) => {
+          <section key={group} className="overflow-hidden rounded-[24px] border border-border/65 bg-card/85 shadow-sm shadow-black/10">
+            <p className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+            <div className="divide-y divide-border/45">
+              {sections.map((section) => {
                 const Icon = section.icon;
                 return (
                   <button
                     key={section.value}
                     type="button"
                     onClick={() => onSelect(section.value)}
-                    className={`flex w-full items-center gap-3 px-3 py-3.5 text-left transition active:scale-[0.99] active:bg-primary/10 ${
-                      index > 0 ? "border-t border-border/50" : ""
-                    }`}
+                    className="group flex w-full touch-pan-y items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-primary/12 text-primary">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-primary">
                       <Icon className="h-5 w-5" />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="block text-sm font-semibold">{section.label}</span>
-                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{section.detail}</span>
+                      <span className="block text-sm font-semibold leading-snug">{section.label}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{section.detail}</span>
                     </span>
-                    <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
                   </button>
                 );
               })}

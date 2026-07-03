@@ -475,7 +475,6 @@ export function DayzaLiveAgent({
   }, [pushTranscript, sendJson, text]);
 
   const liveActive = status === "starting" || status === "listening" || status === "speaking" || status === "thinking";
-  const visibleTranscript = transcript.filter((item) => item.role === "user" || item.role === "assistant");
 
   return (
     <div className={`flex flex-col ${className}`}>
@@ -524,20 +523,6 @@ export function DayzaLiveAgent({
           {liveError || subtitle}
         </p>
       </div>
-
-      {visibleTranscript.length > 0 && (
-        <div className="mx-auto mb-5 max-h-28 w-full space-y-1.5 overflow-y-auto overscroll-contain rounded-2xl border border-white/5 bg-white/[0.02] p-3">
-          {visibleTranscript.slice(-6).map((item) => (
-            <p
-              key={item.id}
-              className={`text-xs leading-relaxed ${item.role === "user" ? "text-right font-medium text-foreground" : "text-muted-foreground"}`}
-            >
-              {item.text}
-              {item.streaming && <span className="ml-1 inline-block h-1 w-1 animate-pulse rounded-full bg-current align-middle" />}
-            </p>
-          ))}
-        </div>
-      )}
 
       <div className="flex items-center justify-center gap-5">
         <button

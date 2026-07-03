@@ -3,9 +3,9 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, AudioLines, ArrowLeft } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, AudioLines, ArrowLeft, ArrowDown } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
@@ -48,7 +48,9 @@ export default function ChatPage() {
   const [voiceReplies, setVoiceReplies] = useState(true);
   const [speaking, setSpeaking] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const cameraStreamRef = useRef<MediaStream | null>(null);
@@ -127,9 +129,39 @@ export default function ChatPage() {
     if (new URLSearchParams(window.location.search).get("mode") === "voice") setInteractionMode(true);
   }, []);
 
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior });
+    setShowScrollToBottom(false);
+  }, []);
+
+  const handleMessageScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > 180);
+  }, []);
+
   useEffect(() => {
-    scrollRef.current?.scrollTo?.({ top: scrollRef.current?.scrollHeight ?? 0, behavior: "smooth" });
-  }, [messages]);
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    const latestMessage = messages?.[messages.length - 1];
+    if (distanceFromBottom < 240 || latestMessage?.role === "user") {
+      scrollChatToBottom("smooth");
+    } else {
+      setShowScrollToBottom(distanceFromBottom > 180);
+    }
+  }, [messages, scrollChatToBottom]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const maxHeight = 160;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [input]);
 
   useEffect(() => {
     return () => {
@@ -841,7 +873,11 @@ export default function ChatPage() {
               </Button>
             </div>
           )}
-          <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-4 sm:space-y-4 sm:p-4">
+          <div
+            ref={scrollRef}
+            onScroll={handleMessageScroll}
+            className="min-h-0 flex-1 touch-pan-y space-y-3 overflow-y-auto overscroll-contain px-3 py-4 sm:space-y-4 sm:p-4"
+          >
             {(messages ?? [])?.length === 0 && (
               <div className="mx-auto flex min-h-full max-w-md flex-col items-center justify-center px-4 py-8 text-center">
                 <BrandLogo size="lg" showText={false} className="mb-5" />
@@ -926,6 +962,19 @@ export default function ChatPage() {
               </div>
              ))}
            </div>
+            <div className="pointer-events-none relative z-20 h-0">
+              {showScrollToBottom && (
+                <button
+                  type="button"
+                  onClick={() => scrollChatToBottom("smooth")}
+                  className="pointer-events-auto absolute left-1/2 top-[-3.25rem] flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-card/95 text-muted-foreground shadow-lg shadow-black/20 backdrop-blur transition hover:bg-muted hover:text-foreground"
+                  aria-label="Scroll to latest message"
+                  title="Scroll to latest"
+                >
+                  <ArrowDown className="h-5 w-5" />
+                </button>
+              )}
+            </div>
             <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+4.9rem)] pt-2 sm:px-4 lg:pb-4">
              <div className="mx-auto w-full max-w-3xl">
              {imageDataUrl && (
@@ -940,7 +989,7 @@ export default function ChatPage() {
                  </Button>
                </div>
              )}
-             <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+             <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="flex items-end gap-1 rounded-[28px] border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
                <input
                  ref={fileInputRef}
                  type="file"
@@ -963,12 +1012,20 @@ export default function ChatPage() {
                 >
                   <Plus className="h-5 w-5" />
                 </Button>
-                <Input
+                <Textarea
+                  ref={textareaRef}
                   value={input}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
                   placeholder="Ask Dayza"
                   disabled={streaming}
-                  className="h-9 min-w-0 flex-1 border-0 bg-transparent px-1 text-base shadow-none placeholder:text-muted-foreground focus-visible:ring-0"
+                  rows={1}
+                  className="min-h-9 max-h-40 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-1 py-1.5 text-base leading-6 shadow-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
                 <Button
                   type="button"
