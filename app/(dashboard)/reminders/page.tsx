@@ -434,7 +434,7 @@ export default function RemindersPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-5 overflow-x-hidden pb-6 sm:space-y-6">
+    <div className="mx-auto w-full max-w-5xl touch-pan-y space-y-5 overflow-x-hidden pb-10 sm:space-y-6 lg:pb-6">
       <FadeIn>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -772,7 +772,7 @@ function SmartTile({ active, icon: Icon, label, count, color, tile, onClick }: a
     <button
       type="button"
       onClick={onClick}
-      className={`min-h-[6.4rem] touch-manipulation rounded-[24px] border p-4 text-left shadow-sm shadow-black/10 transition active:scale-[0.97] active:brightness-110 ${tile} ${active ? "ring-2 ring-primary/45" : "hover:border-primary/30"}`}
+      className={`min-h-[6.4rem] touch-pan-y rounded-[24px] border p-4 text-left shadow-sm shadow-black/10 transition-colors ${tile} ${active ? "border-primary/70 bg-primary/10 shadow-primary/10" : "hover:border-primary/30 hover:bg-muted/20"}`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className={`flex h-10 w-10 items-center justify-center rounded-full bg-background/70 ${color}`}>

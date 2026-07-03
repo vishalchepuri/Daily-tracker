@@ -106,6 +106,22 @@ export async function POST(req: Request) {
         await prisma.workoutExercise.delete({ where: { id: targetId } });
         undone = true;
       }
+    } else if (targetType === "workoutExerciseUpdate") {
+      const row = await prisma.workoutExercise.findUnique({
+        where: { id: targetId },
+        include: { workoutTemplate: { select: { userId: true } } },
+      });
+      if (row?.workoutTemplate?.userId === user.id) {
+        await prisma.workoutExercise.update({
+          where: { id: targetId },
+          data: {
+            sets: Math.max(1, Math.round(Number(undo.payload?.sets ?? row.sets))),
+            reps: String(undo.payload?.reps ?? row.reps),
+            restSeconds: Math.max(15, Math.round(Number(undo.payload?.restSeconds ?? row.restSeconds))),
+          },
+        });
+        undone = true;
+      }
     } else if (targetType === "workoutExerciseRemoval") {
       const template = await prisma.workoutTemplate.findFirst({ where: { id: targetId, userId: user.id } });
       const rows = Array.isArray(undo.payload?.exercises) ? undo.payload.exercises : [];

@@ -74,7 +74,7 @@ export function GlobalQuickAdd({ hidden = false }: { hidden?: boolean }) {
       <Button
         type="button"
         size="icon"
-        className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] left-4 z-40 h-12 w-12 rounded-full shadow-lg lg:bottom-4 lg:left-[17rem]"
+        className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] left-4 z-40 hidden h-12 w-12 rounded-full shadow-lg lg:bottom-4 lg:left-[17rem] lg:flex"
         onClick={() => setOpen(true)}
         aria-label="Quick add"
       >
