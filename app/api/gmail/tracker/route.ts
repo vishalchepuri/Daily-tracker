@@ -348,7 +348,7 @@ export async function POST(req: Request) {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const limited = rateLimit(req, "gmail-tracker-sync", { limit: 12, windowMs: 60 * 60 * 1000, userId: user.id });
+    const limited = await rateLimit(req, "gmail-tracker-sync", { limit: 12, windowMs: 60 * 60 * 1000, userId: user.id });
     if (!limited.ok) {
       return NextResponse.json(
         { error: "Too many Gmail tracker syncs. Please try again later." },

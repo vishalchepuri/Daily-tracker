@@ -6,7 +6,7 @@ import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 export async function POST(req: Request) {
   try {
-    const limited = rateLimit(req, "check-email", { limit: 60, windowMs: 10 * 60 * 1000 });
+    const limited = await rateLimit(req, "check-email", { limit: 60, windowMs: 10 * 60 * 1000 });
     if (!limited.ok) {
       return NextResponse.json(
         { error: "Too many requests. Please try again later." },

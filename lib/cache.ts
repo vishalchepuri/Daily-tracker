@@ -98,6 +98,20 @@ export async function cacheDeletePattern(pattern: string) {
   }
 }
 
+export async function cacheIncrement(key: string, ttlSeconds: number) {
+  const client = getRedisClient();
+  if (!client) return null;
+  try {
+    if (!(await ensureRedisConnected(client))) return null;
+    const count = await client.incr(key);
+    if (count === 1) await client.expire(key, ttlSeconds);
+    const ttlMs = await client.pttl(key);
+    return { count, ttlMs: ttlMs > 0 ? ttlMs : ttlSeconds * 1000 };
+  } catch {
+    return null;
+  }
+}
+
 export async function cachePing() {
   const client = getRedisClient();
   if (!client) return { configured: false, ok: false };

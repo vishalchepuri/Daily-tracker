@@ -486,7 +486,7 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = user.id;
     const email = user.email?.trim().toLowerCase();
-    const limited = rateLimit(req, "gmail-import", { limit: 6, windowMs: 60 * 60 * 1000, userId });
+    const limited = await rateLimit(req, "gmail-import", { limit: 6, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json(
         { error: "Too many Gmail imports. Please try again later." },
