@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     const cached = await cacheGetJson<any>(cacheKey);
     if (cached) return NextResponse.json({ ...cached, cached: true });
 
-    const limited = rateLimit(req, "youtube-summary", { limit: 20, windowMs: 60 * 60 * 1000, userId });
+    const limited = await rateLimit(req, "youtube-summary", { limit: 20, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json(
         { error: "Too many YouTube summaries. Please try again later." },

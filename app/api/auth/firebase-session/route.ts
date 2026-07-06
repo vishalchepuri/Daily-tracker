@@ -23,7 +23,7 @@ function normalizeEmail(email?: string | null) {
 
 export async function POST(req: Request) {
   try {
-    const limited = rateLimit(req, "firebase-session", { limit: 40, windowMs: 10 * 60 * 1000 });
+    const limited = await rateLimit(req, "firebase-session", { limit: 40, windowMs: 10 * 60 * 1000 });
     if (!limited.ok) {
       return NextResponse.json(
         { error: "Too many sign-in attempts. Please try again later." },

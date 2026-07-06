@@ -21,7 +21,7 @@ export async function POST(req: Request) {
     const user = await requireCurrentUser();
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const limited = rateLimit(req, "gemini-live-token", {
+    const limited = await rateLimit(req, "gemini-live-token", {
       limit: 20,
       windowMs: 60 * 60 * 1000,
       userId: user.id,

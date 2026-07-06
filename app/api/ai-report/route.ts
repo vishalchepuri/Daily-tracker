@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (user as any).id;
 
-    const limited = rateLimit(req, "ai-report", { limit: 5, windowMs: 60 * 60 * 1000, userId });
+    const limited = await rateLimit(req, "ai-report", { limit: 5, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json({ error: "Rate limited. Try again later." }, { status: 429, headers: rateLimitHeaders(limited) });
     }

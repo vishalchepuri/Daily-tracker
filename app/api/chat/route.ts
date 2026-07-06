@@ -2919,7 +2919,7 @@ export async function POST(req: Request) {
     }
 
     const userId = user.id;
-    const limited = rateLimit(req, "dayza-agent", { limit: 60, windowMs: 60 * 60 * 1000, userId });
+    const limited = await rateLimit(req, "dayza-agent", { limit: 60, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return new Response(JSON.stringify({ error: "Too many Dayza Agent messages. Please try again later." }), {
         status: 429,
