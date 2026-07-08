@@ -1,8 +1,38 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { requireAdminUser, requireCurrentUser } from "@/lib/auth";
+import { cacheDeletePattern, cacheGetJson, cacheSetJson } from "@/lib/cache";
 import { prisma } from "@/lib/db";
 import { ensureStarterExerciseLibrarySafe } from "@/lib/exercise-library";
+
+const EXERCISE_CACHE_TTL_SECONDS = 10 * 60;
+
+const compactExerciseSelect = {
+  id: true,
+  name: true,
+  muscleGroup: true,
+  equipment: true,
+  category: true,
+  status: true,
+};
+
+type CompactExercise = {
+  id: string;
+  name: string;
+  muscleGroup: string;
+  equipment: string | null;
+  category: string | null;
+  status: string;
+};
+
+function approvedExerciseCacheKey(muscleGroup: string | null) {
+  return `v1:exercises:compact:${muscleGroup ? `muscle:${muscleGroup}` : "muscle:all"}:approved`;
+}
+
+async function invalidateExerciseCache() {
+  await cacheDeletePattern("v1:exercises:*");
+}
 
 export async function GET(req: Request) {
   try {
@@ -14,6 +44,49 @@ export async function GET(req: Request) {
     const user = await requireCurrentUser();
     const userId = user?.id;
     const status = admin ? searchParams.get("status") : null;
+
+    if (compact && !admin) {
+      const cacheKey = approvedExerciseCacheKey(muscleGroup);
+      let approvedExercises = await cacheGetJson<CompactExercise[]>(cacheKey);
+      let cacheStatus = "HIT";
+
+      if (!approvedExercises) {
+        approvedExercises = await prisma.exercise.findMany({
+          where: {
+            ...(muscleGroup ? { muscleGroup } : {}),
+            status: "approved",
+          },
+          select: compactExerciseSelect,
+          orderBy: { name: "asc" },
+        });
+        await cacheSetJson(cacheKey, approvedExercises, EXERCISE_CACHE_TTL_SECONDS);
+        cacheStatus = "MISS";
+      }
+
+      const pendingExercises = userId
+        ? await prisma.exercise.findMany({
+            where: {
+              ...(muscleGroup ? { muscleGroup } : {}),
+              status: "pending",
+              submittedById: userId,
+            },
+            select: compactExerciseSelect,
+            orderBy: { name: "asc" },
+          })
+        : [];
+
+      const exercises = [...approvedExercises, ...pendingExercises].sort((a, b) => a.name.localeCompare(b.name));
+      return NextResponse.json(
+        { exercises },
+        {
+          headers: {
+            "Cache-Control": "private, max-age=60, stale-while-revalidate=600",
+            "X-Dayza-Cache": cacheStatus,
+          },
+        }
+      );
+    }
+
     const where = {
       ...(muscleGroup ? { muscleGroup } : {}),
       ...(admin
@@ -25,30 +98,17 @@ export async function GET(req: Request) {
             ],
           }),
     };
-    const exercises = compact && !admin
-      ? await prisma.exercise.findMany({
-          where,
-          select: {
-            id: true,
-            name: true,
-            muscleGroup: true,
-            equipment: true,
-            category: true,
-            status: true,
-          },
-          orderBy: { name: "asc" },
-        })
-      : await prisma.exercise.findMany({
-          where,
-          include: admin ? { submittedBy: { select: { name: true, email: true } } } : undefined,
-          orderBy: { name: "asc" },
-        });
+    const exercises = await prisma.exercise.findMany({
+      where,
+      include: admin ? { submittedBy: { select: { name: true, email: true } } } : undefined,
+      orderBy: { name: "asc" },
+    });
     return NextResponse.json(
       { exercises },
-      { headers: { "Cache-Control": admin ? "no-store" : "private, max-age=60, stale-while-revalidate=600" } }
+      { headers: { "Cache-Control": admin ? "no-store" : "private, max-age=60, stale-while-revalidate=600", "X-Dayza-Cache": "SKIP" } }
     );
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -106,9 +166,10 @@ export async function POST(req: Request) {
         reviewedAt: admin ? new Date() : null,
       },
     });
+    await invalidateExerciseCache();
     return NextResponse.json({ exercise, pending: exercise.status === "pending" });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -119,24 +180,45 @@ export async function PATCH(req: Request) {
     const admin = await requireAdminUser();
     if (!admin) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     const data = await req.json();
-    if (!data?.id || !data?.name || !data?.muscleGroup) {
+    if (!data?.id) {
+      return NextResponse.json({ error: "Exercise ID is required" }, { status: 400 });
+    }
+
+    const existing = await prisma.exercise.findUnique({ where: { id: data.id } });
+    if (!existing) return NextResponse.json({ error: "Exercise not found" }, { status: 404 });
+
+    const requestedStatus = typeof data.status === "string" ? String(data.status).trim().toLowerCase() : null;
+    if (requestedStatus && !["approved", "rejected", "pending"].includes(requestedStatus)) {
+      return NextResponse.json({ error: "Invalid exercise status" }, { status: 400 });
+    }
+
+    if (!requestedStatus && (!data?.name || !data?.muscleGroup)) {
       return NextResponse.json({ error: "ID, name, and muscle group are required" }, { status: 400 });
     }
 
     const exercise = await prisma.exercise.update({
       where: { id: data.id },
       data: {
-        name: data.name,
-        muscleGroup: data.muscleGroup,
-        equipment: data.equipment || null,
-        category: data.category || null,
-        description: data.description || null,
-        formTips: data.formTips || null,
+        name: data.name ?? existing.name,
+        muscleGroup: data.muscleGroup ?? existing.muscleGroup,
+        equipment: data.equipment === undefined ? existing.equipment : data.equipment || null,
+        category: data.category === undefined ? existing.category : data.category || null,
+        description: data.description === undefined ? existing.description : data.description || null,
+        formTips: data.formTips === undefined ? existing.formTips : data.formTips || null,
+        status: requestedStatus ?? existing.status,
+        reviewedById: requestedStatus ? admin.id : existing.reviewedById,
+        reviewedAt: requestedStatus ? new Date() : existing.reviewedAt,
       },
     });
+    if (requestedStatus) {
+      revalidatePath("/admin");
+      revalidatePath("/workouts");
+      revalidatePath("/profile");
+    }
+    await invalidateExerciseCache();
     return NextResponse.json({ exercise });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -152,8 +234,9 @@ export async function DELETE(req: Request) {
     }
 
     await prisma.exercise.delete({ where: { id: data.id } });
+    await invalidateExerciseCache();
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

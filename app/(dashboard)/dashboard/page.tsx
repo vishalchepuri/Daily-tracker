@@ -1,13 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, Calendar, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox } from "lucide-react";
-import { FadeIn, SlideIn } from "@/components/ui/animate";
+import { Flame, Target, Dumbbell, TrendingUp, Zap, Utensils, CheckCircle2, Circle, Droplets, Plus, ListTodo, ChevronRight, Youtube, Sparkles, Settings, Inbox, Loader2 } from "lucide-react";
+import { FadeIn } from "@/components/ui/animate";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { IssueReportForm } from "@/components/issue-report-form";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -15,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-
 
 interface DashboardData {
   profile: any;
@@ -29,7 +27,7 @@ interface DashboardData {
   todayMedicationLogs?: any[];
   micronutrients?: {
     enabled: boolean;
-    low: Array<{ key: string; label: string; unit: string; value: number; target: number; remaining: number; percent: number }>;
+    low: Array<{ key: string; label: string; unit: string; value: number; target: number; remaining: number; percent: number; scope?: string }>;
   };
   weeklyTrends?: { date: string; fullDate: string; calories: number; protein: number; water: number }[];
 }
@@ -42,6 +40,7 @@ export default function DashboardPage() {
   const [remindersLoading, setRemindersLoading] = useState(true);
   const [waterLoading, setWaterLoading] = useState(true);
   const [waterAdding, setWaterAdding] = useState(false);
+  const [pendingReminderIds, setPendingReminderIds] = useState<Record<string, boolean>>({});
   const [youtubeVideos, setYoutubeVideos] = useState<any[]>([]);
   const [youtubeLoading, setYoutubeLoading] = useState(true);
   const [youtubeNeedsConnection, setYoutubeNeedsConnection] = useState(false);
@@ -149,6 +148,8 @@ export default function DashboardPage() {
   }, []);
 
   const toggleReminder = async (id: string, completed: boolean) => {
+    if (pendingReminderIds[id]) return;
+    setPendingReminderIds((current) => ({ ...current, [id]: true }));
     try {
       const res = await fetch("/api/reminders", {
         method: "PATCH",
@@ -168,10 +169,17 @@ export default function DashboardPage() {
     } catch (err) {
       console.error(err);
       toast.error("Failed to update reminder");
+    } finally {
+      setPendingReminderIds((current) => {
+        const next = { ...current };
+        delete next[id];
+        return next;
+      });
     }
   };
 
   const addWater = async (amountMl: number) => {
+    if (waterAdding) return;
     setWaterAdding(true);
     try {
       const res = await fetch("/api/water-logs", {
@@ -180,10 +188,16 @@ export default function DashboardPage() {
         body: JSON.stringify({ amountMl }),
       });
       if (res.ok) {
+        const d = await res.json().catch(() => ({}));
         toast.success(`Logged ${amountMl}ml of water`);
-        fetchWaterLogs();
+        if (d?.log) {
+          setWaterLogs((prev) => [...prev, d.log]);
+        } else {
+          fetchWaterLogs();
+        }
       } else {
-        toast.error("Failed to log water");
+        const d = await res.json().catch(() => ({}));
+        toast.error(d?.error ?? "Failed to log water");
       }
     } catch (err) {
       console.error(err);
@@ -302,7 +316,6 @@ export default function DashboardPage() {
       icon: Sparkles,
     },
   ];
-
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
@@ -350,12 +363,29 @@ export default function DashboardPage() {
           <CardHeader className="p-4 pb-2 sm:p-5 sm:pb-3">
             <CardTitle className="flex items-center gap-2 text-lg">
               <CheckCircle2 className="h-5 w-5 text-primary" />
-              Today
+              Today Command Center
             </CardTitle>
+            <p className="text-xs text-muted-foreground">Fast actions, due items, and health signals for the day.</p>
           </CardHeader>
           <CardContent className="space-y-4 p-4 pt-2 sm:p-5 sm:pt-2">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {todayActions.map((action) => (
+                action.icon === Droplets ? (
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => addWater(250)}
+                    disabled={waterAdding}
+                    className="group rounded-lg border border-border bg-background/70 p-3 text-left transition hover:border-primary/40 hover:bg-background disabled:cursor-not-allowed disabled:opacity-70"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <action.icon className={`h-4 w-4 ${action.done ? "text-primary" : "text-muted-foreground"}`} />
+                      {waterAdding ? <Plus className="h-4 w-4 animate-pulse text-primary" /> : action.done ? <CheckCircle2 className="h-4 w-4 text-primary" /> : <Plus className="h-4 w-4 text-muted-foreground group-hover:text-primary" />}
+                    </div>
+                    <p className="text-sm font-semibold leading-tight">{action.done ? "Water complete" : "Add 250ml"}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{action.detail}</p>
+                  </button>
+                ) : (
                 <Link key={action.label} href={action.href} className="group rounded-lg border border-border bg-background/70 p-3 transition hover:border-primary/40 hover:bg-background">
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <action.icon className={`h-4 w-4 ${action.done ? "text-primary" : "text-muted-foreground"}`} />
@@ -364,112 +394,12 @@ export default function DashboardPage() {
                   <p className="text-sm font-semibold leading-tight">{action.label}</p>
                   <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{action.detail}</p>
                 </Link>
+                )
               ))}
             </div>
-            {data?.micronutrients?.enabled ? (
-              (data?.micronutrients?.low ?? []).length > 0 ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                  <div className="flex items-start gap-2">
-                    <Target className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold">Vitamin & mineral watch</p>
-                      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                        {(data?.micronutrients?.low ?? []).map((item) => (
-                          <Link key={item.key} href="/nutrition" className="rounded-md border border-border/70 bg-background/70 px-3 py-2 text-xs">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-medium">{item.label}</span>
-                              <span className="font-mono text-amber-500">{Math.max(0, item.percent)}%</span>
-                            </div>
-                            <p className="mt-1 text-muted-foreground">
-                              Need {Math.round(item.remaining * 10) / 10}{item.unit} more today
-                            </p>
-                          </Link>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-sm text-primary">
-                  Vitamin and mineral targets look healthy today.
-                </div>
-              )
-            ) : (
-              <Link href="/profile" className="block rounded-lg border border-dashed border-border p-3 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground">
-                Enable vitamin & mineral tracking in Profile for deeper nutrition warnings.
-              </Link>
-            )}
           </CardContent>
         </Card>
       </FadeIn>
-
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <SlideIn from="bottom" delay={0}>
-          <Card className="relative overflow-hidden">
-            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center sm:h-10 sm:w-10">
-                  <Flame className="w-5 h-5 text-primary" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Streak</p>
-                  <p className="text-2xl font-bold font-mono">{data?.streak ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">days</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </SlideIn>
-        <SlideIn from="bottom" delay={0.1}>
-          <Card>
-            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center sm:h-10 sm:w-10">
-                  <Dumbbell className="w-5 h-5 text-blue-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Workouts</p>
-                  <p className="text-2xl font-bold font-mono">{data?.workoutCount ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">total</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </SlideIn>
-        <SlideIn from="bottom" delay={0.2}>
-          <Card>
-            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-orange-500/10 flex items-center justify-center sm:h-10 sm:w-10">
-                  <Utensils className="w-5 h-5 text-orange-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Meals Today</p>
-                  <p className="text-2xl font-bold font-mono">{(data?.todayFoodLogs ?? [])?.length ?? 0}</p>
-                  <p className="text-xs text-muted-foreground">logged</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </SlideIn>
-        <SlideIn from="bottom" delay={0.3}>
-          <Card>
-            <CardContent className="min-h-[7.25rem] p-4 sm:p-5">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-green-500/10 flex items-center justify-center sm:h-10 sm:w-10">
-                  <TrendingUp className="w-5 h-5 text-green-500" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">Goal</p>
-                  <p className="text-base font-bold leading-tight sm:text-lg">Muscle Gain</p>
-                  <p className="text-xs text-muted-foreground">+{targetCalories > 0 ? 300 : 0} kcal surplus</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </SlideIn>
-      </div>
 
       {/* Macros Section */}
       <FadeIn delay={0.2}>
@@ -513,93 +443,50 @@ export default function DashboardPage() {
                 );
               })}
             </div>
+            {data?.micronutrients?.enabled && (
+              <div className="mt-5 border-t border-border/70 pt-5">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Vitamins & Minerals</p>
+                    <p className="text-xs text-muted-foreground">Weekly averages first, daily focus only where useful</p>
+                  </div>
+                  <Link href="/nutrition" className="text-xs font-medium text-primary hover:underline">
+                    Open Nutrition
+                  </Link>
+                </div>
+                {(data?.micronutrients?.low ?? []).length > 0 ? (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {(data?.micronutrients?.low ?? []).slice(0, 8).map((item) => {
+                      const pct = Math.max(0, Math.min(100, Math.round(item.percent ?? 0)));
+                      return (
+                        <div key={item.key} className="space-y-2 rounded-lg border border-amber-500/25 bg-amber-500/5 p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-sm font-medium">{item.label}</span>
+                            <span className="font-mono text-xs text-amber-400">{item.scope ?? "Avg"} {pct}%</span>
+                          </div>
+                          <Progress value={pct} className="h-2" />
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-mono font-semibold text-foreground">{Math.round((item.value ?? 0) * 10) / 10}</span>
+                            {" / "}
+                            {Math.round((item.target ?? 0) * 10) / 10}{item.unit}
+                          </p>
+                          <p className="text-[11px] text-amber-300">
+                            Need {Math.round((item.remaining ?? 0) * 10) / 10}{item.unit} more {item.scope === "Today" ? "today" : "per day avg"}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-primary/25 bg-primary/10 p-3 text-sm text-primary">
+                    Vitamin and mineral averages look healthy.
+                  </div>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       </FadeIn>
-
-      {/* Today's Workout & Recent Food */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <FadeIn delay={0.3}>
-          <Card className="h-full">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Dumbbell className="w-5 h-5 text-primary" />
-                  Today&apos;s Workout
-                </CardTitle>
-                <Link href="/workouts">
-                  <Button variant="ghost" size="sm">View All</Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {data?.todayWorkout ? (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-medium">{data.todayWorkout?.templateName ?? "Workout"}</h3>
-                    <Badge variant="secondary">{data.todayWorkout?.duration ?? 0} min</Badge>
-                  </div>
-                  {(data.todayWorkout?.exerciseLogs ?? []).slice(0, 5).map((log: any) => (
-                    <div key={log?.id} className="flex items-center justify-between text-sm py-1 border-b border-border/50 last:border-0">
-                      <span>{log?.exercise?.name ?? "Exercise"}</span>
-                      <span className="text-muted-foreground font-mono">
-                        {log?.weight ?? 0}kg × {log?.reps ?? 0}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Dumbbell className="w-10 h-10 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No workout logged today</p>
-                  <Link href="/workouts">
-                    <Button size="sm" className="mt-3">Log Workout</Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </FadeIn>
-
-        <FadeIn delay={0.4}>
-          <Card className="h-full">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="flex items-center gap-2 text-lg">
-                  <Calendar className="w-5 h-5 text-primary" />
-                  Recent Food Log
-                </CardTitle>
-                <Link href="/nutrition">
-                  <Button variant="ghost" size="sm">View All</Button>
-                </Link>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {(data?.todayFoodLogs ?? [])?.length > 0 ? (
-                <div className="space-y-2">
-                  {(data?.todayFoodLogs ?? []).slice(0, 6).map((log: any) => (
-                    <div key={log?.id} className="flex items-center justify-between text-sm py-1.5 border-b border-border/50 last:border-0">
-                      <div>
-                        <span className="font-medium">{log?.foodName ?? "Food"}</span>
-                        <Badge variant="outline" className="ml-2 text-xs">{log?.mealType ?? "meal"}</Badge>
-                      </div>
-                      <span className="text-muted-foreground font-mono">{Math.round(log?.calories ?? 0)} kcal</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Utensils className="w-10 h-10 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">No meals logged today</p>
-                  <Link href="/nutrition">
-                    <Button size="sm" className="mt-3">Log Meal</Button>
-                  </Link>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </FadeIn>
-      </div>
 
       {/* Reminders & Water Logs */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -643,10 +530,11 @@ export default function DashboardPage() {
                             <button
                               type="button"
                               onClick={() => toggleReminder(r.id, true)}
-                              className="text-muted-foreground hover:text-primary transition-colors focus:outline-none"
+                              disabled={Boolean(pendingReminderIds[r.id])}
+                              className="text-muted-foreground transition-colors hover:text-primary focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
                               aria-label="Mark reminder completed"
                             >
-                              <Circle className="w-5 h-5" />
+                              {pendingReminderIds[r.id] ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : <Circle className="h-5 w-5" />}
                             </button>
                             <div className="text-sm">
                               <p className="font-medium text-foreground">{r.title}</p>
@@ -880,11 +768,7 @@ export default function DashboardPage() {
         </FadeIn>
       )}
 
-      <FadeIn delay={0.6}>
-        <IssueReportForm compact defaultPage="Dashboard" />
-      </FadeIn>
-
-      {/* Targets Settings Drawer */}
+{/* Targets Settings Drawer */}
       <Sheet open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <SheetContent side="right" className="w-full sm:max-w-md bg-background/95 backdrop-blur-md border-l border-border">
           <SheetHeader className="pb-4 border-b border-border">

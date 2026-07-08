@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   LayoutDashboard, Utensils, Dumbbell, MessageSquare, UserCircle,
-  Bot, LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
+  LogOut, Menu, X, ChevronRight, WalletCards, ListTodo, Pill, Youtube, Shield,
+  Mail, CalendarClock, Settings, Check, HeartPulse,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,15 +17,19 @@ import { cn } from "@/lib/utils";
 import { BrandLogo } from "@/components/brand-logo";
 import { toast } from "sonner";
 import { ensureDayzaSession, signOutOfDayza } from "@/lib/firebase-session-client";
+import { GlobalQuickAdd } from "./global-quick-add";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Reminders", href: "/reminders", icon: ListTodo },
+  { label: "Agent Tasks", href: "/agent-tasks", icon: CalendarClock },
   { label: "Medications", href: "/medications", icon: Pill },
   { label: "Spends", href: "/spends", icon: WalletCards },
+  { label: "Gmail", href: "/gmail", icon: Mail },
   { label: "YT Summary", href: "/yt-summary", icon: Youtube },
   { label: "Nutrition", href: "/nutrition", icon: Utensils },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
+  { label: "Recovery", href: "/recovery", icon: HeartPulse },
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
 
@@ -32,11 +37,14 @@ const adminNavItem = { label: "Admin", href: "/admin", icon: Shield };
 
 const mobileNavItems = [
   { label: "Today", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Agent", href: "/chat", icon: MessageSquare },
+  { label: "Agent", href: "/chat", icon: MessageSquare, agent: true },
   { label: "Workouts", href: "/workouts", icon: Dumbbell },
   { label: "Spends", href: "/spends", icon: WalletCards },
   { label: "Profile", href: "/profile", icon: UserCircle },
 ];
+
+const mobileNavStorageKey = "dayza-mobile-nav-v1";
+const defaultMobileNavHrefs = mobileNavItems.map((item) => item.href);
 
 const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
   "/dashboard": {
@@ -71,6 +79,14 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Plan purchases around your goals.",
     ],
   },
+  "/gmail": {
+    label: "Gmail",
+    suggestions: [
+      "Group recent Gmail updates into bills, finance, travel, health, work, and orders.",
+      "Track important follow-ups without storing full email bodies.",
+      "Turn email updates into reminders or tasks when needed.",
+    ],
+  },
   "/nutrition": {
     label: "Nutrition",
     suggestions: [
@@ -87,12 +103,28 @@ const featureHelp: Record<string, { label: string; suggestions: string[] }> = {
       "Turn long videos into a quick reading list.",
     ],
   },
+  "/agent-tasks": {
+    label: "Agent Tasks",
+    suggestions: [
+      "Schedule daily link checks, IPO watches, or recurring research tasks.",
+      "Run a saved task manually and review the latest status.",
+      "Turn repeated checks into push notifications.",
+    ],
+  },
   "/workouts": {
     label: "Workouts",
     suggestions: [
       "Create a workout plan for your goal and available time.",
       "Suggest exercise substitutions.",
       "Review recent training and recommend progression.",
+    ],
+  },
+  "/recovery": {
+    label: "Recovery",
+    suggestions: [
+      "Log sleep, soreness, energy, and mood.",
+      "Adjust today&apos;s workout intensity based on recovery.",
+      "Spot fatigue patterns before they affect consistency.",
     ],
   },
   "/profile": {
@@ -134,7 +166,8 @@ function isProfileComplete(profile: any) {
 
 export function DashboardShell({ children, user, initialProfile, isAdmin = false }: { children: React.ReactNode; user: any; initialProfile?: any; isAdmin?: boolean }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [coachOpen, setCoachOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [mobileNavHrefs, setMobileNavHrefs] = useState<string[]>(defaultMobileNavHrefs);
   const [profileComplete, setProfileComplete] = useState(isProfileComplete(initialProfile));
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -146,12 +179,30 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
   });
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const isEmbedded = searchParams?.get("embed") === "1";
   const mainRef = useRef<HTMLElement | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const [isRoutePending, startRouteTransition] = useTransition();
   const currentFeature = getFeatureHelp(pathname);
   const visibleNavItems = isAdmin ? [...navItems, adminNavItem] : navItems;
+  const mobileNavOptions = useMemo(() => {
+    const agentItem = mobileNavItems.find((item) => item.agent)!;
+    const standardItems = visibleNavItems.map((item) => ({
+      label: item.label === "Dashboard" ? "Today" : item.label,
+      href: item.href,
+      icon: item.icon,
+    }));
+    return [agentItem, ...standardItems].filter((item, index, items) => items.findIndex((candidate) => candidate.href === item.href) === index);
+  }, [visibleNavItems]);
+  const selectedMobileNavItems = useMemo(() => {
+    const selected = mobileNavHrefs
+      .map((href) => mobileNavOptions.find((item) => item.href === href))
+      .filter(Boolean) as typeof mobileNavOptions;
+    return selected.length > 0 ? selected.slice(0, 5) : mobileNavItems;
+  }, [mobileNavHrefs, mobileNavOptions]);
   const chatHref = `/chat?from=${encodeURIComponent(pathname || "/dashboard")}`;
+  const isChatPage = pathname === "/chat";
 
   useEffect(() => {
     mainRef.current?.scrollTo({ top: 0, behavior: prefersReducedMotion ? "auto" : "smooth" });
@@ -163,10 +214,40 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
     }).catch(() => null);
   }, [router]);
 
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(mobileNavStorageKey);
+      const parsed = raw ? JSON.parse(raw) : null;
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((href) => typeof href === "string").slice(0, 5);
+        if (valid.length > 0) setMobileNavHrefs(valid);
+      }
+    } catch {
+      setMobileNavHrefs(defaultMobileNavHrefs);
+    }
+  }, []);
+
   const goToFeature = (href: string) => {
     setSidebarOpen(false);
     router.prefetch(href);
     startRouteTransition(() => router.push(href));
+  };
+
+  const toggleMobileNavHref = (href: string) => {
+    setMobileNavHrefs((current) => {
+      const exists = current.includes(href);
+      const next = exists ? current.filter((item) => item !== href) : current.length < 5 ? [...current, href] : current;
+      if (!exists && current.length >= 5) {
+        toast.error("Choose up to 5 bottom icons");
+        return current;
+      }
+      if (exists && current.length <= 1) {
+        toast.error("Keep at least 1 bottom icon");
+        return current;
+      }
+      window.localStorage.setItem(mobileNavStorageKey, JSON.stringify(next));
+      return next;
+    });
   };
 
   const saveProfile = async () => {
@@ -207,6 +288,14 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
       setSavingProfile(false);
     }
   };
+
+  if (isChatPage && isEmbedded) {
+    return (
+      <main className="h-dvh overflow-hidden bg-background text-foreground">
+        {children}
+      </main>
+    );
+  }
 
   return (
     <div className="app-viewport flex overflow-hidden bg-background">
@@ -361,35 +450,100 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
             <Menu className="w-6 h-6" />
           </button>
           <h1 className="min-w-0 truncate font-display text-base font-semibold tracking-tight sm:text-lg">
-            {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? "Dashboard"}
+            {(visibleNavItems ?? []).find((n: any) => pathname === n?.href || pathname?.startsWith?.(n?.href + "/"))?.label ?? currentFeature.label}
           </h1>
+          <button
+            type="button"
+            className="ml-auto rounded-md p-2 text-muted-foreground transition hover:bg-muted hover:text-foreground lg:hidden"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Customize bottom navigation"
+          >
+            <Settings className="h-5 w-5" />
+          </button>
         </header>
 
-        <main ref={mainRef} className="min-h-0 flex-1 scroll-smooth overflow-y-auto ios-scroll p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={pathname}
-              className="mx-auto w-full max-w-[1600px]"
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.995 }}
-              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
-              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.998 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+        <main
+          ref={mainRef}
+          className={cn(
+            "min-h-0 flex-1 touch-pan-y scroll-smooth ios-scroll",
+            isChatPage
+              ? "overflow-hidden"
+              : "overflow-y-auto p-4 pb-[calc(7.25rem_+_env(safe-area-inset-bottom))] sm:p-5 lg:p-8 lg:pb-8 xl:p-10 xl:pb-10"
+          )}
+        >
+          {isChatPage ? (
+            children
+          ) : (
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={pathname}
+                className="mx-auto w-full max-w-[1600px]"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 10, scale: 0.995 }}
+                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.998 }}
+                transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
+          )}
         </main>
       </div>
 
+      <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <DialogContent className="max-w-[calc(100vw-1.5rem)] rounded-2xl sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bottom icons</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">Choose up to 5 shortcuts for the mobile bottom bar.</p>
+            <div className="grid grid-cols-2 gap-2">
+              {mobileNavOptions.map((item) => {
+                const selected = mobileNavHrefs.includes(item.href);
+                return (
+                  <button
+                    key={item.href}
+                    type="button"
+                    onClick={() => toggleMobileNavHref(item.href)}
+                    className={cn(
+                      "flex min-h-12 items-center gap-3 rounded-xl border px-3 text-left text-sm font-semibold transition active:scale-[0.98]",
+                      selected ? "border-primary/45 bg-primary/10 text-primary" : "border-border bg-background/60 text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">{item.label}</span>
+                    {selected && <Check className="h-4 w-4 shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">{selectedMobileNavItems.length} / 5 selected</p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setMobileNavHrefs(defaultMobileNavHrefs);
+                  window.localStorage.setItem(mobileNavStorageKey, JSON.stringify(defaultMobileNavHrefs));
+                }}
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card/95 px-2 pb-[calc(0.35rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur lg:hidden">
-        <div className="grid grid-cols-5 gap-1">
-          {mobileNavItems.map((item: any) => {
+        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.min(5, Math.max(1, selectedMobileNavItems.length))}, minmax(0, 1fr))` }}>
+          {selectedMobileNavItems.map((item: any) => {
             const isActive = pathname === item?.href || pathname?.startsWith?.(item?.href + "/");
             return (
               <button
                 key={item.href}
                 type="button"
-                onClick={() => goToFeature(item.href)}
+                onClick={() => item.agent ? goToFeature(chatHref) : goToFeature(item.href)}
                 className={cn(
                   "flex min-w-0 flex-col items-center gap-1 rounded-md px-1 py-2 text-[0.66rem] font-medium transition-all duration-200 ease-out active:scale-95",
                   isActive ? "bg-primary/10 text-primary shadow-sm" : "text-muted-foreground hover:bg-muted/70"
@@ -409,53 +563,15 @@ export function DashboardShell({ children, user, initialProfile, isAdmin = false
         </div>
       )}
 
-      {pathname !== "/chat" && (
-      <div className="fixed bottom-[calc(5.2rem_+_env(safe-area-inset-bottom))] right-4 z-40 flex max-w-[calc(100vw-2rem)] flex-col items-end gap-3 lg:bottom-4">
-        {coachOpen && (
-          <div className="hidden max-h-[min(70dvh,28rem)] w-[min(calc(100vw-2rem),22rem)] overflow-y-auto rounded-lg border border-border bg-card p-4 shadow-xl ios-scroll lg:block">
-            <div className="mb-3 flex items-start gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Bot className="h-5 w-5" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold">You are in {currentFeature.label}</p>
-                <p className="mt-1 text-xs text-muted-foreground">You can do these things with AI:</p>
-              </div>
-              <button
-                type="button"
-                className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                onClick={() => setCoachOpen(false)}
-                aria-label="Close AI help"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <ul className="space-y-2 text-sm text-muted-foreground">
-              {currentFeature.suggestions.map((suggestion) => (
-                <li key={suggestion} className="flex gap-2">
-                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-                  <span>{suggestion}</span>
-                </li>
-              ))}
-            </ul>
-            <Button asChild className="mt-4 w-full">
-              <Link href={chatHref} onClick={() => setCoachOpen(false)}>
-                Open Dayza Agent
-              </Link>
-            </Button>
-          </div>
-        )}
-        <Button
-          asChild
-          size="icon"
-          className="h-12 w-12 rounded-full shadow-lg"
-        >
-          <Link href={chatHref} aria-label="Open Dayza Agent">
-            <MessageSquare className="h-5 w-5" />
-          </Link>
-        </Button>
-      </div>
-      )}
+      <GlobalQuickAdd
+        hidden={
+          pathname === "/chat" ||
+          pathname === "/profile" ||
+          pathname === "/reminders" ||
+          mobileNavOpen ||
+          !profileComplete
+        }
+      />
     </div>
   );
 }

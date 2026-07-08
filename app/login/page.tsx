@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { getFirebaseClientAuth, hasFirebaseClientConfig } from "@/lib/firebase-client";
 import { getRedirectResult, sendEmailVerification, signInWithEmailAndPassword, type User } from "firebase/auth";
 import { getGoogleAuthErrorMessage, signInWithGoogle } from "@/lib/firebase-google-auth";
+import { shouldUseRedirectGoogleAuth } from "@/lib/client-runtime";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -25,6 +26,7 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const verifyEmail = searchParams.get("verifyEmail");
+  const googleUsesRedirect = shouldUseRedirectGoogleAuth();
 
   const startAppSessionFromFirebase = async (firebaseIdToken: string) => {
     const res = await fetch("/api/auth/firebase-session", {
@@ -159,7 +161,7 @@ export default function LoginPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm">
           <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm font-medium text-foreground shadow-lg">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            Opening Google sign-in...
+            {googleUsesRedirect ? "Redirecting to Google sign-in..." : "Opening Google sign-in..."}
           </div>
         </div>
       ) : null}
@@ -180,7 +182,7 @@ export default function LoginPage() {
               disabled={googleLoading || loading}
             >
               <span className="mr-2 inline-flex h-5 w-5 items-center justify-center rounded-full bg-white text-sm font-bold text-[#4285F4]">G</span>
-              {googleLoading ? "Opening dashboard..." : "Continue with Google"}
+              {googleLoading ? (googleUsesRedirect ? "Redirecting..." : "Opening dashboard...") : "Continue with Google"}
             </Button>
             <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-xs text-muted-foreground">
               <div className="h-px bg-border" />

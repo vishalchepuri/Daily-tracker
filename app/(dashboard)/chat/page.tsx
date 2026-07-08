@@ -3,12 +3,14 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, RefreshCw } from "lucide-react";
+import { ImagePlus, Send, Bot, User, Loader2, X, Mic, MicOff, Plus, Trash2, MessageSquare, History, Video, Camera, CameraOff, PhoneOff, Volume2, VolumeX, AudioLines, ArrowLeft, ArrowDown } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { dayzaFetch } from "@/lib/firebase-session-client";
+import { DayzaLiveAgent } from "@/components/live/dayza-live-agent";
+import { BrandLogo } from "@/components/brand-logo";
 
 declare global {
   interface Window {
@@ -20,10 +22,12 @@ declare global {
 export default function ChatPage() {
   const router = useRouter();
   const [returnTo, setReturnTo] = useState("/dashboard");
+  const [embedded, setEmbedded] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [sessions, setSessions] = useState<any[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [liveOpen, setLiveOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -32,14 +36,26 @@ export default function ChatPage() {
   const [historyHasMore, setHistoryHasMore] = useState(true);
   const [streaming, setStreaming] = useState(false);
   const [agentStatus, setAgentStatus] = useState("");
+  const [agentStartedAt, setAgentStartedAt] = useState<number | null>(null);
+  const [agentElapsedSeconds, setAgentElapsedSeconds] = useState(0);
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
   const [lastFailedMessage, setLastFailedMessage] = useState<{ message: string; imageDataUrl: string | null } | null>(null);
   const [listening, setListening] = useState(false);
+  const [interactionMode, setInteractionMode] = useState(false);
+  const [cameraOn, setCameraOn] = useState(false);
+  const [voiceReplies, setVoiceReplies] = useState(true);
+  const [speaking, setSpeaking] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<any>(null);
+  const lastSpokenMessageRef = useRef<string>("");
   const skipNextMessageLoadRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -104,15 +120,105 @@ export default function ChatPage() {
   useEffect(() => {
     const from = new URLSearchParams(window.location.search).get("from");
     const prompt = new URLSearchParams(window.location.search).get("prompt");
+    const embed = new URLSearchParams(window.location.search).get("embed");
+    setEmbedded(embed === "1");
     if (from?.startsWith("/") && !from.startsWith("//") && !from.startsWith("/chat")) {
       setReturnTo(from);
     }
     if (prompt) setInput(prompt);
+    if (new URLSearchParams(window.location.search).get("mode") === "voice") setInteractionMode(true);
+  }, []);
+
+  const scrollChatToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior });
+    setShowScrollToBottom(false);
+  }, []);
+
+  const handleMessageScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const target = event.currentTarget;
+    const distanceFromBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    setShowScrollToBottom(distanceFromBottom > 180);
   }, []);
 
   useEffect(() => {
-    scrollRef.current?.scrollTo?.({ top: scrollRef.current?.scrollHeight ?? 0, behavior: "smooth" });
-  }, [messages]);
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+    const latestMessage = messages?.[messages.length - 1];
+    if (distanceFromBottom < 240 || latestMessage?.role === "user") {
+      scrollChatToBottom("smooth");
+    } else {
+      setShowScrollToBottom(distanceFromBottom > 180);
+    }
+  }, [messages, scrollChatToBottom]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    const maxHeight = 160;
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [input]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop?.();
+      window.speechSynthesis?.cancel?.();
+      cameraStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!streaming) return;
+    const steps = [
+      "Preparing your request...",
+      "Loading only the needed app context...",
+      "Asking Dayza Agent...",
+      "Checking whether any app action is needed...",
+      "Finishing the response...",
+    ];
+    let index = 0;
+    const interval = window.setInterval(() => {
+      index = (index + 1) % steps.length;
+      setAgentStatus((current) =>
+        current === "Writing response..." || current.startsWith("Saving ") || current.startsWith("Verifying ")
+          ? current
+          : steps[index]
+      );
+    }, 2200);
+    return () => window.clearInterval(interval);
+  }, [streaming]);
+
+  useEffect(() => {
+    if (!streaming || !agentStartedAt) {
+      setAgentElapsedSeconds(0);
+      return;
+    }
+    const updateElapsed = () => setAgentElapsedSeconds(Math.max(0, Math.floor((Date.now() - agentStartedAt) / 1000)));
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(interval);
+  }, [agentStartedAt, streaming]);
+
+  useEffect(() => {
+    if (!interactionMode || !voiceReplies || streaming) return;
+    const lastAssistant = [...(messages ?? [])].reverse().find((message) => message?.role === "assistant" && message?.content?.trim());
+    const content = lastAssistant?.content?.trim();
+    if (!content || content === lastSpokenMessageRef.current || !("speechSynthesis" in window)) return;
+    lastSpokenMessageRef.current = content;
+    const plainText = content.replace(/\s+/g, " ").slice(0, 1200);
+    const utterance = new SpeechSynthesisUtterance(plainText);
+    utterance.rate = 0.96;
+    utterance.pitch = 1;
+    utterance.onstart = () => setSpeaking(true);
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  }, [interactionMode, messages, streaming, voiceReplies]);
 
   const createChatSession = useCallback(async (title = "New chat", options: { clearMessages?: boolean; skipAutoLoad?: boolean } = {}) => {
     const res = await dayzaFetch("/api/chat/sessions", {
@@ -135,25 +241,32 @@ export default function ChatPage() {
     return null;
   }, []);
 
+  const finishAgentStream = useCallback(() => {
+    setStreaming(false);
+    setAgentStatus("");
+    setAgentStartedAt(null);
+    abortControllerRef.current = null;
+  }, []);
+
   const sendMessage = useCallback(async (messageOverride?: string, imageOverride?: string | null) => {
     const outgoingText = messageOverride ?? input.trim();
     const outgoingImage = imageOverride ?? imageDataUrl;
     if ((!outgoingText && !outgoingImage) || streaming) return;
     setStreaming(true);
+    setAgentStartedAt(Date.now());
+    setAgentElapsedSeconds(0);
     setAgentStatus(outgoingImage ? "Uploading image and preparing context..." : "Preparing your request...");
     setLastFailedMessage(null);
     const userMsg = outgoingText;
     const attachedImage = outgoingImage;
     setInput("");
     setImageDataUrl(null);
-    const assistantMessageId = `stream-${Date.now()}`;
     setMessages(prev => [...(prev ?? []), {
       role: "user",
       content: userMsg || "Analyze this image.",
       imageDataUrl: attachedImage,
       id: `temp-${Date.now()}`,
     }]);
-    setMessages(prev => [...(prev ?? []), { role: "assistant", content: "", id: assistantMessageId }]);
 
     try {
       const controller = new AbortController();
@@ -161,8 +274,7 @@ export default function ChatPage() {
       const targetSessionId = activeSessionId ?? await createChatSession(userMsg || "Image chat", { clearMessages: false, skipAutoLoad: true });
       if (!targetSessionId) {
         setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
-        setMessages(prev => (prev ?? []).filter((message) => message.id !== assistantMessageId));
-        setStreaming(false);
+        finishAgentStream();
         return;
       }
 
@@ -177,7 +289,7 @@ export default function ChatPage() {
         const data = await res.json().catch(() => ({}));
         setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
         toast.error(data?.error ?? "Agent response failed. You can retry.");
-        setStreaming(false);
+        finishAgentStream();
         return;
       }
 
@@ -195,9 +307,15 @@ export default function ChatPage() {
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === "[DONE]") { setStreaming(false); return; }
+            if (data === "[DONE]") {
+              finishAgentStream();
+              return;
+            }
             try {
               const parsed = JSON.parse(data);
+              if (parsed?.status) {
+                setAgentStatus(String(parsed.status));
+              }
               if (parsed?.content) {
                 setAgentStatus("Writing response...");
                 setMessages(prev => {
@@ -205,6 +323,21 @@ export default function ChatPage() {
                   const last = updated[updated.length - 1];
                   if (last?.role === "assistant") {
                     updated[updated.length - 1] = { ...last, content: (last.content ?? "") + parsed.content };
+                  } else {
+                    updated.push({ role: "assistant", content: parsed.content, id: `stream-${Date.now()}` });
+                  }
+                  return updated;
+                });
+              }
+              if (parsed?.replaceContent) {
+                setAgentStatus("Finalizing saved actions...");
+                setMessages(prev => {
+                  const updated = [...(prev ?? [])];
+                  const last = updated[updated.length - 1];
+                  if (last?.role === "assistant") {
+                    updated[updated.length - 1] = { ...last, content: parsed.replaceContent };
+                  } else {
+                    updated.push({ role: "assistant", content: parsed.replaceContent, id: `stream-${Date.now()}` });
                   }
                   return updated;
                 });
@@ -218,6 +351,8 @@ export default function ChatPage() {
                       ...last,
                       undoActions: [...(last.undoActions ?? []), ...parsed.undoActions],
                     };
+                  } else {
+                    updated.push({ role: "assistant", content: "", id: `stream-${Date.now()}`, undoActions: parsed.undoActions });
                   }
                   return updated;
                 });
@@ -233,26 +368,81 @@ export default function ChatPage() {
         setMessages(prev => {
           const updated = [...(prev ?? [])];
           const last = updated[updated.length - 1];
-          if (last?.role === "assistant" && !last.content) return updated.slice(0, -1);
           if (last?.role === "assistant") updated[updated.length - 1] = { ...last, content: `${last.content}\n\nStopped.`.trim() };
           return updated;
         });
-        setStreaming(false);
-        setAgentStatus("");
-        abortControllerRef.current = null;
+        finishAgentStream();
         return;
       }
       setLastFailedMessage({ message: userMsg, imageDataUrl: attachedImage });
       toast.error("Agent response failed. You can retry.");
     }
-    setStreaming(false);
-    setAgentStatus("");
-    abortControllerRef.current = null;
-  }, [activeSessionId, createChatSession, imageDataUrl, input, streaming]);
+    finishAgentStream();
+  }, [activeSessionId, createChatSession, finishAgentStream, imageDataUrl, input, streaming]);
 
   const stopAgentResponse = useCallback(() => {
     abortControllerRef.current?.abort();
   }, []);
+
+  const stopCamera = useCallback(() => {
+    cameraStreamRef.current?.getTracks?.().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraOn(false);
+  }, []);
+
+  const toggleCamera = useCallback(async () => {
+    if (cameraOn) {
+      stopCamera();
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Camera is not supported in this browser.");
+      toast.error("Camera is not supported in this browser");
+      return;
+    }
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      cameraStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => null);
+      }
+      setCameraOn(true);
+    } catch {
+      setCameraError("Camera permission was blocked.");
+      toast.error("Camera permission was blocked");
+    }
+  }, [cameraOn, stopCamera]);
+
+  const captureCameraFrame = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !cameraOn || !video.videoWidth || !video.videoHeight) {
+      toast.error("Camera is not ready yet");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setImageDataUrl(canvas.toDataURL("image/jpeg", 0.82));
+    toast.success("Frame attached. Ask Dayza what to check.");
+  }, [cameraOn]);
+
+  const endLiveAgent = useCallback(() => {
+    recognitionRef.current?.stop?.();
+    window.speechSynthesis?.cancel?.();
+    setListening(false);
+    setSpeaking(false);
+    stopCamera();
+    setInteractionMode(false);
+  }, [stopCamera]);
 
   const handleSend = useCallback(async () => {
     await sendMessage();
@@ -359,7 +549,7 @@ export default function ChatPage() {
     }
   }, [activeSessionId]);
 
-  const toggleVoiceInput = useCallback(() => {
+  const toggleVoiceInput = useCallback((options: { autoSend?: boolean } = {}) => {
     if (streaming) return;
 
     if (listening) {
@@ -395,16 +585,22 @@ export default function ChatPage() {
     };
     recognition.onend = () => {
       setListening(false);
+      const spoken = finalTranscript.trim();
+      if (options.autoSend && spoken) {
+        void sendMessage(spoken, null);
+      }
     };
 
     recognitionRef.current = recognition;
     recognition.start();
     setListening(true);
-  }, [listening, streaming]);
+  }, [listening, sendMessage, streaming]);
 
   const closeChat = useCallback(() => {
+    stopCamera();
+    window.speechSynthesis?.cancel?.();
     router.push(returnTo);
-  }, [returnTo, router]);
+  }, [returnTo, router, stopCamera]);
 
   const quickActions = [
     { label: "Daily check-in", detail: "Workout, meals, water, meds" },
@@ -412,34 +608,30 @@ export default function ChatPage() {
     { label: "Replace exercise", detail: "Fresh gym-friendly option" },
     { label: "Analyze spending", detail: "Cards, banks, budgets" },
   ];
+  const showLegacyVoicePanel = false;
 
   return (
-    <div className="flex h-[calc(100svh_-_7rem_-_env(safe-area-inset-bottom))] min-h-[32rem] min-w-0 flex-col sm:h-[calc(100dvh-8rem)]">
-      <FadeIn>
-        <div className="mb-2 grid gap-2 sm:mb-3 sm:flex sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Dayza Agent</h2>
-            <p className="mt-1 hidden text-sm text-muted-foreground min-[390px]:block">Ask about fitness, food, spends, reminders, and progress</p>
-          </div>
-          <div className="flex items-center gap-1 sm:shrink-0">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={refreshChat}
-              disabled={loading || streaming}
-              aria-label="Reload chat"
-              title="Reload chat"
-            >
-              <RefreshCw className={`h-5 w-5 ${loading ? "animate-spin" : ""}`} />
-            </Button>
-            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-              <DialogTrigger asChild>
-                <Button type="button" variant="ghost" size="icon" aria-label="Open chat history" title="Chat history">
-                  <History className="h-5 w-5" />
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-h-[82svh] max-w-md overflow-hidden p-0">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-background">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-0 h-[45%] bg-[radial-gradient(120%_80%_at_50%_120%,hsl(var(--primary)/0.16)_0%,transparent_70%)]" />
+      {!embedded && (
+        <div className="relative z-10 flex items-center justify-end gap-1 px-3 pt-2 sm:px-4">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setLiveOpen(true)}
+            className="h-9 w-9 rounded-full text-muted-foreground hover:bg-white/5"
+            title="Live voice"
+          >
+            <AudioLines className="h-5 w-5" />
+          </Button>
+          <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+            <DialogTrigger asChild>
+              <Button type="button" variant="ghost" size="icon" className="h-9 w-9 rounded-full text-muted-foreground hover:bg-white/5" title="Chat history">
+                <History className="h-5 w-5" />
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-h-[82svh] max-w-md overflow-hidden p-0">
                 <DialogHeader className="border-b border-border p-4">
                   <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
                     <DialogTitle className="flex min-w-0 items-center gap-2">
@@ -499,199 +691,385 @@ export default function ChatPage() {
                 </div>
               </DialogContent>
             </Dialog>
-            <Button type="button" variant="ghost" size="icon" onClick={startNewChat} disabled={streaming} aria-label="New chat" title="New chat">
+            <Button type="button" variant="ghost" size="icon" onClick={startNewChat} disabled={streaming} className="h-9 w-9 rounded-full text-muted-foreground hover:bg-white/5" title="New chat">
               <Plus className="h-5 w-5" />
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={closeChat}
-              aria-label="Close Dayza Agent"
-              title="Close Dayza Agent"
-            >
-              <X className="h-5 w-5" />
-            </Button>
+        </div>
+      )}
+
+      <Dialog open={liveOpen} onOpenChange={setLiveOpen}>
+        <DialogContent hideClose className="inset-0 bottom-0 top-0 flex h-dvh max-h-dvh max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0">
+          <div className="pointer-events-none absolute inset-x-0 top-0 -z-0 h-[55%] bg-[radial-gradient(120%_90%_at_50%_-10%,hsl(var(--primary)/0.14)_0%,transparent_70%)]" />
+          <DialogHeader className="relative z-10 shrink-0 border-b border-border bg-background/85 px-3 py-3 text-left backdrop-blur sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setLiveOpen(false)}
+                className="h-9 w-9 shrink-0 rounded-full"
+                aria-label="Back to Dayza Agent"
+                title="Back"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <BrandLogo size="sm" showText={false} />
+                <div className="min-w-0">
+                  <DialogTitle className="truncate text-base font-semibold">
+                    Live Dayza
+                  </DialogTitle>
+                  <p className="truncate text-xs text-muted-foreground">Dayza Agent voice mode</p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setLiveOpen(false)}
+                className="h-9 w-9 shrink-0 rounded-full"
+                aria-label="Close Live Dayza"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="relative z-10 flex min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] pt-4 sm:px-6 sm:pt-6">
+            <div className="mx-auto flex w-full max-w-3xl min-h-full flex-col">
+              <DayzaLiveAgent compact className="mb-0 flex min-h-full flex-1 justify-center" />
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {showLegacyVoicePanel && interactionMode && (
+        <div className="mb-3 overflow-hidden rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 via-card to-card shadow-sm">
+          <div className="grid gap-3 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(14rem,20rem)] sm:p-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="relative flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl border border-primary/25 bg-primary/10 text-primary shadow-inner">
+                <Bot className="h-8 w-8" />
+                <span className={`absolute -right-1 -top-1 h-4 w-4 rounded-full border-2 border-card ${streaming || speaking ? "animate-pulse bg-emerald-400" : "bg-muted"}`} />
+              </div>
+              <div className="min-w-0">
+                <p className="font-display text-lg font-bold tracking-tight">Dayza Live Agent</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {listening
+                    ? "Listening now. Speak naturally."
+                    : speaking
+                      ? "Dayza is speaking."
+                      : streaming
+                        ? "Dayza is thinking through your request."
+                        : "Tap Talk for voice, or turn on camera and capture what Dayza should inspect."}
+                </p>
+                {input && listening && (
+                  <p className="mt-2 line-clamp-2 rounded-lg border border-primary/20 bg-background/60 px-3 py-2 text-xs text-primary">
+                    {input}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              <div className="relative aspect-video overflow-hidden rounded-xl border border-border bg-background/70">
+                {cameraOn ? (
+                  <video ref={videoRef} className="h-full w-full object-cover" playsInline muted />
+                ) : (
+                  <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+                    <Video className="h-6 w-6" />
+                    <span className="text-xs">{cameraError || "Camera off"}</span>
+                  </div>
+                )}
+              </div>
+              <div className="grid grid-cols-5 gap-2">
+                <Button
+                  type="button"
+                  variant={listening ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => toggleVoiceInput({ autoSend: true })}
+                  disabled={streaming}
+                  title={listening ? "Stop listening" : "Talk to Dayza"}
+                >
+                  {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant={cameraOn ? "default" : "outline"}
+                  size="icon"
+                  onClick={toggleCamera}
+                  disabled={streaming}
+                  title={cameraOn ? "Turn camera off" : "Turn camera on"}
+                >
+                  {cameraOn ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={captureCameraFrame}
+                  disabled={!cameraOn || streaming}
+                  title="Capture camera frame"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                </Button>
+                <Button
+                  type="button"
+                  variant={voiceReplies ? "default" : "outline"}
+                  size="icon"
+                  onClick={() => {
+                    if (voiceReplies) {
+                      window.speechSynthesis?.cancel?.();
+                      setSpeaking(false);
+                    }
+                    setVoiceReplies((value) => !value);
+                  }}
+                  title={voiceReplies ? "Mute Dayza voice" : "Unmute Dayza voice"}
+                >
+                  {voiceReplies ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                </Button>
+                <Button type="button" variant="destructive" size="icon" onClick={endLiveAgent} title="End live mode">
+                  <PhoneOff className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
-      </FadeIn>
+      )}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg">
-        {loading && (
-          <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            Loading chat...
-          </div>
-        )}
-        {lastFailedMessage && !streaming && (
-          <div className="grid gap-2 border-b border-destructive/30 bg-destructive/10 px-3 py-2 text-xs sm:flex sm:items-center sm:justify-between">
-            <span className="text-destructive">Last message failed.</span>
-            <Button type="button" size="sm" variant="outline" onClick={retryLastMessage} className="w-full sm:w-auto">
-              Retry
-            </Button>
-          </div>
-        )}
-        {streaming && (
-          <div className="grid gap-2 border-b border-border bg-primary/5 px-3 py-2 text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
-              <span className="truncate">{agentStatus || "Dayza is working..."}</span>
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse} className="w-full sm:w-auto">
-              Stop
-            </Button>
-          </div>
-        )}
-        <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-2.5 pb-4 sm:space-y-4 sm:p-4">
-          {(messages ?? [])?.length === 0 && (
-            <div className="mx-auto flex min-h-full max-w-md flex-col justify-center py-6 text-center sm:py-10">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Bot className="h-7 w-7" />
-              </div>
-              <h3 className="font-display text-lg font-bold tracking-tight">How can Dayza help?</h3>
-              <p className="mx-auto mt-1 max-w-xs text-sm leading-relaxed text-muted-foreground">
-                Pick a quick action or type naturally. Dayza can log, plan, review, and explain.
-              </p>
-              <div className="mt-5 grid grid-cols-1 gap-2 min-[390px]:grid-cols-2">
-                {quickActions.map((action) => (
-                  <button
-                    key={action.label}
-                    type="button"
-                    onClick={() => setInput(action.label)}
-                    className="rounded-lg border border-border bg-background/70 px-3 py-3 text-left transition hover:border-primary/40 hover:bg-muted/40"
-                  >
-                    <span className="block text-sm font-semibold leading-tight">{action.label}</span>
-                    <span className="mt-1 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
-                  </button>
-                ))}
-              </div>
+      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
+        <Card className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
+          {loading && (
+            <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-4 py-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              Loading chat...
             </div>
           )}
-          {(messages ?? []).map((msg: any, i: number) => (
-            <div key={msg?.id ?? i} className={`flex gap-2 sm:gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
-              {msg?.role === "assistant" && (
-                <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex">
-                  <Bot className="w-4 h-4 text-primary" />
-                </div>
-              )}
-              <div className={`max-w-[94%] overflow-hidden rounded-lg px-3 py-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] sm:max-w-[80%] sm:px-4 ${
-                msg?.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted"
-              }`}>
-                {(msg?.imageDataUrl || msg?.attachments?.[0]?.url) && (
-                  <img
-                    src={msg.imageDataUrl || msg.attachments[0].url}
-                    alt="Chat attachment"
-                    className="mb-2 max-h-48 w-full rounded-md object-cover"
-                  />
-                )}
-                {!msg?.imageDataUrl && !msg?.attachments?.[0]?.url && msg?.attachments?.[0]?.hasImage && (
-                  <button
-                    type="button"
-                    className="mb-2 flex w-full items-center justify-center rounded-md border border-dashed border-border bg-background/40 px-3 py-4 text-xs text-muted-foreground hover:bg-background"
-                    onClick={() => loadAttachmentImage(msg.id, msg.attachments[0])}
-                    disabled={loadingAttachmentId === msg.attachments[0].id}
-                  >
-                    {loadingAttachmentId === msg.attachments[0].id ? "Loading image..." : "Tap to load image"}
-                  </button>
-                )}
-                {!msg?.imageDataUrl && msg?.attachments?.[0]?.deleted && (
-                  <div className="mb-2 rounded-md border border-dashed border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
-                    {msg.attachments[0].deletedReason || "Image expired"}
-                  </div>
-                )}
-                {msg?.content || (streaming && i === (messages?.length ?? 0) - 1 ? <Loader2 className="w-4 h-4 animate-spin" /> : "")}
-                {msg?.role === "assistant" && Array.isArray(msg?.undoActions) && msg.undoActions.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-2">
-                    {msg.undoActions.map((action: any) => (
-                      <Button
-                        key={action.id}
-                        type="button"
-                        size="sm"
-                        variant={action.undone ? "secondary" : "outline"}
-                        className="h-8 rounded-full px-3 text-xs"
-                        disabled={Boolean(action.undone) || undoingId === action.id}
-                        onClick={() => undoAgentAction(msg.id, action.id)}
-                        title={action.actionLabel ? `Undo: ${action.actionLabel}` : "Undo this agent action"}
-                      >
-                        {undoingId === action.id && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
-                        {action.undone ? "Undone" : "Undo"}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {msg?.role === "user" && (
-                <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary sm:flex">
-                  <User className="w-4 h-4 text-secondary-foreground" />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="shrink-0 border-t border-border bg-card p-2.5 sm:p-4">
-          {imageDataUrl && (
-            <div className="mb-3 flex items-center gap-3 rounded-md border border-border bg-muted/40 p-2">
-              <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded object-cover" />
-              <div className="min-w-0 flex-1 text-sm">
-                <p className="font-medium">Image selected</p>
-                <p className="hidden text-muted-foreground min-[390px]:block">Send food photos or payment screenshots for logging.</p>
-              </div>
-              <Button type="button" variant="ghost" size="icon" onClick={() => setImageDataUrl(null)} disabled={streaming}>
-                <X className="h-4 w-4" />
+          {lastFailedMessage && !streaming && (
+            <div className="grid gap-2 border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs sm:flex sm:items-center sm:justify-between">
+              <span className="text-destructive">Last message failed.</span>
+              <Button type="button" size="sm" variant="outline" onClick={retryLastMessage} className="w-full sm:w-auto">
+                Retry
               </Button>
             </div>
           )}
-          <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="grid grid-cols-[2.5rem_2.5rem_minmax(0,1fr)_2.5rem] gap-1.5 sm:grid-cols-[auto_auto_1fr_auto] sm:gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                handleImageSelect(e.target.files?.[0]);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={streaming}
-              title="Attach food photo"
-              className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
-            >
-              <ImagePlus className="w-4 h-4" />
-            </Button>
-            <Button
-              type="button"
-              variant={listening ? "default" : "outline"}
-              size="icon"
-              onClick={toggleVoiceInput}
-              disabled={streaming}
-              title={listening ? "Stop listening" : "Speak message"}
-              className="h-10 w-10 shrink-0 sm:h-11 sm:w-11"
-            >
-              {listening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-            </Button>
-            <Input
-              value={input}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInput(e.target.value)}
-              placeholder={listening ? "Listening..." : "Ask, log food/spends, attach image..."}
-              disabled={streaming}
-              className="h-10 min-w-0 px-3 text-sm sm:h-11"
-            />
-            <Button type={streaming ? "button" : "submit"} onClick={streaming ? stopAgentResponse : undefined} disabled={!streaming && (!input?.trim() && !imageDataUrl)} className="h-10 w-10 shrink-0 px-0 sm:h-11 sm:w-11" title={streaming ? "Stop response" : "Send"}>
-              {streaming ? <X className="w-4 h-4" /> : <Send className="w-4 h-4" />}
-            </Button>
-          </form>
+          {streaming && (
+            <div className="grid gap-2 border-b border-border bg-primary/5 px-4 py-2 text-xs text-muted-foreground sm:flex sm:items-center sm:justify-between">
+              <div className="flex min-w-0 items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-medium text-foreground">{agentStatus || "Dayza is working..."}</span>
+                    <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-[10px] text-primary">
+                      {agentElapsedSeconds}s
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                    Your message is already in chat. Stop anytime if you want to change direction.
+                  </p>
+                </div>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={stopAgentResponse} className="w-full sm:w-auto">
+                Stop
+              </Button>
+            </div>
+          )}
+          <div
+            ref={scrollRef}
+            onScroll={handleMessageScroll}
+            className="min-h-0 flex-1 touch-pan-y space-y-3 overflow-y-auto overscroll-contain px-3 py-4 sm:space-y-4 sm:p-4"
+          >
+            {(messages ?? [])?.length === 0 && (
+              <div className="mx-auto flex min-h-full max-w-md flex-col items-center justify-center px-4 py-8 text-center">
+                <BrandLogo size="lg" showText={false} className="mb-5" />
+                <h3 className="text-3xl font-medium leading-tight tracking-tight text-foreground sm:text-4xl">
+                  What should we<br />focus on?
+                </h3>
+                <div className="mt-8 grid w-full gap-2 min-[390px]:grid-cols-2">
+                  {quickActions.map((action) => (
+                    <button
+                      key={action.label}
+                      type="button"
+                      onClick={() => setInput(action.label)}
+                      className="rounded-2xl border border-white/10 bg-white/[0.03] px-3.5 py-3 text-left backdrop-blur transition hover:border-white/20 hover:bg-white/[0.06] active:scale-[0.98]"
+                    >
+                      <span className="block text-sm font-medium leading-tight">{action.label}</span>
+                      <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">{action.detail}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {(messages ?? []).map((msg: any, i: number) => (
+              <div key={msg?.id ?? i} className={`flex gap-2 sm:gap-3 ${msg?.role === "user" ? "justify-end" : "justify-start"}`}>
+                {msg?.role === "assistant" && (
+                  <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 sm:flex">
+                    <Bot className="w-4 h-4 text-primary" />
+                  </div>
+                )}
+                <div className={`max-w-[85%] overflow-hidden rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap [overflow-wrap:anywhere] sm:max-w-[70%] ${
+                  msg?.role === "user"
+                    ? "bg-primary text-primary-foreground rounded-br-none"
+                    : "bg-muted rounded-bl-none"
+                }`}>
+                  {(msg?.imageDataUrl || msg?.attachments?.[0]?.url) && (
+                    <img
+                      src={msg.imageDataUrl || msg.attachments[0].url}
+                      alt="Chat attachment"
+                      className="mb-2 max-h-48 w-full rounded-lg object-cover"
+                    />
+                  )}
+                  {!msg?.imageDataUrl && !msg?.attachments?.[0]?.url && msg?.attachments?.[0]?.hasImage && (
+                    <button
+                      type="button"
+                      className="mb-2 flex w-full items-center justify-center rounded-lg border border-dashed border-border bg-background/40 px-3 py-4 text-xs text-muted-foreground hover:bg-background"
+                      onClick={() => loadAttachmentImage(msg.id, msg.attachments[0])}
+                      disabled={loadingAttachmentId === msg.attachments[0].id}
+                    >
+                      {loadingAttachmentId === msg.attachments[0].id ? "Loading image..." : "Tap to load image"}
+                    </button>
+                  )}
+                  {!msg?.imageDataUrl && msg?.attachments?.[0]?.deleted && (
+                    <div className="mb-2 rounded-lg border border-dashed border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+                      {msg.attachments[0].deletedReason || "Image expired"}
+                    </div>
+                  )}
+                  {msg?.content}
+                  {msg?.role === "assistant" && Array.isArray(msg?.undoActions) && msg.undoActions.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-2">
+                      {msg.undoActions.map((action: any) => (
+                        <Button
+                          key={action.id}
+                          type="button"
+                          size="sm"
+                          variant={action.undone ? "secondary" : "outline"}
+                          className="h-8 rounded-full px-3 text-xs"
+                          disabled={Boolean(action.undone) || undoingId === action.id}
+                          onClick={() => undoAgentAction(msg.id, action.id)}
+                          title={action.actionLabel ? `Undo: ${action.actionLabel}` : "Undo this agent action"}
+                        >
+                          {undoingId === action.id && <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />}
+                          {action.undone ? "Undone" : action.label || "Undo"}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {msg?.role === "user" && (
+                  <div className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-full bg-secondary/20 sm:flex">
+                    <User className="w-4 h-4 text-primary" />
+                  </div>
+                )}
+              </div>
+             ))}
+           </div>
+            <div className="pointer-events-none relative z-20 h-0">
+              {showScrollToBottom && (
+                <button
+                  type="button"
+                  onClick={() => scrollChatToBottom("smooth")}
+                  className="pointer-events-auto absolute left-1/2 top-[-3.25rem] flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-border/70 bg-card/95 text-muted-foreground shadow-lg shadow-black/20 backdrop-blur transition hover:bg-muted hover:text-foreground"
+                  aria-label="Scroll to latest message"
+                  title="Scroll to latest"
+                >
+                  <ArrowDown className="h-5 w-5" />
+                </button>
+              )}
+            </div>
+            <div className="shrink-0 px-3 pb-[calc(env(safe-area-inset-bottom)+4.9rem)] pt-2 sm:px-4 lg:pb-4">
+             <div className="mx-auto w-full max-w-3xl">
+             {imageDataUrl && (
+               <div className="mb-3 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
+                 <img src={imageDataUrl} alt="Selected food" className="h-14 w-14 rounded-lg object-cover" />
+                 <div className="min-w-0 flex-1 text-sm">
+                   <p className="font-medium">Image selected</p>
+                   <p className="hidden text-muted-foreground min-[390px]:block">Send photos for logging.</p>
+                 </div>
+                 <Button type="button" variant="ghost" size="icon" onClick={() => setImageDataUrl(null)} disabled={streaming}>
+                   <X className="h-4 w-4" />
+                 </Button>
+               </div>
+             )}
+             <form onSubmit={(e: React.FormEvent) => { e.preventDefault(); handleSend(); }} className="flex items-end gap-1 rounded-[28px] border border-white/10 bg-white/[0.06] p-1.5 backdrop-blur-xl">
+               <input
+                 ref={fileInputRef}
+                 type="file"
+                 accept="image/png,image/jpeg,image/webp"
+                 capture="environment"
+                 className="hidden"
+                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                   handleImageSelect(e.target.files?.[0]);
+                   e.target.value = "";
+                 }}
+               />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={streaming}
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-white/10"
+                  title="Attach photo"
+                >
+                  <Plus className="h-5 w-5" />
+                </Button>
+                <Textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Ask Dayza"
+                  disabled={streaming}
+                  rows={1}
+                  className="min-h-9 max-h-40 min-w-0 flex-1 resize-none overflow-y-hidden border-0 bg-transparent px-1 py-1.5 text-base leading-6 shadow-none placeholder:text-muted-foreground focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => toggleVoiceInput()}
+                  disabled={streaming}
+                  className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:bg-white/10"
+                  title={listening ? "Stop listening" : "Speak"}
+                >
+                  {listening ? <MicOff className="h-5 w-5 text-red-400" /> : <Mic className="h-5 w-5" />}
+                </Button>
+                {streaming ? (
+                  <Button
+                    type="button"
+                    onClick={stopAgentResponse}
+                    className="h-9 w-9 shrink-0 rounded-full bg-foreground px-0 text-background hover:bg-foreground/90"
+                    title="Stop"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                ) : (input?.trim() || imageDataUrl) ? (
+                  <Button
+                    type="submit"
+                    className="h-9 w-9 shrink-0 rounded-full bg-foreground px-0 text-background hover:bg-foreground/90"
+                    title="Send"
+                  >
+                    <Send className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    onClick={() => setLiveOpen(true)}
+                    className="h-9 w-9 shrink-0 rounded-full bg-primary px-0 text-primary-foreground shadow-lg shadow-primary/25 hover:bg-primary/90"
+                    title="Live voice"
+                  >
+                    <AudioLines className="h-5 w-5" />
+                  </Button>
+                )}
+              </form>
+             </div>
+            </div>
+          </Card>
         </div>
-      </Card>
-      </div>
     </div>
   );
 }

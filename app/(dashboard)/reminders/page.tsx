@@ -1,24 +1,39 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CalendarDays, CheckCircle2, Circle, Clock3, Flag, Inbox, ListPlus, ListTodo, Pencil, Plus, Repeat, Send, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  Clock3,
+  Flag,
+  Inbox,
+  ListPlus,
+  ListTodo,
+  Loader2,
+  Pencil,
+  Plus,
+  Repeat,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { FadeIn } from "@/components/ui/animate";
-import { Calendar } from "@/components/ui/calendar";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { dateTimeInputToIso, formatAppDateTime, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankReminder = {
   id: "",
   title: "",
   notes: "",
+  contextTag: "general",
+  sourceLabel: "",
   dueDate: "",
   dueTime: "",
   recurrence: "none",
@@ -29,33 +44,62 @@ const blankReminder = {
 };
 
 const listColors = ["#22c55e", "#3b82f6", "#a855f7", "#f97316", "#ef4444", "#06b6d4"];
-const hours = Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0"));
-const minutes = ["00", "05", "10", "15", "20", "25", "30", "35", "40", "45", "50", "55"];
+
+const recurrenceOptions = [
+  { value: "none", label: "Never" },
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+  { value: "custom", label: "Custom" },
+];
 
 function splitDateTime(value?: string | null) {
   if (!value) return { dueDate: "", dueTime: "" };
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { dueDate: "", dueTime: "" };
+  const zoned = getZonedDateParts(date);
   return {
-    dueDate: date.toISOString().slice(0, 10),
-    dueTime: `${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}`,
+    dueDate: formatLocalDateInput(date),
+    dueTime: `${zoned.hour}:${zoned.minute}`,
   };
 }
 
 function buildDueDate(dateValue: string, timeValue: string) {
-  if (!dateValue) return "";
-  const time = timeValue || "09:00";
-  return `${dateValue}T${time}`;
+  return dateTimeInputToIso(dateValue, timeValue);
 }
 
-function dateInputValue(date: Date) {
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+function appDayRange(dateKey = formatLocalDateInput(new Date())) {
+  return {
+    dateKey,
+    start: new Date(dateTimeInputToIso(dateKey, "00:00")),
+    end: new Date(dateTimeInputToIso(dateKey, "23:59")),
+  };
+}
+
+function priorityWeight(priority?: string | null) {
+  if (priority === "high") return 3;
+  if (priority === "medium") return 2;
+  if (priority === "low") return 1;
+  return 0;
+}
+
+function reminderImportanceScore(item: any) {
+  const due = item?.dueDate ? new Date(item.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+  const now = Date.now();
+  const overdueBoost = due < now ? 1_000_000_000_000 : 0;
+  const flaggedBoost = item?.flagged ? 100_000_000_000 : 0;
+  const priorityBoost = priorityWeight(item?.priority) * 10_000_000_000;
+  return overdueBoost + flaggedBoost + priorityBoost - due;
+}
+
+function sortRemindersByImportance(items: any[]) {
+  return [...items].sort((a, b) => reminderImportanceScore(b) - reminderImportanceScore(a));
 }
 
 export default function RemindersPage() {
@@ -68,41 +112,47 @@ export default function RemindersPage() {
   const [loading, setLoading] = useState(true);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [listOpen, setListOpen] = useState(false);
-  const [telegramOpen, setTelegramOpen] = useState(false);
+  const [savingReminder, setSavingReminder] = useState(false);
+  const [savingList, setSavingList] = useState(false);
+  const [deletingListId, setDeletingListId] = useState<string | null>(null);
+  const [showReminderAdvanced, setShowReminderAdvanced] = useState(false);
+  const [pendingReminderActions, setPendingReminderActions] = useState<Record<string, "complete" | "snooze" | "delete">>({});
+  const [expandedReminderIds, setExpandedReminderIds] = useState<Record<string, boolean>>({});
   const [reminderForm, setReminderForm] = useState(blankReminder);
   const [listForm, setListForm] = useState({ name: "", color: "#22c55e" });
-  const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const saveReminderLock = useRef(false);
+  const saveListLock = useRef(false);
 
   const loadData = async () => {
     setLoading(true);
-    fetch("/api/reminders?offset=0&limit=30")
-      .then((res) => res.ok ? res.json() : { reminders: [] })
-      .then((data) => {
+    try {
+      const [reminderRes, listRes] = await Promise.all([
+        fetch("/api/reminders?offset=0&limit=30"),
+        fetch("/api/reminder-lists"),
+      ]);
+
+      if (reminderRes.ok) {
+        const data = await reminderRes.json();
         setReminders(data?.reminders ?? []);
         setRemindersNextOffset(data?.nextOffset ?? (data?.reminders ?? []).length);
         setRemindersHasMore(Boolean(data?.hasMore));
-      })
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      }
 
-    fetch("/api/reminder-lists")
-      .then((res) => res.ok ? res.json() : { lists: [] })
-      .then((data) => setLists(data?.lists ?? []))
-      .catch(console.error);
-
-    fetch("/api/telegram-settings")
-      .then((res) => res.ok ? res.json() : {})
-      .then((telegramData: any) => {
-        setTelegramForm({
-          telegramChatId: telegramData?.telegramChatId ?? "",
-          telegramEnabled: Boolean(telegramData?.telegramEnabled),
-          botConfigured: Boolean(telegramData?.botConfigured),
-        });
-      })
-      .catch(console.error);
+      if (listRes.ok) {
+        const data = await listRes.json();
+        setLists(data?.lists ?? []);
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error("Failed to load reminders");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const loadMoreReminders = async () => {
     if (loadingMoreReminders || !remindersHasMore) return;
@@ -125,20 +175,12 @@ export default function RemindersPage() {
   };
 
   const smartCounts = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
     const now = new Date();
     return {
       all: reminders.filter((item) => !item.completed).length,
       overdue: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) < now).length,
-      today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd).length,
-      tomorrow: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd).length,
+      today: reminders.filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end).length,
       scheduled: reminders.filter((item) => !item.completed && item.dueDate).length,
       flagged: reminders.filter((item) => !item.completed && item.flagged).length,
       completed: reminders.filter((item) => item.completed).length,
@@ -146,42 +188,25 @@ export default function RemindersPage() {
   }, [reminders]);
 
   const filteredReminders = useMemo(() => {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayEnd = new Date(todayStart);
-    todayEnd.setHours(23, 59, 59, 999);
-    const tomorrowStart = new Date(todayStart);
-    tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const today = appDayRange();
+    const tomorrow = appDayRange(addDaysToDateKey(today.dateKey, 1));
     const now = new Date();
-    return reminders.filter((item) => {
+    const nextItems = reminders.filter((item) => {
       if (filter === "all") return !item.completed;
       if (filter === "overdue") return !item.completed && item.dueDate && new Date(item.dueDate) < now;
-      if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= todayStart && new Date(item.dueDate) <= todayEnd;
-      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrowStart && new Date(item.dueDate) <= tomorrowEnd;
+      if (filter === "today") return !item.completed && item.dueDate && new Date(item.dueDate) >= today.start && new Date(item.dueDate) <= today.end;
       if (filter === "scheduled") return !item.completed && item.dueDate;
       if (filter === "flagged") return !item.completed && item.flagged;
       if (filter === "completed") return item.completed;
+      if (filter === "tomorrow") return !item.completed && item.dueDate && new Date(item.dueDate) >= tomorrow.start && new Date(item.dueDate) <= tomorrow.end;
       return item.listId === filter && !item.completed;
     });
+    return sortRemindersByImportance(nextItems);
   }, [filter, reminders]);
 
   const openAddReminder = () => {
     setReminderForm({ ...blankReminder, listId: lists[0]?.id ?? "" });
-    setReminderOpen(true);
-  };
-
-  const openQuickReminder = (preset: "water" | "meds" | "workout" | "meal") => {
-    const today = new Date();
-    const tomorrow = addDays(today, 1);
-    const presets = {
-      water: { title: "Drink water", notes: "Hydration check", dueDate: dateInputValue(today), dueTime: "18:00", recurrence: "daily", priority: "medium" },
-      meds: { title: "Take medication", notes: "Confirm dose in Medications", dueDate: dateInputValue(today), dueTime: "21:00", recurrence: "daily", priority: "high" },
-      workout: { title: "Workout session", notes: "Warm up first, then follow today's plan", dueDate: dateInputValue(tomorrow), dueTime: "07:00", recurrence: "none", priority: "medium" },
-      meal: { title: "Meal prep", notes: "Prepare next planned meal", dueDate: dateInputValue(today), dueTime: "20:00", recurrence: "none", priority: "low" },
-    } as const;
-    setReminderForm({ ...blankReminder, ...presets[preset], listId: lists[0]?.id ?? "" });
+    setShowReminderAdvanced(false);
     setReminderOpen(true);
   };
 
@@ -191,6 +216,8 @@ export default function RemindersPage() {
       id: item.id,
       title: item.title ?? "",
       notes: item.notes ?? "",
+      contextTag: "general",
+      sourceLabel: "",
       dueDate: due.dueDate,
       dueTime: due.dueTime,
       recurrence: item.recurrence ?? "none",
@@ -199,22 +226,26 @@ export default function RemindersPage() {
       flagged: Boolean(item.flagged),
       listId: item.listId ?? "",
     });
+    setShowReminderAdvanced(Boolean(item.notes || item.recurrence !== "none" || item.listId || item.flagged));
     setReminderOpen(true);
   };
 
   const saveReminder = async () => {
+    if (savingReminder || saveReminderLock.current) return;
     if (!reminderForm.title.trim()) {
       toast.error("Reminder title is required");
       return;
     }
+    saveReminderLock.current = true;
+    setSavingReminder(true);
     try {
       const res = await fetch("/api/reminders", {
         method: reminderForm.id ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...reminderForm, dueDate: buildDueDate(reminderForm.dueDate, reminderForm.dueTime) }),
       });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json();
         toast.error(data?.error ?? "Failed to save reminder");
         return;
       }
@@ -223,373 +254,512 @@ export default function RemindersPage() {
       loadData();
     } catch {
       toast.error("Failed to save reminder");
+    } finally {
+      saveReminderLock.current = false;
+      setSavingReminder(false);
     }
   };
 
-  const toggleComplete = async (item: any) => {
-    await fetch("/api/reminders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: item.id, completed: !item.completed }),
+  const setReminderAction = (id: string, action: "complete" | "snooze" | "delete" | null) => {
+    setPendingReminderActions((current) => {
+      const next = { ...current };
+      if (action) next[id] = action;
+      else delete next[id];
+      return next;
     });
-    loadData();
+  };
+
+  const toggleComplete = async (item: any) => {
+    if (pendingReminderActions[item.id]) return;
+    const nextCompleted = !item.completed;
+    const previousReminders = reminders;
+    setReminderAction(item.id, "complete");
+    setReminders((current) =>
+      current.map((reminder) =>
+        reminder.id === item.id
+          ? { ...reminder, completed: nextCompleted, completedAt: nextCompleted ? new Date().toISOString() : null }
+          : reminder
+      )
+    );
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, completed: nextCompleted }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setReminders(previousReminders);
+        toast.error(data?.error ?? "Failed to update reminder");
+        return;
+      }
+      toast.success(nextCompleted ? "Reminder completed" : "Reminder reopened");
+    } catch {
+      setReminders(previousReminders);
+      toast.error("Failed to update reminder");
+    } finally {
+      setReminderAction(item.id, null);
+    }
   };
 
   const snoozeReminder = async (item: any, minutesToAdd: number) => {
+    if (pendingReminderActions[item.id]) return;
     const nextDue = new Date();
     nextDue.setMinutes(nextDue.getMinutes() + minutesToAdd);
-    await fetch("/api/reminders", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: item.id, dueDate: nextDue.toISOString(), completed: false }),
-    });
-    toast.success(`Snoozed for ${minutesToAdd >= 60 ? `${minutesToAdd / 60}h` : `${minutesToAdd}m`}`);
-    loadData();
+    const previousReminders = reminders;
+    setReminderAction(item.id, "snooze");
+    setReminders((current) =>
+      current.map((reminder) =>
+        reminder.id === item.id ? { ...reminder, dueDate: nextDue.toISOString(), completed: false } : reminder
+      )
+    );
+    try {
+      const res = await fetch("/api/reminders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: item.id, dueDate: nextDue.toISOString(), completed: false }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setReminders(previousReminders);
+        toast.error(data?.error ?? "Failed to snooze reminder");
+        return;
+      }
+      toast.success(`Snoozed for ${minutesToAdd >= 60 ? `${minutesToAdd / 60}h` : `${minutesToAdd}m`}`);
+    } catch {
+      setReminders(previousReminders);
+      toast.error("Failed to snooze reminder");
+    } finally {
+      setReminderAction(item.id, null);
+    }
   };
 
-  const deleteReminder = async (id: string) => {
-    await fetch(`/api/reminders?id=${id}`, { method: "DELETE" });
-    toast.success("Reminder deleted");
-    loadData();
+  const deleteReminder = async (id: string, title?: string) => {
+    if (pendingReminderActions[id]) return false;
+    if (!window.confirm(`Delete ${title ? `"${title}"` : "this reminder"}? This cannot be undone.`)) return false;
+    const previousReminders = reminders;
+    setReminderAction(id, "delete");
+    setReminders((current) => current.filter((reminder) => reminder.id !== id));
+    try {
+      const res = await fetch(`/api/reminders?id=${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setReminders(previousReminders);
+        toast.error(data?.error ?? "Failed to delete reminder");
+        return false;
+      }
+      toast.success("Reminder deleted");
+      return true;
+    } catch {
+      setReminders(previousReminders);
+      toast.error("Failed to delete reminder");
+      return false;
+    } finally {
+      setReminderAction(id, null);
+    }
+  };
+
+  const deleteReminderFromSheet = async () => {
+    if (!reminderForm.id) return;
+    const deleted = await deleteReminder(reminderForm.id, reminderForm.title);
+    if (deleted) setReminderOpen(false);
   };
 
   const saveList = async () => {
+    if (savingList || saveListLock.current) return;
     if (!listForm.name.trim()) {
       toast.error("List name is required");
       return;
     }
-    const res = await fetch("/api/reminder-lists", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(listForm),
-    });
-    if (res.ok) {
+    saveListLock.current = true;
+    setSavingList(true);
+    try {
+      const res = await fetch("/api/reminder-lists", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(listForm),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to add list");
+        return;
+      }
       toast.success("List added");
       setListOpen(false);
       setListForm({ name: "", color: "#22c55e" });
       loadData();
+    } catch {
+      toast.error("Failed to add list");
+    } finally {
+      saveListLock.current = false;
+      setSavingList(false);
     }
   };
 
-  const saveTelegram = async () => {
-    const res = await fetch("/api/telegram-settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(telegramForm),
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      toast.error(data?.error ?? "Failed to save Telegram settings");
-      return;
+  const deleteList = async (list: any) => {
+    if (!list?.id || deletingListId) return;
+    if (!window.confirm(`Delete the "${list.name}" list? Reminders in it will stay, but the list will be removed.`)) return;
+    setDeletingListId(list.id);
+    const previousLists = lists;
+    const previousFilter = filter;
+    setLists((current) => current.filter((item) => item.id !== list.id));
+    if (filter === list.id) setFilter("today");
+    try {
+      const res = await fetch(`/api/reminder-lists?id=${list.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLists(previousLists);
+        setFilter(previousFilter);
+        toast.error(data?.error ?? "Failed to delete list");
+        return;
+      }
+      toast.success("List deleted");
+      loadData();
+    } catch {
+      setLists(previousLists);
+      setFilter(previousFilter);
+      toast.error("Failed to delete list");
+    } finally {
+      setDeletingListId(null);
     }
-    setTelegramForm({
-      telegramChatId: data?.telegramChatId ?? "",
-      telegramEnabled: Boolean(data?.telegramEnabled),
-      botConfigured: Boolean(data?.botConfigured),
-    });
-    toast.success("Telegram settings saved");
-    setTelegramOpen(false);
   };
 
-  const sendDueTelegram = async () => {
-    const res = await fetch("/api/reminders/telegram-dispatch", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) {
-      toast.error(data?.error ?? "Failed to send Telegram reminders");
-      return;
-    }
-    toast.success(data?.sent ? `Sent ${data.sent} reminder(s)` : "No due reminders to send");
-    loadData();
-  };
-
-  const checkTelegramMessages = async () => {
-    const res = await fetch("/api/telegram/poll", { method: "POST" });
-    const data = await res.json();
-    if (!res.ok) {
-      toast.error(data?.error ?? "Failed to check Telegram messages");
-      return;
-    }
-    toast.success(data?.processed ? `Processed ${data.processed} message(s)` : "No new bot messages");
-    loadData();
-  };
-
-  const upcomingReminders = useMemo(() => {
-    const now = new Date();
-    const weekEnd = addDays(now, 7);
-    return reminders
-      .filter((item) => !item.completed && item.dueDate && new Date(item.dueDate) >= now && new Date(item.dueDate) <= weekEnd)
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-      .slice(0, 5);
-  }, [reminders]);
+  const smartViewItems = [
+    { key: "today", label: "Today", count: smartCounts.today, icon: CalendarDays, color: "text-blue-300", tile: "bg-blue-500/12 border-blue-500/20" },
+    { key: "scheduled", label: "Scheduled", count: smartCounts.scheduled, icon: CalendarDays, color: "text-rose-300", tile: "bg-rose-500/12 border-rose-500/20" },
+    { key: "all", label: "All", count: smartCounts.all, icon: Inbox, color: "text-slate-200", tile: "bg-slate-500/12 border-slate-500/20" },
+    { key: "flagged", label: "Flagged", count: smartCounts.flagged, icon: Flag, color: "text-orange-300", tile: "bg-orange-500/12 border-orange-500/20" },
+    { key: "overdue", label: "Overdue", count: smartCounts.overdue, icon: AlertTriangle, color: "text-red-300", tile: "bg-red-500/12 border-red-500/20" },
+    { key: "completed", label: "Completed", count: smartCounts.completed, icon: CheckCircle2, color: "text-emerald-300", tile: "bg-emerald-500/12 border-emerald-500/20" },
+  ];
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="mx-auto w-full max-w-5xl touch-pan-y space-y-5 overflow-x-hidden pb-10 sm:space-y-6 lg:pb-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Reminders</h2>
-            <p className="mt-1 max-w-[20rem] text-sm text-muted-foreground sm:max-w-none">Local lists, smart views, due dates, flags, and priorities</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-primary/80">Dayza</p>
+            <h2 className="mt-1 text-3xl font-bold leading-none tracking-tight sm:text-4xl">Reminders</h2>
           </div>
-          <div className="grid grid-cols-2 gap-2 min-[390px]:grid-cols-3 sm:flex">
-            <Dialog open={listOpen} onOpenChange={setListOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><ListPlus className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">New </span>List</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-sm">
-                <DialogHeader><DialogTitle>New List</DialogTitle></DialogHeader>
-                <div className="space-y-4">
-                  <div><Label>Name</Label><Input value={listForm.name} onChange={(e) => setListForm({ ...listForm, name: e.target.value })} className="mt-1" /></div>
-                  <div className="flex gap-2">
-                    {listColors.map((color) => (
-                      <button key={color} type="button" onClick={() => setListForm({ ...listForm, color })} className="h-8 w-8 rounded-full border-2" style={{ backgroundColor: color, borderColor: listForm.color === color ? "white" : "transparent" }} />
-                    ))}
-                  </div>
-                  <Button onClick={saveList} className="w-full">Create List</Button>
-                </div>
-              </DialogContent>
-            </Dialog>
-            <Dialog open={telegramOpen} onOpenChange={setTelegramOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><Send className="w-4 h-4 sm:mr-2" />Telegram</Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader><DialogTitle>Telegram Reminders</DialogTitle></DialogHeader>
-                <div className="space-y-4">
-                  <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
-                    Create a Telegram bot with BotFather, add `TELEGRAM_BOT_TOKEN` to `.env`, message your bot once, then paste your Telegram chat ID here.
-                  </div>
-                  {!telegramForm.botConfigured && (
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
-                      Bot token is not configured yet. Add `TELEGRAM_BOT_TOKEN` to `.env` and restart the app.
-                    </div>
-                  )}
-                  <div>
-                    <Label>Telegram Chat ID</Label>
-                    <Input
-                      value={telegramForm.telegramChatId}
-                      onChange={(e) => setTelegramForm({ ...telegramForm, telegramChatId: e.target.value })}
-                      className="mt-1"
-                      placeholder="123456789"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    variant={telegramForm.telegramEnabled ? "default" : "outline"}
-                    onClick={() => setTelegramForm({ ...telegramForm, telegramEnabled: !telegramForm.telegramEnabled })}
-                    className="w-full"
-                  >
-                    {telegramForm.telegramEnabled ? "Telegram Enabled" : "Enable Telegram Reminders"}
-                  </Button>
-                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                    <Button onClick={saveTelegram}>Save</Button>
-                    <Button type="button" variant="outline" onClick={sendDueTelegram}>Send Due Now</Button>
-                    <Button type="button" variant="outline" onClick={checkTelegramMessages}>Check Bot Messages</Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
-            <Button onClick={openAddReminder} className="col-span-2 w-full px-3 min-[390px]:col-span-1 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" /><span className="hidden min-[390px]:inline sm:hidden">New</span><span className="min-[390px]:hidden sm:inline">New Reminder</span></Button>
-          </div>
+          <Button onClick={openAddReminder} className="h-12 rounded-2xl px-4 text-base shadow-lg shadow-primary/20 active:scale-95 sm:h-11 sm:text-sm">
+            <Plus className="h-5 w-5" />
+            New
+          </Button>
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {smartViewItems.map((item) => (
+            <SmartTile
+              key={item.key}
+              active={filter === item.key}
+              icon={item.icon}
+              label={item.label}
+              count={item.count}
+              color={item.color}
+              tile={item.tile}
+              onClick={() => setFilter(item.key)}
+            />
+          ))}
         </div>
       </FadeIn>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_22rem]">
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Plus className="h-4 w-4 text-primary" />
-              Quick Add
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("water")} className="justify-start">Water</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("meds")} className="justify-start">Medication</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("workout")} className="justify-start">Workout</Button>
-            <Button type="button" variant="outline" onClick={() => openQuickReminder("meal")} className="justify-start">Meal prep</Button>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="space-y-3 p-3 sm:p-4">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Clock3 className="h-4 w-4 text-primary" />
-              Next 7 Days
-            </div>
-            <div className="max-h-48 space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
-            {upcomingReminders.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No upcoming reminders.</p>
-            ) : upcomingReminders.map((item) => (
-              <button key={item.id} type="button" onClick={() => openEditReminder(item)} className="flex w-full items-center justify-between gap-3 rounded-md bg-muted/35 px-3 py-2 text-left text-sm hover:bg-muted">
-                <span className="min-w-0 truncate">{item.title}</span>
-                <span className="shrink-0 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
-              </button>
-            ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-1 ios-scroll">
-        <SmartButton active={filter === "overdue"} icon={AlertTriangle} label="Overdue" count={smartCounts.overdue} onClick={() => setFilter("overdue")} />
-        <SmartButton active={filter === "today"} icon={CalendarDays} label="Today" count={smartCounts.today} onClick={() => setFilter("today")} />
-        <SmartButton active={filter === "tomorrow"} icon={CalendarDays} label="Tomorrow" count={smartCounts.tomorrow} onClick={() => setFilter("tomorrow")} />
-        <SmartButton active={filter === "scheduled"} icon={CalendarDays} label="Scheduled" count={smartCounts.scheduled} onClick={() => setFilter("scheduled")} />
-        <SmartButton active={filter === "all"} icon={Inbox} label="All" count={smartCounts.all} onClick={() => setFilter("all")} />
-        <SmartButton active={filter === "flagged"} icon={Flag} label="Flagged" count={smartCounts.flagged} onClick={() => setFilter("flagged")} />
-        <SmartButton active={filter === "completed"} icon={CheckCircle2} label="Completed" count={smartCounts.completed} onClick={() => setFilter("completed")} />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[220px_1fr]">
-        <Card>
-          <CardHeader className="p-4 pb-2"><CardTitle className="flex items-center gap-2 text-base"><ListTodo className="w-4 h-4 text-primary" />Lists</CardTitle></CardHeader>
-          <CardContent className="max-h-56 space-y-2 overflow-y-auto p-4 pt-2 lg:max-h-none lg:overflow-visible">
-            {lists.map((list) => (
-              <button key={list.id} onClick={() => setFilter(list.id)} className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm ${filter === list.id ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
-                <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full" style={{ backgroundColor: list.color }} />{list.name}</span>
-                <Badge variant="secondary">{list._count?.reminders ?? 0}</Badge>
-              </button>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle>{viewTitle(filter, lists)}</CardTitle></CardHeader>
-          <CardContent>
-            {filteredReminders.length === 0 ? (
-              <div className="text-center py-12 text-sm text-muted-foreground">No reminders here.</div>
-            ) : (
-              <div className="max-h-[36rem] space-y-2 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
-                {filteredReminders.map((item) => (
-                  <div key={item.id} className={`grid gap-3 rounded-lg bg-muted/40 p-3 sm:grid-cols-[auto_1fr_auto_auto_auto] sm:items-start ${item.completed ? "opacity-60" : ""}`}>
-                    <button onClick={() => toggleComplete(item)} className="mt-1 justify-self-start">
-                      {item.completed ? <CheckCircle2 className="w-5 h-5 text-primary" /> : <Circle className="w-5 h-5 text-muted-foreground" />}
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className={`font-medium ${item.completed ? "line-through" : ""}`}>{item.title}</p>
-                        {item.flagged && <Flag className="w-4 h-4 text-orange-500" />}
-                        {item.priority !== "none" && <Badge variant="outline">{item.priority}</Badge>}
-                        {item.recurrence !== "none" && <Badge variant="outline"><Repeat className="mr-1 h-3 w-3" />{item.recurrence === "custom" ? item.recurrenceCustom || "custom" : item.recurrence}</Badge>}
-                        {item.list && <Badge variant="secondary">{item.list.name}</Badge>}
-                      </div>
-                      {item.notes && <p className="mt-1 text-sm text-muted-foreground">{item.notes}</p>}
-                      {item.dueDate && <p className="mt-1 text-xs text-muted-foreground">{new Date(item.dueDate).toLocaleString()}</p>}
+      <div className="grid gap-5 lg:grid-cols-[17rem_1fr]">
+        <FadeIn delay={0.06}>
+          <section className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="text-sm font-semibold text-muted-foreground">My Lists</h3>
+              <Dialog open={listOpen} onOpenChange={setListOpen}>
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="rounded-full px-2 py-1 text-sm font-semibold text-primary transition active:scale-95 active:bg-primary/10"
+                  >
+                    Add List
+                  </button>
+                </DialogTrigger>
+                <DialogContent className="rounded-t-[28px] sm:max-w-sm">
+                  <DialogHeader><DialogTitle>New List</DialogTitle></DialogHeader>
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Name</Label>
+                      <Input value={listForm.name} onChange={(e) => setListForm({ ...listForm, name: e.target.value })} className="mt-1 h-12 rounded-2xl text-base" />
                     </div>
-                    {!item.completed && (
-                      <div className="flex shrink-0 flex-wrap gap-1">
-                        <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 15)}>
-                          <Clock3 className="mr-1 h-3 w-3" />15m
-                        </Button>
-                        <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 60)}>
-                          <Clock3 className="mr-1 h-3 w-3" />1h
-                        </Button>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-2 sm:contents">
-                      <Button variant="ghost" size="icon" onClick={() => openEditReminder(item)}><Pencil className="w-4 h-4" /></Button>
-                      <Button variant="ghost" size="icon" onClick={() => deleteReminder(item.id)}><Trash2 className="w-4 h-4 text-destructive" /></Button>
+                    <div className="flex gap-2">
+                      {listColors.map((color) => (
+                        <button key={color} type="button" onClick={() => setListForm({ ...listForm, color })} className="h-9 w-9 rounded-full border-2 active:scale-90" style={{ backgroundColor: color, borderColor: listForm.color === color ? "white" : "transparent" }} />
+                      ))}
                     </div>
-                  </div>
-                ))}
-                {remindersHasMore && (
-                  <Button type="button" variant="outline" className="w-full" onClick={loadMoreReminders} loading={loadingMoreReminders} disabled={loadingMoreReminders}>
-                    Load more reminders
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader><DialogTitle>{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle></DialogHeader>
-          <div className="space-y-4">
-            <div><Label>Title</Label><Input value={reminderForm.title} onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })} className="mt-1" /></div>
-            <div><Label>Notes</Label><Textarea value={reminderForm.notes} onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })} className="mt-1" /></div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button type="button" variant="outline" className="mt-1 w-full justify-start">
-                      <CalendarDays className="mr-2 h-4 w-4" />
-                      {reminderForm.dueDate ? new Date(`${reminderForm.dueDate}T00:00:00`).toLocaleDateString() : "Pick date"}
+                    <Button onClick={saveList} loading={savingList} disabled={savingList || !listForm.name.trim()} className="h-12 w-full rounded-2xl">
+                      {savingList ? "Creating..." : "Create List"}
                     </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={reminderForm.dueDate ? new Date(`${reminderForm.dueDate}T00:00:00`) : undefined}
-                      onSelect={(date) => setReminderForm({ ...reminderForm, dueDate: date ? date.toISOString().slice(0, 10) : "" })}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div>
-                <Label>Priority</Label>
-                <Select value={reminderForm.priority} onValueChange={(value) => setReminderForm({ ...reminderForm, priority: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Hour</Label>
-                <Select value={(reminderForm.dueTime || "09:00").split(":")[0]} onValueChange={(value) => setReminderForm({ ...reminderForm, dueTime: `${value}:${(reminderForm.dueTime || "09:00").split(":")[1]}` })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{hours.map((hour) => <SelectItem key={hour} value={hour}>{hour}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Minute</Label>
-                <Select value={(reminderForm.dueTime || "09:00").split(":")[1]} onValueChange={(value) => setReminderForm({ ...reminderForm, dueTime: `${(reminderForm.dueTime || "09:00").split(":")[0]}:${value}` })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>{minutes.map((minute) => <SelectItem key={minute} value={minute}>{minute}</SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Repeat</Label>
-                <Select value={reminderForm.recurrence} onValueChange={(value) => setReminderForm({ ...reminderForm, recurrence: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Never</SelectItem>
-                    <SelectItem value="daily">Daily</SelectItem>
-                    <SelectItem value="weekly">Weekly</SelectItem>
-                    <SelectItem value="monthly">Monthly</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {reminderForm.recurrence === "custom" && (
-                <div>
-                  <Label>Custom Repeat</Label>
-                  <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="mt-1" placeholder="Every 2 weeks" />
+            <div className="overflow-hidden rounded-[24px] border border-border/70 bg-card/85 shadow-sm shadow-black/10">
+              {lists.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setListOpen(true)}
+                  className="flex min-h-14 w-full items-center justify-between px-4 py-3 text-left transition active:scale-[0.99] active:bg-muted"
+                >
+                  <span className="font-semibold">Create your first list</span>
+                  <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                </button>
+              ) : (
+                <div className="divide-y divide-border/55">
+                  {lists.map((list) => (
+                    <div
+                      key={list.id}
+                      className={`grid min-h-14 grid-cols-[1fr_2.75rem] items-stretch ${filter === list.id ? "bg-primary/10 text-primary" : ""}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setFilter(list.id)}
+                        className="flex min-w-0 touch-manipulation items-center justify-between gap-3 px-4 py-3 text-left transition active:scale-[0.99] active:bg-muted"
+                      >
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className="h-3.5 w-3.5 shrink-0 rounded-full shadow-sm" style={{ backgroundColor: list.color }} />
+                          <span className="truncate font-semibold">{list.name}</span>
+                        </span>
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">
+                          {list._count?.reminders ?? 0}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteList(list)}
+                        disabled={deletingListId === list.id}
+                        aria-label={`Delete ${list.name}`}
+                        className="flex touch-manipulation items-center justify-center text-muted-foreground transition active:scale-90 active:bg-destructive/10 active:text-destructive disabled:opacity-60"
+                      >
+                        {deletingListId === list.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>List</Label>
-                <Select value={reminderForm.listId} onValueChange={(value) => setReminderForm({ ...reminderForm, listId: value })}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="List" /></SelectTrigger>
-                  <SelectContent>{lists.map((list) => <SelectItem key={list.id} value={list.id}>{list.name}</SelectItem>)}</SelectContent>
-                </Select>
+          </section>
+        </FadeIn>
+
+        <FadeIn delay={0.1}>
+          <section className="overflow-hidden rounded-[26px] border border-border/70 bg-card/90 shadow-sm shadow-black/10">
+            <div className="flex items-center justify-between gap-3 border-b border-border/70 px-4 py-4 sm:px-5">
+              <div className="min-w-0">
+                <h3 className="truncate text-xl font-bold tracking-tight">{viewTitle(filter, lists)}</h3>
+                <p className="mt-0.5 text-sm text-muted-foreground">{filteredReminders.length} item{filteredReminders.length === 1 ? "" : "s"}</p>
               </div>
-              <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="self-end" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
-                <Flag className="w-4 h-4 mr-2" />Flag
+              <Button type="button" variant="outline" size="sm" onClick={openAddReminder} className="rounded-full active:scale-95">
+                <Plus className="h-4 w-4" />
+                Add
               </Button>
             </div>
-            <Button onClick={saveReminder} className="w-full">{reminderForm.id ? "Update Reminder" : "Add Reminder"}</Button>
+            <div className="p-2 sm:p-3">
+              {loading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((item) => <div key={item} className="h-16 animate-pulse rounded-[22px] bg-muted/50" />)}
+                </div>
+              ) : filteredReminders.length === 0 ? (
+                <div className="rounded-[22px] border border-dashed border-border/70 bg-background/40 px-6 py-14 text-center">
+                  <ListTodo className="mx-auto h-10 w-10 text-muted-foreground/40" />
+                  <p className="mt-3 font-semibold">No reminders here</p>
+                  <p className="mt-1 text-sm text-muted-foreground">Tap Add to create one.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border/55 overflow-hidden rounded-[22px] bg-background/45">
+                  {filteredReminders.map((item) => {
+                    const pendingAction = pendingReminderActions[item.id];
+                    const isCompleting = pendingAction === "complete";
+                    const isSnoozing = pendingAction === "snooze";
+                    const isDeleting = pendingAction === "delete";
+                    const isBusy = Boolean(pendingAction);
+                    const isExpanded = Boolean(expandedReminderIds[item.id]);
+                    const isOverdue = !item.completed && item.dueDate && new Date(item.dueDate).getTime() < Date.now();
+                    return (
+                      <div key={item.id} className={`transition ${isOverdue ? "bg-destructive/10" : "bg-transparent"} ${item.completed ? "opacity-60" : ""} ${isBusy ? "opacity-80" : ""}`}>
+                        <div className="grid grid-cols-[3rem_1fr] items-stretch">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleComplete(item);
+                            }}
+                            disabled={isBusy}
+                            aria-label={item.completed ? "Reopen reminder" : "Complete reminder"}
+                            className={`flex min-h-[4.25rem] w-12 touch-manipulation items-center justify-center transition active:scale-90 disabled:cursor-not-allowed disabled:opacity-70 ${isOverdue ? "text-destructive" : "text-muted-foreground"}`}
+                          >
+                            {isCompleting ? (
+                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            ) : item.completed ? (
+                              <CheckCircle2 className="h-5 w-5 text-primary" />
+                            ) : (
+                              <Circle className="h-5 w-5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setExpandedReminderIds((current) => ({ ...current, [item.id]: !current[item.id] }))}
+                            className="grid min-h-[4.25rem] w-full touch-manipulation grid-cols-[1fr_auto] items-center gap-3 py-3 pr-3 text-left transition active:scale-[0.995] active:bg-muted/80"
+                            aria-label={isExpanded ? "Hide reminder details" : "Show reminder details"}
+                          >
+                            <span className="min-w-0">
+                              <span className={`block truncate text-[1rem] font-semibold leading-tight ${isOverdue ? "text-destructive" : ""} ${item.completed ? "line-through" : ""}`}>{item.title}</span>
+                              {item.dueDate && (
+                                <span className={`mt-1 block text-xs ${isOverdue ? "text-destructive/90" : "text-muted-foreground"}`}>
+                                  {isOverdue ? "Overdue - " : ""}{formatAppDateTime(item.dueDate)}
+                                </span>
+                              )}
+                            </span>
+                            <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                          </button>
+                        </div>
+                        {isExpanded && (
+                          <div className="space-y-3 px-4 pb-4 pl-12">
+                            <div className="flex flex-wrap items-center gap-2">
+                              {item.flagged && <Badge variant="outline" className="border-orange-500/40 text-orange-400"><Flag className="mr-1 h-3 w-3" />Flagged</Badge>}
+                              {item.priority !== "none" && <Badge variant={isOverdue ? "destructive" : "outline"}>{item.priority}</Badge>}
+                              {item.recurrence !== "none" && <Badge variant="outline"><Repeat className="mr-1 h-3 w-3" />{item.recurrence === "custom" ? item.recurrenceCustom || "custom" : item.recurrence}</Badge>}
+                              {item.list && <Badge variant="secondary">{item.list.name}</Badge>}
+                            </div>
+                            {item.notes && <p className="text-sm text-muted-foreground">{item.notes}</p>}
+                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+                              {!item.completed && (
+                                <>
+                                  <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 15)} loading={isSnoozing} disabled={isBusy} className="rounded-full active:scale-95">
+                                    <Clock3 className="mr-1 h-3 w-3" />15m
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={() => snoozeReminder(item, 60)} loading={isSnoozing} disabled={isBusy} className="rounded-full active:scale-95">
+                                    <Clock3 className="mr-1 h-3 w-3" />1h
+                                  </Button>
+                                </>
+                              )}
+                              <Button variant="outline" size="sm" onClick={() => openEditReminder(item)} disabled={isBusy} className="rounded-full active:scale-95"><Pencil className="mr-1 h-3 w-3" />Edit</Button>
+                              <Button variant="outline" size="sm" onClick={() => deleteReminder(item.id, item.title)} loading={isDeleting} disabled={isBusy && !isDeleting} className="rounded-full border-destructive/40 text-destructive hover:bg-destructive/10 active:scale-95"><Trash2 className="mr-1 h-3 w-3" />Delete</Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {remindersHasMore && (
+                    <div className="p-3">
+                      <Button type="button" variant="outline" className="w-full rounded-2xl" onClick={loadMoreReminders} loading={loadingMoreReminders} disabled={loadingMoreReminders}>
+                        Load more reminders
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </section>
+        </FadeIn>
+      </div>
+
+      <Dialog open={reminderOpen} onOpenChange={(open) => { if (!savingReminder) setReminderOpen(open); }}>
+        <DialogContent className="inset-x-0 bottom-0 max-h-[92svh] max-w-none gap-0 rounded-b-none rounded-t-[28px] border-border/80 bg-card/95 p-0 shadow-2xl sm:max-w-lg sm:rounded-2xl sm:p-0">
+          <div className="sticky top-0 z-10 border-b border-border/70 bg-card/95 px-4 pb-3 pt-3 backdrop-blur sm:px-5">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted-foreground/30 sm:hidden" />
+            <DialogHeader className="pr-8 text-left">
+              <DialogTitle className="text-xl">{reminderForm.id ? "Edit Reminder" : "New Reminder"}</DialogTitle>
+            </DialogHeader>
+          </div>
+
+          <div className="space-y-4 px-4 py-4 sm:px-5">
+            <div className="overflow-hidden rounded-[22px] border border-border/70 bg-background/55">
+              <Input
+                value={reminderForm.title}
+                onChange={(e) => setReminderForm({ ...reminderForm, title: e.target.value })}
+                className="h-14 border-0 bg-transparent px-4 text-base font-semibold shadow-none focus-visible:ring-0"
+                placeholder="Reminder title"
+              />
+            </div>
+
+            <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+              <Label className="text-xs font-semibold text-muted-foreground">Date & Time</Label>
+              <div className="mt-2 grid grid-cols-1 gap-2 min-[440px]:grid-cols-2">
+                <div className="min-w-0 rounded-2xl border border-border/60 bg-card/80 px-3 py-2">
+                  <span className="block text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">Date</span>
+                  <Input
+                    type="date"
+                    value={reminderForm.dueDate}
+                    onChange={(event) => setReminderForm({ ...reminderForm, dueDate: event.target.value })}
+                    className="mt-1 h-9 min-w-0 border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0"
+                  />
+                </div>
+                <div className="min-w-0 rounded-2xl border border-border/60 bg-card/80 px-3 py-2">
+                  <span className="block text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">Time</span>
+                  <Input
+                    type="time"
+                    value={reminderForm.dueTime || "09:00"}
+                    onChange={(event) => setReminderForm({ ...reminderForm, dueTime: event.target.value })}
+                    className="mt-1 h-9 min-w-0 border-0 bg-transparent p-0 text-base shadow-none focus-visible:ring-0"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <PriorityPicker value={reminderForm.priority} onChange={(priority) => setReminderForm({ ...reminderForm, priority })} />
+
+            <button
+              type="button"
+              onClick={() => setShowReminderAdvanced((current) => !current)}
+              className="flex min-h-12 w-full touch-manipulation items-center justify-between rounded-[22px] border border-border/70 bg-background/55 px-4 text-left transition active:scale-[0.99] active:bg-muted"
+            >
+              <span className="font-semibold">Details</span>
+              <ChevronRight className={`h-5 w-5 text-muted-foreground transition-transform ${showReminderAdvanced ? "rotate-90" : ""}`} />
+            </button>
+
+            {showReminderAdvanced && (
+              <div className="space-y-3 rounded-[22px] border border-border/70 bg-background/45 p-3">
+                <Textarea
+                  value={reminderForm.notes}
+                  onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })}
+                  className="min-h-20 rounded-2xl bg-card/80 text-base"
+                  placeholder="Notes"
+                />
+                <SegmentedPicker
+                  label="Repeat"
+                  value={reminderForm.recurrence}
+                  options={recurrenceOptions}
+                  onChange={(recurrence) => setReminderForm({ ...reminderForm, recurrence })}
+                />
+                {reminderForm.recurrence === "custom" && (
+                  <Input value={reminderForm.recurrenceCustom} onChange={(e) => setReminderForm({ ...reminderForm, recurrenceCustom: e.target.value })} className="h-12 rounded-2xl bg-card/80" placeholder="Every 2 weeks" />
+                )}
+                <ListPicker
+                  lists={lists}
+                  value={reminderForm.listId}
+                  onChange={(listId) => setReminderForm({ ...reminderForm, listId })}
+                />
+                <Button type="button" variant={reminderForm.flagged ? "default" : "outline"} className="h-12 w-full rounded-2xl" onClick={() => setReminderForm({ ...reminderForm, flagged: !reminderForm.flagged })}>
+                  <Flag className="w-4 h-4 mr-2" />{reminderForm.flagged ? "Flagged" : "Flag"}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <div className="sticky bottom-0 grid gap-2 border-t border-border/70 bg-card/95 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] backdrop-blur sm:px-5">
+            <Button
+              onClick={saveReminder}
+              loading={savingReminder}
+              disabled={savingReminder || !reminderForm.title.trim()}
+              className="h-12 w-full rounded-2xl text-base shadow-lg shadow-primary/20 active:scale-95"
+            >
+              {savingReminder ? "Saving..." : reminderForm.id ? "Update Reminder" : "Add Reminder"}
+            </Button>
+            {reminderForm.id && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={deleteReminderFromSheet}
+                disabled={savingReminder || pendingReminderActions[reminderForm.id] === "delete"}
+                className="h-11 w-full rounded-2xl border-destructive/40 text-destructive active:scale-95"
+              >
+                {pendingReminderActions[reminderForm.id] === "delete" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                Delete Reminder
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -597,19 +767,125 @@ export default function RemindersPage() {
   );
 }
 
-function SmartButton({ active, icon: Icon, label, count, onClick }: any) {
+function SmartTile({ active, icon: Icon, label, count, color, tile, onClick }: any) {
   return (
-    <button onClick={onClick} className={`min-w-[5.75rem] rounded-lg border border-border p-3 text-left transition-colors sm:min-w-36 sm:p-4 ${active ? "bg-primary/10 text-primary" : "bg-card hover:bg-muted"}`}>
-      <div className="flex items-center justify-between gap-2">
-        <Icon className="h-5 w-5 shrink-0" />
-        <span className="shrink-0 text-xl font-semibold">{count}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      className={`min-h-[6.4rem] touch-pan-y rounded-[24px] border p-4 text-left shadow-sm shadow-black/10 transition-colors ${tile} ${active ? "border-primary/70 bg-primary/10 shadow-primary/10" : "hover:border-primary/30 hover:bg-muted/20"}`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className={`flex h-10 w-10 items-center justify-center rounded-full bg-background/70 ${color}`}>
+          <Icon className="h-5 w-5" />
+        </span>
+        <span className="font-mono text-3xl font-bold leading-none">{count}</span>
       </div>
-      <p className="mt-2 text-sm font-medium leading-tight">{label}</p>
+      <p className="mt-3 text-sm font-semibold text-muted-foreground">{label}</p>
     </button>
   );
 }
 
+function SegmentedPicker({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+      <Label className="text-xs font-semibold text-muted-foreground">{label}</Label>
+      <div className="mt-2 grid grid-cols-2 gap-2 min-[440px]:grid-cols-3">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            data-active={value === option.value}
+            onClick={() => onChange(option.value)}
+            className="min-h-11 touch-manipulation rounded-2xl border border-border/60 bg-card/70 px-3 text-sm font-semibold text-muted-foreground transition active:scale-95 active:bg-muted data-[active=true]:border-primary/40 data-[active=true]:bg-primary/15 data-[active=true]:text-primary"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ListPicker({
+  lists,
+  value,
+  onChange,
+}: {
+  lists: any[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const options = [{ id: "", name: "No List", color: "transparent" }, ...lists];
+  return (
+    <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+      <Label className="text-xs font-semibold text-muted-foreground">List</Label>
+      <div className="mt-2 grid grid-cols-1 gap-2 min-[440px]:grid-cols-2">
+        {options.map((list) => (
+          <button
+            key={list.id || "none"}
+            type="button"
+            data-active={(value || "") === list.id}
+            onClick={() => onChange(list.id)}
+            className="flex min-h-11 touch-manipulation items-center gap-2 rounded-2xl border border-border/60 bg-card/70 px-3 text-left text-sm font-semibold text-muted-foreground transition active:scale-95 active:bg-muted data-[active=true]:border-primary/40 data-[active=true]:bg-primary/15 data-[active=true]:text-primary"
+          >
+            <span
+              className={`h-3 w-3 shrink-0 rounded-full ${list.id ? "" : "border border-border"}`}
+              style={{ backgroundColor: list.id ? list.color : "transparent" }}
+            />
+            <span className="min-w-0 truncate">{list.name}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PriorityPicker({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const items = [
+    { value: "none", label: "None", className: "data-[active=true]:bg-muted data-[active=true]:text-foreground" },
+    { value: "low", label: "Low", className: "data-[active=true]:bg-blue-500/15 data-[active=true]:text-blue-300" },
+    { value: "medium", label: "Med", className: "data-[active=true]:bg-amber-500/15 data-[active=true]:text-amber-300" },
+    { value: "high", label: "High", className: "data-[active=true]:bg-destructive/15 data-[active=true]:text-destructive" },
+  ];
+
+  return (
+    <div className="rounded-[22px] border border-border/70 bg-background/55 p-3">
+      <Label className="text-xs font-semibold text-muted-foreground">Priority</Label>
+      <div className="mt-2 grid grid-cols-4 gap-2">
+        {items.map((item) => (
+          <button
+            key={item.value}
+            type="button"
+            data-active={value === item.value}
+            onClick={() => onChange(item.value)}
+            className={`h-11 touch-manipulation rounded-2xl text-sm font-semibold text-muted-foreground transition active:scale-95 active:bg-muted ${item.className}`}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function viewTitle(filter: string, lists: any[]) {
-  const smart: Record<string, string> = { overdue: "Overdue", today: "Today", tomorrow: "Tomorrow", scheduled: "Scheduled", all: "All", flagged: "Flagged", completed: "Completed" };
+  const smart: Record<string, string> = {
+    overdue: "Overdue",
+    today: "Today",
+    scheduled: "Scheduled",
+    all: "All",
+    flagged: "Flagged",
+    completed: "Completed",
+  };
   return smart[filter] ?? lists.find((list) => list.id === filter)?.name ?? "Reminders";
 }

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { decryptOAuthTokenFields } from "@/lib/oauth-token-encryption";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const YOUTUBE_SCOPE = "https://www.googleapis.com/auth/youtube.readonly";
@@ -42,8 +43,17 @@ export async function GET() {
     select: { id: true, access_token: true, refresh_token: true, expires_at: true, scope: true },
   });
 
-  const gmailAccount = googleAccounts.find((account) => hasScope(account.scope, GMAIL_SCOPE)) ?? googleAccounts[0] ?? null;
-  const youtubeAccount = googleAccounts.find((account) => hasScope(account.scope, YOUTUBE_SCOPE)) ?? googleAccounts[0] ?? null;
+  const decryptedGoogleAccounts = googleAccounts.map((account) => decryptOAuthTokenFields(account));
+  const gmailAccount =
+    decryptedGoogleAccounts.find((account) => account.access_token && hasScope(account.scope, GMAIL_SCOPE)) ??
+    decryptedGoogleAccounts.find((account) => hasScope(account.scope, GMAIL_SCOPE)) ??
+    decryptedGoogleAccounts[0] ??
+    null;
+  const youtubeAccount =
+    decryptedGoogleAccounts.find((account) => account.access_token && hasScope(account.scope, YOUTUBE_SCOPE)) ??
+    decryptedGoogleAccounts.find((account) => hasScope(account.scope, YOUTUBE_SCOPE)) ??
+    decryptedGoogleAccounts[0] ??
+    null;
 
   return NextResponse.json({
     gmail: {

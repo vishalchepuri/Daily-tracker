@@ -2,12 +2,13 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { requireAdminUser } from "@/lib/auth";
 
 const requiredEnv = [
   "DATABASE_URL",
   "APP_SECRET",
   "APP_URL",
-  "ABACUSAI_API_KEY",
+  "GEMINI_API_KEY",
   "GOOGLE_CLIENT_ID",
   "GOOGLE_CLIENT_SECRET",
   "TELEGRAM_BOT_TOKEN",
@@ -26,6 +27,9 @@ function envStatus(name: string) {
 }
 
 export async function GET() {
+  const admin = await requireAdminUser();
+  if (!admin) return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+
   const required = requiredEnv.map(envStatus);
   const recommended = recommendedEnv.map(envStatus);
   let database = "ok";

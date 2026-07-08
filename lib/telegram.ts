@@ -5,6 +5,8 @@ import {
   createFirestoreChatSession,
   listFirestoreChatSessions,
 } from "@/lib/firestore-chat";
+import { formatAppDate } from "@/lib/local-dates";
+import { generateGeminiText } from "@/lib/gemini";
 
 export async function sendTelegramMessage(chatId: string, text: string) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -227,45 +229,30 @@ async function logWorkoutFromVision(userId: string, details: any, caption: strin
 }
 
 async function analyzeTelegramWorkoutPhoto(userId: string, caption: string, photoFileId: string) {
-  if (!process.env.ABACUSAI_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return "I received the workout photo, but AI vision is not configured. Reply with exercise name, sets, reps, and weight.";
   }
 
   const imageDataUrl = await telegramPhotoDataUrl(photoFileId);
-  const response = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-5.4-mini",
-      stream: false,
-      max_tokens: 500,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You analyze Telegram workout photos for Dayza. Return only JSON with keys: isWorkoutPhoto boolean, exerciseName string, muscleGroup string, equipment string, sets number|null, reps number|null, weightKg number|null, confidence number from 0 to 1, question string. Use the caption for sets/reps/weight. If exercise is unclear, set confidence below 0.75 and ask one short confirmation question.",
-        },
-        {
-          role: "user",
-          content: [
-            { type: "text", text: `Caption: ${caption || "(no caption)"}` },
-            { type: "image_url", image_url: { url: imageDataUrl } },
-          ],
-        },
-      ],
-    }),
+  const raw = await generateGeminiText({
+    maxOutputTokens: 500,
+    timeoutMs: 25000,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You analyze Telegram workout photos for Dayza. Return only JSON with keys: isWorkoutPhoto boolean, exerciseName string, muscleGroup string, equipment string, sets number|null, reps number|null, weightKg number|null, confidence number from 0 to 1, question string. Use the caption for sets/reps/weight. If exercise is unclear, set confidence below 0.75 and ask one short confirmation question.",
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: `Caption: ${caption || "(no caption)"}` },
+          { type: "image_url", image_url: { url: imageDataUrl } },
+        ],
+      },
+    ],
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Workout vision failed: ${errorText}`);
-  }
-
-  const data = await response.json();
-  const raw = data?.choices?.[0]?.message?.content ?? "{}";
   const details = extractJsonObject(raw);
 
   if (!details?.isWorkoutPhoto) {
@@ -418,7 +405,7 @@ function weekdayFromText(text: string) {
   const found = weekdays.find((day) => lower.includes(day));
   if (found) return found[0].toUpperCase() + found.slice(1);
   if (lower.includes("today")) {
-    return new Date().toLocaleDateString("en-US", { weekday: "long" });
+    return formatAppDate(new Date(), { weekday: "long" });
   }
   return null;
 }
@@ -509,7 +496,7 @@ function helpText(chatId: string) {
     "• taken Vitamin D",
     "• log my diet breakfast",
     "",
-    "Link this chat in Dayza > Reminders > Telegram if it is not connected yet.",
+    "Link this chat in Dayza > Profile > Integrations > Telegram if it is not connected yet.",
   ].join("\n");
 }
 
@@ -525,7 +512,7 @@ export async function processTelegramMessage(chatId: string, text: string, optio
   const profile = await prisma.userProfile.findFirst({
     where: { telegramChatId: chatId, telegramEnabled: true },
   });
-  if (!profile) return `This Telegram chat is not linked to a Dayza account yet.\n\nYour chat ID: ${chatId}\n\nOpen Dayza > Reminders > Telegram, paste this chat ID, and enable Telegram.`;
+  if (!profile) return `This Telegram chat is not linked to a Dayza account yet.\n\nYour chat ID: ${chatId}\n\nOpen Dayza > Profile > Integrations > Telegram, paste this chat ID, and enable Telegram.`;
 
   const userId = profile.userId;
   await saveTelegramChat(userId, "user", options?.photoFileId ? `${trimmed || "Photo uploaded"}\n[Photo: ${options.photoFileId}]` : trimmed, options?.photoFileId);

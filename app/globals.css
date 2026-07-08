@@ -43,24 +43,24 @@
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    --card: 222 47% 9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222 47% 9%;
-    --popover-foreground: 210 40% 98%;
+    --background: 0 0% 3%;
+    --foreground: 0 0% 96%;
+    --card: 0 0% 5%;
+    --card-foreground: 0 0% 96%;
+    --popover: 0 0% 6%;
+    --popover-foreground: 0 0% 96%;
     --primary: 142 71% 45%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 55%;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 62%;
     --accent: 142 71% 45%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 63% 31%;
     --destructive-foreground: 0 0% 98%;
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
     --ring: 142 71% 45%;
   }
 }
@@ -150,6 +150,33 @@
       hsl(var(--background)) 70%
     );
   }
+
+  .live-voice-wave {
+    display: inline-flex;
+    height: 0.9rem;
+    width: 0.9rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.09rem;
+  }
+
+  .live-voice-wave > span {
+    display: block;
+    width: 0.12rem;
+    height: 0.38rem;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: live-voice-wave 0.8s ease-in-out infinite;
+  }
+
+  .live-voice-wave > span:nth-child(2) {
+    height: 0.65rem;
+    animation-delay: 0.12s;
+  }
+
+  .live-voice-wave > span:nth-child(3) {
+    animation-delay: 0.24s;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -174,6 +201,18 @@
   }
   100% {
     transform: translateX(240%);
+  }
+}
+
+@keyframes live-voice-wave {
+  0%,
+  100% {
+    transform: scaleY(0.55);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scaleY(1.15);
+    opacity: 1;
   }
 }
 

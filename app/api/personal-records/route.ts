@@ -46,6 +46,6 @@ export async function GET() {
     const records = Object.values(prs).sort((a, b) => b.maxWeight - a.maxWeight);
     return NextResponse.json({ records });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

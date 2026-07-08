@@ -18,12 +18,14 @@ export function isAdminEmail(email?: string | null) {
 }
 
 async function getFirebaseTokenFromRequest() {
-  const authorization = headers().get("authorization") ?? "";
+  const requestHeaders = await headers();
+  const authorization = requestHeaders.get("authorization") ?? "";
   if (authorization.toLowerCase().startsWith("bearer ")) {
     return { type: "idToken" as const, value: authorization.slice(7).trim() };
   }
 
-  const sessionCookie = cookies().get(FIREBASE_SESSION_COOKIE)?.value;
+  const requestCookies = await cookies();
+  const sessionCookie = requestCookies.get(FIREBASE_SESSION_COOKIE)?.value;
   if (sessionCookie) return { type: "sessionCookie" as const, value: sessionCookie };
   return null;
 }
@@ -52,6 +54,31 @@ export async function requireCurrentUser() {
       select: { id: true, email: true, name: true },
     });
     return user;
+  } catch (error) {
+    console.warn("Firebase auth verification failed", error);
+    return null;
+  }
+}
+
+export async function requireCurrentFirebaseUser() {
+  const token = await getFirebaseTokenFromRequest();
+  if (!token?.value) return null;
+
+  try {
+    const auth = getAuth(getFirebaseAdminApp());
+    const decoded = token.type === "sessionCookie"
+      ? await auth.verifySessionCookie(token.value, true)
+      : await auth.verifyIdToken(token.value);
+    const email = normalizeEmail(decoded.email);
+    if (!email || !decoded.uid) return null;
+
+    const user = await prisma.user.upsert({
+      where: { email },
+      update: { name: decoded.name ?? undefined },
+      create: { email, name: decoded.name ?? email.split("@")[0] },
+      select: { id: true, email: true, name: true },
+    });
+    return { ...user, firebaseUid: decoded.uid };
   } catch (error) {
     console.warn("Firebase auth verification failed", error);
     return null;

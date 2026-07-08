@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
+import { generateGeminiText } from "@/lib/gemini";
 
 export async function GET(req: Request) {
   try {
@@ -10,7 +11,7 @@ export async function GET(req: Request) {
     if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const userId = (user as any).id;
 
-    const limited = rateLimit(req, "ai-report", { limit: 5, windowMs: 60 * 60 * 1000, userId });
+    const limited = await rateLimit(req, "ai-report", { limit: 5, windowMs: 60 * 60 * 1000, userId });
     if (!limited.ok) {
       return NextResponse.json({ error: "Rate limited. Try again later." }, { status: 429, headers: rateLimitHeaders(limited) });
     }
@@ -58,17 +59,15 @@ Return ONLY a valid JSON object with this exact structure:
 {"overallScore":82,"overallGrade":"B+","overallComment":"Short 2-sentence overall assessment","nutritionGrade":"A","nutritionComment":"1-2 sentences on nutrition","fitnessGrade":"B","fitnessComment":"1-2 sentences on workouts","hydrationGrade":"C+","hydrationComment":"1-2 sentences on water intake","topWins":["Win 1","Win 2","Win 3"],"actionItems":["Action 1","Action 2","Action 3"],"motivationalQuote":"A short motivational quote"}
 Do not include any text outside the JSON object.`;
 
-    const aiRes = await fetch("https://apps.abacus.ai/v1/chat/completions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.ABACUSAI_API_KEY}` },
-      body: JSON.stringify({ model: "gpt-5.4-mini", stream: false, max_tokens: 800, messages: [{ role: "user", content: prompt }] }),
+    const content = await generateGeminiText({
+      maxOutputTokens: 800,
+      timeoutMs: 25000,
+      messages: [{ role: "user", content: prompt }],
     });
-    const aiData = await aiRes.json();
-    const content = aiData?.choices?.[0]?.message?.content ?? "{}";
     const cleaned = content.replace(/^```json\n?/, "").replace(/\n?```$/, "").trim();
     const report = JSON.parse(cleaned);
     return NextResponse.json({ report, stats, generatedAt: new Date().toISOString() });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to generate report" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to generate report" : error?.message ?? "Failed to generate report" }, { status: 500 });
   }
 }

@@ -11,6 +11,7 @@ import { Bot, TrendingUp, Plus, Scale, Ruler, Camera, Dumbbell } from "lucide-re
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import dynamic from "next/dynamic";
+import { formatAppDate } from "@/lib/local-dates";
 
 const ProgressCharts = dynamic(() => import("../progress/_components/progress-charts"), { ssr: false, loading: () => <div className="h-64 bg-muted animate-pulse rounded-lg" /> });
 
@@ -101,7 +102,7 @@ export function ProgressPanel() {
       const presignRes = await fetch("/api/upload/presigned", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fileName: file.name, contentType: file.type, isPublic: false }),
+        body: JSON.stringify({ fileName: file.name, contentType: file.type, size: file.size }),
       });
       const { uploadUrl, cloud_storage_path } = await presignRes.json();
       
@@ -136,8 +137,8 @@ export function ProgressPanel() {
   return (
     <div className="space-y-5 sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+          <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Progress Tracking</h2>
             <p className="mt-1 text-sm text-muted-foreground">Monitor your gains over time</p>
           </div>
@@ -231,7 +232,7 @@ export function ProgressPanel() {
                         />
                         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2">
                           <p className="text-white text-xs">
-                            {new Date(photo?.date ?? Date.now()).toLocaleDateString()}
+                            {formatAppDate(photo?.date ?? Date.now(), { day: "2-digit", month: "short", year: "numeric" })}
                           </p>
                         </div>
                       </div>

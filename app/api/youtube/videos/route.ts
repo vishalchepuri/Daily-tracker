@@ -162,6 +162,6 @@ export async function GET(req: Request) {
       .slice(0, 24);
     return NextResponse.json({ videos });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed to load videos" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed to load videos" : error?.message ?? "Failed to load videos" }, { status: 500 });
   }
 }

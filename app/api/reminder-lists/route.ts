@@ -24,7 +24,7 @@ export async function GET() {
     });
     return NextResponse.json({ lists });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({ list });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }
 
@@ -58,6 +58,23 @@ export async function PATCH(req: Request) {
     });
     return NextResponse.json({ list });
   } catch (error: any) {
-    return NextResponse.json({ error: error?.message ?? "Failed" }, { status: 500 });
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const user = await requireCurrentUser();
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const userId = user.id;
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "ID required" }, { status: 400 });
+    const existing = await prisma.reminderList.findUnique({ where: { id } });
+    if (!existing || existing.userId !== userId) return NextResponse.json({ error: "Not found" }, { status: 404 });
+    await prisma.reminderList.delete({ where: { id } });
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    return NextResponse.json({ error: process.env.NODE_ENV === "production" ? "Failed" : error?.message ?? "Failed" }, { status: 500 });
   }
 }

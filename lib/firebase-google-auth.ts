@@ -6,6 +6,7 @@ import {
   signInWithPopup,
 } from "firebase/auth";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
+import { shouldUseRedirectGoogleAuth } from "@/lib/client-runtime";
 
 export function getGoogleProvider() {
   const provider = new GoogleAuthProvider();
@@ -16,16 +17,21 @@ export function getGoogleProvider() {
 export async function signInWithGoogle() {
   const auth = getFirebaseClientAuth();
   const provider = getGoogleProvider();
-  const isCapacitorWebView =
-    typeof window !== "undefined" &&
-    Boolean((window as any).Capacitor?.isNativePlatform?.());
 
-  if (isCapacitorWebView) {
+  if (shouldUseRedirectGoogleAuth()) {
     await signInWithRedirect(auth, provider);
     return null;
   }
 
-  return signInWithPopup(auth, provider);
+  try {
+    return await signInWithPopup(auth, provider);
+  } catch (error: any) {
+    if (error?.code === "auth/popup-blocked") {
+      await signInWithRedirect(auth, provider);
+      return null;
+    }
+    throw error;
+  }
 }
 
 export function getGoogleAuthErrorMessage(error: any) {
@@ -33,7 +39,7 @@ export function getGoogleAuthErrorMessage(error: any) {
     case "auth/popup-closed-by-user":
       return "Google sign-in was cancelled before choosing an account.";
     case "auth/popup-blocked":
-      return "Google popup was blocked. Please allow popups for this site and try again.";
+      return "Google popup was blocked. We can switch to redirect sign-in on mobile or installed mode.";
     case "auth/cancelled-popup-request":
       return "Another Google sign-in window is already open.";
     case "auth/unauthorized-domain":

@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -20,10 +21,13 @@ import {
   Activity,
   AlertTriangle,
   Banknote,
+  BellRing,
   Bot,
   Brain,
   Calculator,
   CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   Dumbbell,
@@ -32,6 +36,7 @@ import {
   Pill,
   Save,
   Send,
+  Smartphone,
   MessageCircle,
   Eye,
   EyeOff,
@@ -47,9 +52,12 @@ import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { WeeklyReportPanel } from "../_components/weekly-report-panel";
 import { ProgressPanel } from "../_components/progress-panel";
+import { IssueReportForm } from "@/components/issue-report-form";
 import { signOutOfDayza } from "@/lib/firebase-session-client";
 import { getFirebaseClientAuth } from "@/lib/firebase-client";
 import { EmailAuthProvider, linkWithCredential, updatePassword } from "firebase/auth";
+import { getPushDeviceDiagnostics, registerPushNotifications, supportsPushNotifications, unregisterPushNotifications } from "@/lib/push-notifications-client";
+import { getClientTimeZone } from "@/lib/local-dates";
 
 const RESET_FEATURE_OPTIONS = [
   { id: "profile", label: "Profile", detail: "Body stats, goals, targets, safety notes, Telegram link settings" },
@@ -63,6 +71,65 @@ const RESET_FEATURE_OPTIONS = [
   { id: "reviews", label: "Reviews & Reports", detail: "Review inbox items and issue reports" },
   { id: "integrations", label: "Integrations", detail: "Connected OAuth accounts and Telegram link settings" },
 ] as const;
+
+const PROFILE_SECTION_OPTIONS = [
+  { value: "memory", label: "Agent Memory", detail: "Workout focus, allergies, safety notes, and nutrition depth.", icon: Brain, group: "Personalization" },
+  { value: "notifications", label: "Notifications", detail: "Manage mobile alerts and saved devices.", icon: BellRing, group: "Personalization" },
+  { value: "integrations", label: "Integrations", detail: "Password, Telegram, and cleanup tools.", icon: KeyRound, group: "Personalization" },
+  { value: "activity", label: "Recent Activity", detail: "Review the latest account events.", icon: Activity, group: "History" },
+  { value: "progress", label: "Progress", detail: "Measurements, reports, and progress photos.", icon: TrendingUp, group: "History" },
+  { value: "review", label: "Review Inbox", detail: "Pending exercise submissions and agent checks.", icon: Inbox, group: "History" },
+  { value: "report", label: "Report Issue", detail: "Send app issues from Profile.", icon: AlertTriangle, group: "Support" },
+  { value: "danger", label: "Privacy & Data", detail: "Reset feature data or delete the account.", icon: Trash2, group: "Support" },
+] as const;
+
+const PROFILE_CARD_CLASS = "max-w-full overflow-hidden rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
+const PROFILE_PANEL_CLASS = "min-w-0 rounded-[24px] border border-border/70 bg-background/55 p-4";
+const PROFILE_INPUT_CLASS = "mt-2 h-12 max-w-full rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
+const PROFILE_SELECT_CLASS = "mt-2 h-12 max-w-full rounded-2xl border-border/70 bg-background/80 px-4 text-base shadow-inner shadow-black/5";
+
+type PushDevice = {
+  id: string;
+  deviceId: string;
+  label: string;
+  browser: string;
+  platform: string;
+  isCurrent: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+  lastUsedAt?: string | null;
+};
+
+type PushHistoryItem = {
+  id: string;
+  deviceId?: string | null;
+  kind: string;
+  title: string;
+  body?: string | null;
+  status: string;
+  error?: string | null;
+  createdAt: string;
+};
+
+function formatDeviceDate(value?: string | null) {
+  if (!value) return "Never";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function pushStatusLabel(status: string) {
+  if (status === "sent") return "Sent";
+  if (status === "removed") return "Removed expired device";
+  if (status === "failed") return "Failed";
+  if (status === "no_devices") return "No devices";
+  return status.replace(/_/g, " ");
+}
 
 export default function ProfilePage() {
   const [profile, setProfile] = useState<any>(null);
@@ -79,6 +146,22 @@ export default function ProfilePage() {
   const [savingTelegram, setSavingTelegram] = useState(false);
   const [checkingTelegram, setCheckingTelegram] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushSending, setPushSending] = useState(false);
+  const [pushDevices, setPushDevices] = useState<PushDevice[]>([]);
+  const [pushHistory, setPushHistory] = useState<PushHistoryItem[]>([]);
+  const [pushHistoryLoading, setPushHistoryLoading] = useState(false);
+  const [deletingPushDeviceId, setDeletingPushDeviceId] = useState<string | null>(null);
+  const [savingNotificationPrefs, setSavingNotificationPrefs] = useState(false);
+  const [revokingSessions, setRevokingSessions] = useState(false);
+  const [notificationPrefs, setNotificationPrefs] = useState({
+    notificationQuietStart: "",
+    notificationQuietEnd: "",
+    notifyReminders: true,
+    notifyMedications: true,
+    notifyRefills: true,
+    notifyAgentTasks: true,
+  });
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [cleaningRetention, setCleaningRetention] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -88,6 +171,16 @@ export default function ProfilePage() {
   const [resetFeatures, setResetFeatures] = useState<string[]>([]);
   const [resetConfirm, setResetConfirm] = useState("");
   const [telegramForm, setTelegramForm] = useState({ telegramChatId: "", telegramEnabled: false, botConfigured: false });
+  const [pushStatus, setPushStatus] = useState({
+    supported: false,
+    configured: false,
+    subscribed: false,
+    permission: "default",
+    timeZone: "",
+    missing: [] as string[],
+    keyMatches: true,
+    controlled: false,
+  });
   const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
   const [form, setForm] = useState({
     firstName: "", lastName: "",
@@ -96,9 +189,62 @@ export default function ProfilePage() {
     micronutrientTrackingEnabled: false,
   });
 
+  const loadPushStatus = useCallback(async () => {
+    if (!supportsPushNotifications()) {
+      setPushDevices([]);
+      setPushStatus({ supported: false, configured: false, subscribed: false, permission: "default", timeZone: "", missing: [], keyMatches: true, controlled: false });
+      return;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker?.getRegistration?.("/sw.js");
+      const subscription = await registration?.pushManager.getSubscription();
+      const headers = subscription?.endpoint ? { "x-dayza-push-endpoint": subscription.endpoint } : undefined;
+      const res = await fetch("/api/push/subscription", { headers });
+      const data = res.ok ? await res.json() : { configured: false, subscribed: false, devices: [] };
+      setPushDevices(Array.isArray(data?.devices) ? data.devices : []);
+      setPushStatus({
+        supported: true,
+        configured: Boolean(data?.configured),
+        subscribed: Boolean(data?.subscribed),
+        permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+        timeZone: data?.timeZone ?? getClientTimeZone(),
+        missing: Array.isArray(data?.missing) ? data.missing : [],
+        keyMatches: true,
+        controlled: Boolean(navigator.serviceWorker?.controller),
+      });
+    } catch {
+      setPushDevices([]);
+      setPushStatus({
+        supported: true,
+        configured: false,
+        subscribed: false,
+        permission: typeof Notification !== "undefined" ? Notification.permission : "default",
+        timeZone: getClientTimeZone(),
+        missing: [],
+        keyMatches: true,
+        controlled: Boolean(navigator.serviceWorker?.controller),
+      });
+    }
+  }, []);
+
+  const loadPushHistory = useCallback(async () => {
+    setPushHistoryLoading(true);
+    try {
+      const res = await fetch("/api/push/history?limit=20");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Failed to load notification history");
+      setPushHistory(Array.isArray(data?.items) ? data.items : []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setPushHistoryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const tab = new URLSearchParams(window.location.search).get("tab");
-    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "integrations", "danger"].includes(tab)) {
+    if (tab && ["profile", "memory", "review", "report", "progress", "activity", "notifications", "integrations", "danger"].includes(tab)) {
       setActiveTab(tab);
     }
     fetch("/api/profile").then(r => r.json()).then(d => {
@@ -137,6 +283,20 @@ export default function ProfilePage() {
         botConfigured: Boolean(d?.botConfigured),
       });
     }).catch(console.error);
+    loadPushStatus();
+    fetch("/api/notification-preferences").then(r => r.ok ? r.json() : null).then((data) => {
+      if (data?.preferences) {
+        setNotificationPrefs({
+          notificationQuietStart: data.preferences.notificationQuietStart ?? "",
+          notificationQuietEnd: data.preferences.notificationQuietEnd ?? "",
+          notifyReminders: data.preferences.notifyReminders !== false,
+          notifyMedications: data.preferences.notifyMedications !== false,
+          notifyRefills: data.preferences.notifyRefills !== false,
+          notifyAgentTasks: data.preferences.notifyAgentTasks !== false,
+        });
+      }
+    }).catch(console.error);
+    loadPushHistory();
     fetch("/api/activity").then(r => r.ok ? r.json() : { items: [], counts: {} }).then(d => {
       setActivityItems(d?.items ?? []);
       setActivityCounts(d?.counts ?? {});
@@ -362,6 +522,161 @@ export default function ProfilePage() {
     }
   };
 
+  const enablePushNotifications = async () => {
+    setPushLoading(true);
+    try {
+      await registerPushNotifications();
+      await loadPushStatus();
+      toast.success("Push notifications enabled");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to enable push notifications");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const disablePushNotifications = async () => {
+    setPushLoading(true);
+    try {
+      await unregisterPushNotifications();
+      await loadPushStatus();
+      toast.success("Push notifications disabled on this device");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to disable push notifications");
+    } finally {
+      setPushLoading(false);
+    }
+  };
+
+  const togglePushNotifications = async (enabled: boolean) => {
+    if (enabled) {
+      await enablePushNotifications();
+    } else {
+      await disablePushNotifications();
+    }
+  };
+
+  const sendPushTest = async () => {
+    setPushSending(true);
+    try {
+      const res = await fetch("/api/push/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send test notification");
+        return;
+      }
+      const diagnostics = await getPushDeviceDiagnostics().catch(() => null);
+      if (diagnostics) {
+        setPushStatus((current) => ({
+          ...current,
+          subscribed: Boolean(diagnostics.subscribed && diagnostics.serverSubscribed),
+          permission: diagnostics.permission ?? current.permission,
+          keyMatches: Boolean(diagnostics.keyMatches),
+          controlled: Boolean(diagnostics.controlled),
+        }));
+      }
+      await loadPushStatus();
+      await loadPushHistory();
+      if (!data?.sent) {
+        toast.error("No active device subscription found. Tap Enable again on this device.");
+        return;
+      }
+      if (diagnostics && !diagnostics.keyMatches) {
+        toast.error("This device has an old push key. Tap Disable, then Enable again.");
+        return;
+      }
+      toast.success(`Test notification sent to ${data.sent} device${data.sent === 1 ? "" : "s"}. Review saved devices below.`);
+    } catch {
+      toast.error("Failed to send test notification");
+    } finally {
+      setPushSending(false);
+    }
+  };
+
+  const removePushDevice = async (device: PushDevice) => {
+    const name = device.isCurrent ? "this device" : `${device.label} (${device.deviceId})`;
+    if (!window.confirm(`Remove notifications from ${name}? This device will stop receiving Dayza alerts.`)) return;
+    setDeletingPushDeviceId(device.id);
+    try {
+      if (device.isCurrent) {
+        await unregisterPushNotifications();
+      } else {
+        const res = await fetch("/api/push/subscription", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: device.id }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error ?? "Failed to remove device");
+      }
+      await loadPushStatus();
+      toast.success(device.isCurrent ? "Notifications disabled on this device" : "Saved notification device removed");
+    } catch (error: any) {
+      toast.error(error?.message ?? "Failed to remove device");
+    } finally {
+      setDeletingPushDeviceId(null);
+    }
+  };
+
+  const saveNotificationPreferences = async () => {
+    setSavingNotificationPrefs(true);
+    try {
+      const res = await fetch("/api/notification-preferences", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(notificationPrefs),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to save notification preferences");
+        return;
+      }
+      toast.success("Notification preferences saved");
+    } catch {
+      toast.error("Failed to save notification preferences");
+    } finally {
+      setSavingNotificationPrefs(false);
+    }
+  };
+
+  const signOutEverywhere = async () => {
+    if (!window.confirm("Sign out this account on all devices? You will need to sign in again.")) return;
+    setRevokingSessions(true);
+    try {
+      const res = await fetch("/api/auth/revoke-sessions", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to sign out devices");
+        return;
+      }
+      toast.success("Signed out all devices");
+      await signOutOfDayza();
+      window.location.href = "/login";
+    } catch {
+      toast.error("Failed to sign out devices");
+    } finally {
+      setRevokingSessions(false);
+    }
+  };
+
+  const sendDuePush = async () => {
+    setPushSending(true);
+    try {
+      const res = await fetch("/api/reminders/push-dispatch", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Failed to send push reminders");
+        return;
+      }
+      await loadPushHistory();
+      toast.success(data?.sent ? `Sent ${data.sent} push notification(s)` : "No due reminders to send");
+    } catch {
+      toast.error("Failed to send push reminders");
+    } finally {
+      setPushSending(false);
+    }
+  };
+
   const sendDueTelegram = async () => {
     setCheckingTelegram(true);
     try {
@@ -428,9 +743,46 @@ export default function ProfilePage() {
     loadReviewItems();
   };
 
+  const displayName = [form.firstName, form.lastName].filter(Boolean).join(" ").trim() || "Your Profile";
+  const profileSummary = [
+    { label: "Age", value: form.age ? `${form.age}` : "--" },
+    { label: "Weight", value: form.weight ? `${form.weight} kg` : "--" },
+    { label: "Height", value: form.height ? `${form.height} cm` : "--" },
+    { label: "Goal", value: form.goal.replace(/_/g, " ") },
+  ];
+  const selectProfileTab = useCallback((tab: string) => {
+    setActiveTab(tab);
+    window.requestAnimationFrame(() => {
+      const main = document.querySelector("main.ios-scroll");
+      if (main instanceof HTMLElement) {
+        main.scrollTo({ top: 0, behavior: "smooth" });
+      }
+    });
+  }, []);
+  const activeSection = PROFILE_SECTION_OPTIONS.find((section) => section.value === activeTab);
+  const ActiveSectionIcon = activeSection?.icon;
+  const memoryReviewItems = [
+    { label: "Safety", value: form.healthLimitations || "Not saved" },
+    { label: "Food allergies", value: form.foodAllergies || "Not saved" },
+    { label: "Workout focus", value: form.workoutFocusMuscles || "Not saved" },
+    { label: "Workout goal", value: form.workoutFocusGoal || "Not saved" },
+    {
+      label: "Training style",
+      value:
+        form.workoutTrainingStyle === "mat_bodyweight"
+          ? "Mat/bodyweight"
+          : form.workoutTrainingStyle === "machines"
+          ? "Machines"
+          : form.workoutTrainingStyle === "mixed"
+          ? "Mixed"
+          : "Indian/Cult-style gym",
+    },
+    { label: "Micronutrients", value: form.micronutrientTrackingEnabled ? "Enabled" : "Disabled" },
+  ];
+
   return (
-    <div className="space-y-5 sm:space-y-6">
-      <FadeIn>
+    <div className="w-full max-w-full touch-pan-y space-y-5 overflow-x-hidden pb-4 sm:space-y-6 lg:pb-0">
+      <FadeIn className="hidden sm:block">
         <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Profile & Goals</h2>
         <p className="text-muted-foreground text-sm mt-1">Set your body stats and fitness goals</p>
       </FadeIn>
@@ -449,7 +801,7 @@ export default function ProfilePage() {
                   {pendingExercises.length > 3 ? ` and ${pendingExercises.length - 3} more` : ""}
                 </p>
               </div>
-              <Button type="button" variant="outline" onClick={() => setActiveTab("review")}>
+              <Button type="button" variant="outline" onClick={() => selectProfileTab("review")}>
                 View Status
               </Button>
             </CardContent>
@@ -457,150 +809,156 @@ export default function ProfilePage() {
         </FadeIn>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="flex h-auto w-full gap-2 overflow-x-auto bg-transparent p-0">
-          <TabsTrigger value="profile" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Profile</TabsTrigger>
-          <TabsTrigger value="memory" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Memory</TabsTrigger>
-          <TabsTrigger value="review" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Review</TabsTrigger>
-          <TabsTrigger value="report" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Report</TabsTrigger>
-          <TabsTrigger value="progress" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Progress</TabsTrigger>
-          <TabsTrigger value="activity" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Activity</TabsTrigger>
-          <TabsTrigger value="integrations" className="min-w-28 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Integrations</TabsTrigger>
-          <TabsTrigger value="danger" className="min-w-24 rounded-lg border border-border bg-transparent data-[state=active]:border-primary/30 data-[state=active]:bg-primary/15">Danger</TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={selectProfileTab} className="w-full max-w-full space-y-4 overflow-x-hidden">
+        {activeTab !== "profile" && activeSection && (
+          <FadeIn delay={0.02}>
+            <div className="rounded-[28px] border border-border/70 bg-card/85 p-3 shadow-sm shadow-black/10">
+              <button
+                type="button"
+                onClick={() => selectProfileTab("profile")}
+                className="mb-3 inline-flex h-10 items-center gap-2 rounded-full border border-border/70 bg-muted/25 px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted/40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Profile
+              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-primary/12 text-primary">
+                  {ActiveSectionIcon && <ActiveSectionIcon className="h-6 w-6" />}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xl font-bold tracking-tight">{activeSection.label}</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{activeSection.detail}</p>
+                </div>
+              </div>
+            </div>
+          </FadeIn>
+        )}
 
-        <TabsContent value="profile" className="space-y-6">
+        <TabsContent value="profile" className="space-y-4 sm:space-y-6">
+          <FadeIn delay={0.05}>
+            <Card className={`${PROFILE_CARD_CLASS} overflow-hidden`}>
+              <CardContent className="p-4 sm:p-5">
+                <div className="flex items-start gap-4">
+                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] bg-primary/15 text-primary">
+                    <UserCircle className="h-8 w-8" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xl font-bold">{displayName}</p>
+                    <p className="mt-1 text-sm capitalize text-muted-foreground">{form.activityLevel.replace(/_/g, " ")} - {form.gender}</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {profileSummary.map((item) => (
+                    <div key={item.label} className="rounded-2xl border border-border/70 bg-muted/20 p-3">
+                      <p className="text-xs text-muted-foreground">{item.label}</p>
+                      <p className="mt-1 text-sm font-semibold capitalize leading-tight [overflow-wrap:anywhere]">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </FadeIn>
+          <FadeIn delay={0.08}>
+            <ProfileSettingsList onSelect={selectProfileTab} />
+          </FadeIn>
       <FadeIn delay={0.1}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <UserCircle className="w-5 h-5 text-primary" />
               Body Stats
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div><Label>First Name</Label><Input value={form.firstName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, firstName: e.target.value})} className="mt-1" /></div>
-              <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, lastName: e.target.value})} className="mt-1" /></div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div><Label>Age</Label><Input type="number" value={form.age} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, age: e.target.value})} className="mt-1" /></div>
-              <div><Label>Weight (kg)</Label><Input type="number" value={form.weight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, weight: e.target.value})} className="mt-1" /></div>
-              <div><Label>Height (cm)</Label><Input type="number" value={form.height} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, height: e.target.value})} className="mt-1" /></div>
-              <div>
-                <Label>Gender</Label>
-                <Select value={form.gender} onValueChange={(v: string) => setForm({...form, gender: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="male">Male</SelectItem>
-                    <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
-                  </SelectContent>
-                </Select>
+          <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+            <div className={PROFILE_PANEL_CLASS}>
+              <p className="mb-3 text-sm font-semibold">Basics</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div><Label>First Name</Label><Input value={form.firstName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, firstName: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Last Name</Label><Input value={form.lastName} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, lastName: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Age</Label><Input type="number" value={form.age} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, age: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Weight (kg)</Label><Input type="number" value={form.weight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, weight: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div><Label>Height (cm)</Label><Input type="number" value={form.height} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, height: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                <div>
+                  <Label>Gender</Label>
+                  <Select value={form.gender} onValueChange={(v: string) => setForm({...form, gender: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="male">Male</SelectItem>
+                      <SelectItem value="female">Female</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label>Activity Level</Label>
-                <Select value={form.activityLevel} onValueChange={(v: string) => setForm({...form, activityLevel: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="sedentary">Sedentary</SelectItem>
-                    <SelectItem value="light">Lightly Active</SelectItem>
-                    <SelectItem value="moderate">Moderately Active</SelectItem>
-                    <SelectItem value="active">Very Active</SelectItem>
-                    <SelectItem value="very_active">Extremely Active</SelectItem>
-                  </SelectContent>
-                </Select>
+
+            <div className={PROFILE_PANEL_CLASS}>
+              <p className="mb-3 text-sm font-semibold">Goals</p>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Activity Level</Label>
+                  <Select value={form.activityLevel} onValueChange={(v: string) => setForm({...form, activityLevel: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sedentary">Sedentary</SelectItem>
+                      <SelectItem value="light">Lightly Active</SelectItem>
+                      <SelectItem value="moderate">Moderately Active</SelectItem>
+                      <SelectItem value="active">Very Active</SelectItem>
+                      <SelectItem value="very_active">Extremely Active</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Fitness Goal</Label>
+                  <Select value={form.goal} onValueChange={(v: string) => setForm({...form, goal: v})}>
+                    <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
+                      <SelectItem value="fat_loss">Fat Loss</SelectItem>
+                      <SelectItem value="maintain">Maintain</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div>
-                <Label>Fitness Goal</Label>
-                <Select value={form.goal} onValueChange={(v: string) => setForm({...form, goal: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
-                    <SelectItem value="fat_loss">Fat Loss</SelectItem>
-                    <SelectItem value="maintain">Maintain</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              <button
+                type="button"
+                className="mt-4 w-full touch-pan-y rounded-2xl border border-border/70 bg-muted/20 p-3 text-left text-sm leading-relaxed text-muted-foreground transition-colors hover:bg-muted/30"
+                onClick={() => selectProfileTab("memory")}
+              >
+                Advanced workout focus, allergies, timeline, and nutrition depth are in Agent Memory.
+              </button>
             </div>
-            <div className="grid grid-cols-1 gap-4">
-              <div><Label>Joint pain, injuries, surgeries, restrictions</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
-              <div><Label>Food allergies, intolerances, avoided foods</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
-              <div><Label>Workout focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
-              <div><Label>Workout focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
-              <div>
-                <Label>Workout style</Label>
-                <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
-                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
-                    <SelectItem value="machines">Machines</SelectItem>
-                    <SelectItem value="mat_bodyweight">Mat/bodyweight</SelectItem>
-                    <SelectItem value="mixed">Mixed</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <div>
-                <Label>Goal Outcome</Label>
-                <Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." />
-              </div>
-              <div>
-                <Label>Timeline (days)</Label>
-                <Input type="number" min="1" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" placeholder="56" />
-              </div>
-              <div>
-                <Label>Target Weight (kg)</Label>
-                <Input type="number" min="1" step="0.1" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" placeholder="Optional" />
-              </div>
-            </div>
-            <label className="flex items-start gap-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-3">
-              <Checkbox
-                checked={form.micronutrientTrackingEnabled}
-                onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
-                className="mt-0.5"
-              />
-              <span>
-                <span className="block text-sm font-medium">Track vitamins & minerals</span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  Adds detailed micronutrient targets and food-photo estimates in Nutrition.
-                </span>
-              </span>
-            </label>
-            <Button onClick={handleSave} loading={saving}><Save className="w-4 h-4 mr-2" />Save Profile</Button>
+            <Button className="h-12 w-full rounded-2xl" onClick={handleSave} loading={saving}><Save className="mr-2 h-4 w-4" />Save Profile</Button>
           </CardContent>
         </Card>
       </FadeIn>
 
       {profile && (
         <FadeIn delay={0.2}>
-          <Card>
-            <CardHeader>
+          <Card className={PROFILE_CARD_CLASS}>
+            <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
                 <Calculator className="w-5 h-5 text-primary" />
                 Calculated Targets
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-lg bg-muted">
+            <CardContent className="px-4 pb-5 sm:px-6">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-[22px] border border-border/70 bg-muted/25 p-4">
                   <p className="text-xs text-muted-foreground">TDEE</p>
                   <p className="text-2xl font-bold font-mono">{Math.round(profile?.tdee ?? 0)}</p>
                   <p className="text-xs text-muted-foreground">kcal/day</p>
                 </div>
-                <div className="p-4 rounded-lg bg-primary/10">
+                <div className="rounded-[22px] border border-primary/20 bg-primary/10 p-4">
                   <p className="text-xs text-muted-foreground">Target Calories</p>
                   <p className="text-2xl font-bold font-mono text-primary">{Math.round(profile?.targetCalories ?? 0)}</p>
                   <p className="text-xs text-muted-foreground">kcal/day</p>
                 </div>
-                <div className="p-4 rounded-lg bg-blue-500/10">
+                <div className="rounded-[22px] border border-blue-500/20 bg-blue-500/10 p-4">
                   <p className="text-xs text-muted-foreground">Protein Target</p>
                   <p className="text-2xl font-bold font-mono text-blue-500">{Math.round(profile?.targetProtein ?? 0)}g</p>
                 </div>
-                <div className="p-4 rounded-lg bg-green-500/10">
+                <div className="rounded-[22px] border border-green-500/20 bg-green-500/10 p-4">
                   <p className="text-xs text-muted-foreground">Carbs Target</p>
                   <p className="text-2xl font-bold font-mono text-green-500">{Math.round(profile?.targetCarbs ?? 0)}g</p>
                 </div>
@@ -613,8 +971,8 @@ export default function ProfilePage() {
 
         <TabsContent value="memory" className="space-y-6">
           <FadeIn delay={0.1}>
-            <Card>
-              <CardHeader>
+            <Card className={PROFILE_CARD_CLASS}>
+              <CardHeader className="pb-3">
                 <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
                   <div>
                     <CardTitle className="flex items-center gap-2">
@@ -623,20 +981,39 @@ export default function ProfilePage() {
                     </CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">Review and edit what Dayza uses to personalize plans and answers.</p>
                   </div>
-                  <Button onClick={handleSave} loading={saving}>
+                  <Button className="h-11 rounded-2xl" onClick={handleSave} loading={saving}>
                     <Save className="h-4 w-4" />
                     Save Memory
                   </Button>
                 </div>
               </CardHeader>
-              <CardContent className="grid gap-4 lg:grid-cols-2">
+              <CardContent className="grid gap-4 px-4 pb-5 sm:px-6 lg:grid-cols-2">
+                <div className="lg:col-span-2 rounded-[24px] border border-primary/20 bg-primary/5 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">Memory Review</p>
+                      <p className="mt-1 text-xs text-muted-foreground">These are the saved assumptions Dayza will use in chats and plans.</p>
+                    </div>
+                    <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 text-primary">
+                      Review before asking
+                    </Badge>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {memoryReviewItems.map((item) => (
+                      <div key={item.label} className="rounded-2xl border border-border/60 bg-background/70 p-3">
+                        <p className="text-[11px] uppercase tracking-wide text-muted-foreground">{item.label}</p>
+                        <p className="mt-1 line-clamp-2 text-sm font-semibold">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
                 <MemorySection
                   title="Safety & Food"
                   description="Used before workout and diet plans."
                   onClear={() => clearMemoryFields(["healthLimitations", "foodAllergies"])}
                 >
-                  <div><Label>Health limitations</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className="mt-1" placeholder="None, knee pain, shoulder surgery..." /></div>
-                  <div><Label>Food allergies</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className="mt-1" placeholder="None, peanuts, lactose..." /></div>
+                  <div><Label>Health limitations</Label><Input value={form.healthLimitations} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, healthLimitations: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, knee pain, shoulder surgery..." /></div>
+                  <div><Label>Food allergies</Label><Input value={form.foodAllergies} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, foodAllergies: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="None, peanuts, lactose..." /></div>
                 </MemorySection>
 
                 <MemorySection
@@ -644,12 +1021,12 @@ export default function ProfilePage() {
                   description="Used for strict workout planning and exercise choices."
                   onClear={() => clearMemoryFields(["workoutFocusMuscles", "workoutFocusGoal", "workoutTrainingStyle"])}
                 >
-                  <div><Label>Focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className="mt-1" placeholder="core, legs, glutes, chest..." /></div>
-                  <div><Label>Focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className="mt-1" placeholder="fat_loss, muscle_gain, cardio..." /></div>
+                  <div><Label>Focus muscles</Label><Input value={form.workoutFocusMuscles} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusMuscles: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="core, legs, glutes, chest..." /></div>
+                  <div><Label>Focus goal</Label><Input value={form.workoutFocusGoal} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, workoutFocusGoal: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="fat_loss, muscle_gain, cardio..." /></div>
                   <div>
                     <Label>Training style</Label>
                     <Select value={form.workoutTrainingStyle} onValueChange={(v: string) => setForm({...form, workoutTrainingStyle: v})}>
-                      <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                      <SelectTrigger className={PROFILE_SELECT_CLASS}><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="indian_gym">Indian/Cult-style gym</SelectItem>
                         <SelectItem value="machines">Machines</SelectItem>
@@ -665,10 +1042,10 @@ export default function ProfilePage() {
                   description="Used to keep plans realistic and paced."
                   onClear={() => clearMemoryFields(["goalOutcome", "goalTimelineDays", "goalTargetWeight"])}
                 >
-                  <div><Label>Goal outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className="mt-1" placeholder="Fat loss, muscle gain..." /></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><Label>Timeline days</Label><Input type="number" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className="mt-1" /></div>
-                    <div><Label>Target weight</Label><Input type="number" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className="mt-1" /></div>
+                  <div><Label>Goal outcome</Label><Input value={form.goalOutcome} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalOutcome: e.target.value})} className={PROFILE_INPUT_CLASS} placeholder="Fat loss, muscle gain..." /></div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div><Label>Timeline days</Label><Input type="number" value={form.goalTimelineDays} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTimelineDays: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
+                    <div><Label>Target weight</Label><Input type="number" value={form.goalTargetWeight} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({...form, goalTargetWeight: e.target.value})} className={PROFILE_INPUT_CLASS} /></div>
                   </div>
                 </MemorySection>
 
@@ -677,7 +1054,7 @@ export default function ProfilePage() {
                   description="Used for vitamins, minerals, and detailed food-photo estimates."
                   onClear={() => clearMemoryFields(["micronutrientTrackingEnabled"])}
                 >
-                  <label className="flex items-start gap-3 rounded-lg border border-border bg-background/70 p-3">
+                  <label className="flex items-start gap-3 rounded-[22px] border border-border/70 bg-background/70 p-4 active:scale-[0.99]">
                     <Checkbox
                       checked={form.micronutrientTrackingEnabled}
                       onCheckedChange={(checked) => setForm({ ...form, micronutrientTrackingEnabled: checked === true })}
@@ -697,7 +1074,7 @@ export default function ProfilePage() {
         <TabsContent value="review" className="space-y-6">
       {pendingExercises.length > 0 && (
         <FadeIn delay={0.1}>
-          <Card>
+          <Card className={PROFILE_CARD_CLASS}>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Dumbbell className="h-5 w-5 text-primary" />
@@ -721,7 +1098,7 @@ export default function ProfilePage() {
         </FadeIn>
       )}
       <FadeIn delay={0.16}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
               <div>
@@ -738,7 +1115,7 @@ export default function ProfilePage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <ReviewFilterButton active={reviewFilter === "open"} label="Open" count={reviewCount(reviewCounts, "open")} onClick={() => setReviewFilter("open")} />
               <ReviewFilterButton active={reviewFilter === "confirmed"} label="Confirmed" count={reviewCount(reviewCounts, "confirmed")} onClick={() => setReviewFilter("confirmed")} />
               <ReviewFilterButton active={reviewFilter === "ignored"} label="Ignored" count={reviewCount(reviewCounts, "ignored")} onClick={() => setReviewFilter("ignored")} />
@@ -771,7 +1148,7 @@ export default function ProfilePage() {
                       </p>
                     </div>
                     {item.status === "open" && (
-                      <div className="grid grid-cols-2 gap-2 sm:flex">
+                      <div className="grid grid-cols-1 gap-2 sm:flex">
                         <Button type="button" size="sm" onClick={() => resolveReviewItem(item, "confirmed")}>
                           <CheckCircle2 className="h-4 w-4" />
                           Confirm
@@ -792,6 +1169,9 @@ export default function ProfilePage() {
         </TabsContent>
 
         <TabsContent value="report" className="space-y-6">
+          <FadeIn delay={0.05}>
+            <IssueReportForm compact defaultPage="Profile" />
+          </FadeIn>
           <WeeklyReportPanel />
         </TabsContent>
 
@@ -801,7 +1181,7 @@ export default function ProfilePage() {
 
         <TabsContent value="activity" className="space-y-6">
       <FadeIn delay={0.25}>
-        <Card>
+        <Card className={PROFILE_CARD_CLASS}>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
@@ -821,7 +1201,7 @@ export default function ProfilePage() {
                 No activity yet.
               </div>
             ) : (
-              <div className="relative max-h-[32rem] space-y-3 overflow-y-auto pr-1 before:absolute before:left-4 before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border ios-scroll">
+              <div className="relative space-y-3 before:absolute before:left-4 before:top-2 before:h-[calc(100%-1rem)] before:w-px before:bg-border">
                 {activityItems.map((item) => {
                   const meta = activityMeta(item.type);
                   const Icon = meta.icon;
@@ -857,10 +1237,250 @@ export default function ProfilePage() {
       </FadeIn>
         </TabsContent>
 
+        <TabsContent value="notifications" className="space-y-6">
+      <FadeIn delay={0.14}>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <BellRing className="h-5 w-5 text-primary" />
+                  Mobile Notifications
+                </CardTitle>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Enable push notifications for reminders, tasks, medications, and due alerts on this device.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
+                <Label htmlFor="push-notifications-enabled" className="text-sm">
+                  {pushStatus.subscribed ? "On" : "Off"}
+                </Label>
+                <Switch
+                  id="push-notifications-enabled"
+                  checked={pushStatus.subscribed}
+                  onCheckedChange={togglePushNotifications}
+                  disabled={!pushStatus.supported || !pushStatus.configured || pushLoading}
+                  aria-label="Enable mobile push notifications"
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {!pushStatus.supported && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                This browser or device does not support web push notifications. On iPhone, open Dayza from the Home Screen app icon.
+              </div>
+            )}
+            {pushStatus.supported && !pushStatus.configured && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Push notifications are not configured on the server yet.
+                {pushStatus.missing.length > 0 ? ` Missing: ${pushStatus.missing.join(", ")}.` : " Redeploy after adding VAPID keys."}
+              </div>
+            )}
+            {pushStatus.supported && pushStatus.permission === "denied" && (
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                Notifications are blocked in this browser. Enable them from browser or app settings, then return here.
+              </div>
+            )}
+            {pushStatus.supported && pushStatus.subscribed && !pushStatus.keyMatches && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                This device has an old push subscription key. Tap Disable, then Enable again to refresh notifications.
+              </div>
+            )}
+            {pushStatus.supported && pushStatus.subscribed && !pushStatus.controlled && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-600">
+                Notification service worker is installed but this page may need one reload before tests appear.
+              </div>
+            )}
+            <div className="flex flex-wrap gap-2 text-xs">
+              <Badge variant={pushStatus.supported ? "secondary" : "outline"}>{pushStatus.supported ? "Supported" : "Not supported"}</Badge>
+              <Badge variant={pushStatus.subscribed ? "default" : "outline"}>{pushStatus.subscribed ? "Enabled" : "Disabled"}</Badge>
+              <Badge variant="outline">{pushDevices.length} saved device{pushDevices.length === 1 ? "" : "s"}</Badge>
+              <Badge variant="outline">Permission: {pushStatus.permission}</Badge>
+              {pushStatus.subscribed && <Badge variant={pushStatus.keyMatches ? "secondary" : "destructive"}>{pushStatus.keyMatches ? "Key current" : "Old key"}</Badge>}
+              {pushStatus.timeZone && <Badge variant="outline">Timezone: {pushStatus.timeZone}</Badge>}
+            </div>
+            <div className="grid gap-2 rounded-[22px] border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground sm:grid-cols-3">
+              <div><span className="font-medium text-foreground">Reminders</span><br />Due date and time alerts</div>
+              <div><span className="font-medium text-foreground">Medications</span><br />Dose time alerts</div>
+              <div><span className="font-medium text-foreground">Refills</span><br />Low stock alerts</div>
+            </div>
+            <div className="rounded-[24px] border border-border/70 bg-background/55 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Notification Preferences</p>
+                  <p className="text-xs text-muted-foreground">Choose what Dayza can alert you about and set quiet hours.</p>
+                </div>
+                <Button type="button" size="sm" className="rounded-full" onClick={saveNotificationPreferences} loading={savingNotificationPrefs}>
+                  Save
+                </Button>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Quiet from</Label>
+                  <Input
+                    type="time"
+                    value={notificationPrefs.notificationQuietStart}
+                    onChange={(e) => setNotificationPrefs({ ...notificationPrefs, notificationQuietStart: e.target.value })}
+                    className={PROFILE_INPUT_CLASS}
+                  />
+                </div>
+                <div>
+                  <Label>Quiet until</Label>
+                  <Input
+                    type="time"
+                    value={notificationPrefs.notificationQuietEnd}
+                    onChange={(e) => setNotificationPrefs({ ...notificationPrefs, notificationQuietEnd: e.target.value })}
+                    className={PROFILE_INPUT_CLASS}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {[
+                  ["notifyReminders", "Reminders"],
+                  ["notifyMedications", "Medications"],
+                  ["notifyRefills", "Refill alerts"],
+                  ["notifyAgentTasks", "Agent tasks"],
+                ].map(([key, label]) => (
+                  <label key={key} className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/20 px-4 py-3">
+                    <span className="text-sm font-medium">{label}</span>
+                    <Switch
+                      checked={Boolean((notificationPrefs as any)[key])}
+                      onCheckedChange={(checked) => setNotificationPrefs({ ...notificationPrefs, [key]: checked } as any)}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
+              <Button type="button" className="h-11 rounded-2xl" onClick={enablePushNotifications} loading={pushLoading} disabled={!pushStatus.supported || !pushStatus.configured || pushStatus.subscribed}>
+                Enable
+              </Button>
+              <Button type="button" className="h-11 rounded-2xl" variant="outline" onClick={disablePushNotifications} loading={pushLoading} disabled={!pushStatus.subscribed}>
+                Disable This Device
+              </Button>
+              <Button type="button" className="h-11 rounded-2xl" variant="outline" onClick={sendPushTest} loading={pushSending} disabled={pushDevices.length === 0}>
+                Test Notification
+              </Button>
+              <Button type="button" className="h-11 rounded-2xl" variant="outline" onClick={sendDuePush} loading={pushSending} disabled={pushDevices.length === 0}>
+                Send Due Now
+              </Button>
+            </div>
+            <div className="rounded-[24px] border border-border/70 bg-background/55 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Saved Devices & Sessions</p>
+                  <p className="text-xs text-muted-foreground">Remove old notification devices, or sign out this account everywhere.</p>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={loadPushStatus} disabled={pushLoading || Boolean(deletingPushDeviceId)}>
+                    <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                    Refresh
+                  </Button>
+                  <Button type="button" size="sm" variant="outline" className="rounded-full text-destructive hover:text-destructive" onClick={signOutEverywhere} loading={revokingSessions}>
+                    Sign out all
+                  </Button>
+                </div>
+              </div>
+              {pushDevices.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  No saved notification devices yet. Tap Enable on the device you want to use.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {pushDevices.map((device) => (
+                    <div key={device.id} className="rounded-[22px] border border-border/70 bg-muted/20 p-3 active:scale-[0.99]">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                          <Smartphone className="h-5 w-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="truncate text-sm font-semibold text-foreground">{device.label}</p>
+                            {device.isCurrent && <Badge variant="secondary">This device</Badge>}
+                            <Badge variant="outline">ID {device.deviceId}</Badge>
+                          </div>
+                          <div className="mt-1 grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+                            <span>Last test/alert: {formatDeviceDate(device.lastUsedAt)}</span>
+                            <span>Updated: {formatDeviceDate(device.updatedAt)}</span>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => removePushDevice(device)}
+                          disabled={deletingPushDeviceId === device.id}
+                          aria-label={`Remove ${device.label}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="rounded-[24px] border border-border/70 bg-background/55 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Delivery History</p>
+                  <p className="text-xs text-muted-foreground">Recent notification attempts by device and type.</p>
+                </div>
+                <Button type="button" size="sm" variant="ghost" className="rounded-full" onClick={loadPushHistory} loading={pushHistoryLoading}>
+                  <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                  Refresh
+                </Button>
+              </div>
+              {pushHistoryLoading && pushHistory.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  Loading delivery history...
+                </div>
+              ) : pushHistory.length === 0 ? (
+                <div className="mt-3 rounded-xl border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  No notification attempts yet. Send a test notification to create the first entry.
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {pushHistory.map((item) => {
+                    const isSent = item.status === "sent";
+                    const isFailed = item.status === "failed";
+                    const StatusIcon = isSent ? CheckCircle2 : isFailed ? XCircle : Clock3;
+                    return (
+                      <div key={item.id} className="rounded-[22px] border border-border/70 bg-muted/20 p-3">
+                        <div className="flex items-start gap-3">
+                          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${isSent ? "bg-primary/10 text-primary" : isFailed ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-500"}`}>
+                            <StatusIcon className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-semibold text-foreground">{item.title}</p>
+                              <Badge variant={isSent ? "secondary" : isFailed ? "destructive" : "outline"}>{pushStatusLabel(item.status)}</Badge>
+                              {item.deviceId && <Badge variant="outline">ID {item.deviceId}</Badge>}
+                            </div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                              <span className="capitalize">{item.kind.replace(/_/g, " ")}</span>
+                              <span>{formatDeviceDate(item.createdAt)}</span>
+                            </div>
+                            {item.error && <p className="mt-2 line-clamp-2 text-xs text-destructive">{item.error}</p>}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </FadeIn>
+        </TabsContent>
+
         <TabsContent value="integrations" className="space-y-6">
       <FadeIn delay={0.14}>
-        <Card>
-          <CardHeader>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <KeyRound className="h-5 w-5 text-primary" />
               Account Password
@@ -869,17 +1489,17 @@ export default function ProfilePage() {
               Add a password to this account so you can sign in with Google or email/password.
             </p>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>New Password</Label>
-                <div className="relative mt-1">
+                <div className="relative">
                   <Input
                     type={showAccountPassword ? "text" : "password"}
                     value={passwordForm.password}
                     onChange={(e) => setPasswordForm({ ...passwordForm, password: e.target.value })}
                     placeholder="Min 6 characters"
-                    className="pr-10"
+                    className={`${PROFILE_INPUT_CLASS} pr-10`}
                     autoComplete="new-password"
                   />
                   <button
@@ -899,28 +1519,28 @@ export default function ProfilePage() {
                   value={passwordForm.confirmPassword}
                   onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                   placeholder="Repeat password"
-                  className="mt-1"
+                  className={PROFILE_INPUT_CLASS}
                   autoComplete="new-password"
                 />
               </div>
             </div>
-            <Button type="button" onClick={handleSetAccountPassword} loading={savingPassword}>
+            <Button type="button" className="h-12 rounded-2xl" onClick={handleSetAccountPassword} loading={savingPassword}>
               <KeyRound className="mr-2 h-4 w-4" />
               Save Password
             </Button>
           </CardContent>
         </Card>
       </FadeIn>
-      <FadeIn delay={0.18}>
-        <Card>
-          <CardHeader>
+      <FadeIn delay={0.2}>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <MessageCircle className="h-5 w-5 text-primary" />
               Telegram Bot
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-lg bg-muted/40 p-3 text-sm text-muted-foreground">
+          <CardContent className="space-y-4 px-4 pb-5 sm:px-6">
+            <div className="rounded-[22px] bg-muted/30 p-4 text-sm text-muted-foreground">
               Message your Dayza Telegram bot once, send <span className="font-mono text-foreground">/start</span>, then paste the chat ID here. Once connected, Telegram can receive reminders and log spends, water, weight, medications, reminders, and saved diet meals.
             </div>
             {!telegramForm.botConfigured && (
@@ -933,7 +1553,7 @@ export default function ProfilePage() {
               <Input
                 value={telegramForm.telegramChatId}
                 onChange={(e) => setTelegramForm({ ...telegramForm, telegramChatId: e.target.value })}
-                className="mt-1"
+                className={PROFILE_INPUT_CLASS}
                 placeholder="123456789"
               />
             </div>
@@ -961,9 +1581,9 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </FadeIn>
-      <FadeIn delay={0.22}>
-        <Card>
-          <CardHeader>
+      <FadeIn delay={0.24}>
+        <Card className={PROFILE_CARD_CLASS}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2">
               <RefreshCw className="h-5 w-5 text-primary" />
               Data Retention
@@ -972,8 +1592,8 @@ export default function ProfilePage() {
               Keeps the latest 7 chats, latest 10 messages in each chat, and removes image data after 5 days.
             </p>
           </CardHeader>
-          <CardContent>
-            <Button type="button" variant="outline" onClick={runRetentionCleanup} loading={cleaningRetention}>
+          <CardContent className="px-4 pb-5 sm:px-6">
+            <Button type="button" className="h-12 rounded-2xl" variant="outline" onClick={runRetentionCleanup} loading={cleaningRetention}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Run Cleanup
             </Button>
@@ -984,18 +1604,18 @@ export default function ProfilePage() {
 
         <TabsContent value="danger" className="space-y-6">
       <FadeIn delay={0.25}>
-        <Card className="border-amber-500/30">
-          <CardHeader>
+        <Card className={`${PROFILE_CARD_CLASS} border-amber-500/30`}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-amber-500">
               <RefreshCw className="h-5 w-5" />
               Reset Feature Data
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
             <p className="text-sm text-muted-foreground">
               Choose one or more features to clear. This keeps your account and login intact.
             </p>
-            <Button type="button" variant="outline" onClick={() => setResetOpen(true)}>
+            <Button type="button" className="h-12 rounded-2xl" variant="outline" onClick={() => setResetOpen(true)}>
               <RefreshCw className="mr-2 h-4 w-4" />
               Reset Selected Features
             </Button>
@@ -1003,22 +1623,22 @@ export default function ProfilePage() {
         </Card>
       </FadeIn>
       <FadeIn delay={0.3}>
-        <Card className="border-destructive/30">
-          <CardHeader>
+        <Card className={`${PROFILE_CARD_CLASS} border-destructive/30`}>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-destructive">
               <Trash2 className="h-5 w-5" />
               Delete Account
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-3 px-4 pb-5 sm:px-6">
             <p className="text-sm text-muted-foreground">
               This permanently deletes your account, profile, workouts, meals, diet plans, reminders, progress, chat history, and logs.
             </p>
             <div>
               <Label>Type DELETE to confirm</Label>
-              <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} className="mt-1" placeholder="DELETE" />
+              <Input value={deleteConfirm} onChange={(e) => setDeleteConfirm(e.target.value)} className={PROFILE_INPUT_CLASS} placeholder="DELETE" />
             </div>
-            <Button variant="destructive" onClick={handleDeleteAccount} loading={deleting} disabled={deleteConfirm !== "DELETE"}>
+            <Button className="h-12 rounded-2xl" variant="destructive" onClick={handleDeleteAccount} loading={deleting} disabled={deleteConfirm !== "DELETE"}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete My Account
             </Button>
@@ -1119,9 +1739,48 @@ function activityMeta(type: string) {
 
 function ActivityMetric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/25 p-3">
+    <div className="rounded-[22px] border border-border/70 bg-muted/25 p-4">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-1 font-mono text-xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function ProfileSettingsList({ onSelect }: { onSelect: (value: string) => void }) {
+  const groups = ["Personalization", "History", "Support"];
+
+  return (
+    <div className="space-y-4">
+      {groups.map((group) => {
+        const sections = PROFILE_SECTION_OPTIONS.filter((section) => section.group === group);
+        return (
+          <section key={group} className="overflow-hidden rounded-[24px] border border-border/65 bg-card/85 shadow-sm shadow-black/10">
+            <p className="px-4 pb-2 pt-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{group}</p>
+            <div className="divide-y divide-border/45">
+              {sections.map((section) => {
+                const Icon = section.icon;
+                return (
+                  <button
+                    key={section.value}
+                    type="button"
+                    onClick={() => onSelect(section.value)}
+                    className="group flex w-full touch-pan-y items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-muted/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/35"
+                  >
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold leading-snug">{section.label}</span>
+                      <span className="mt-1 block text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">{section.detail}</span>
+                    </span>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -1138,13 +1797,13 @@ function MemorySection({
   onClear: () => void;
 }) {
   return (
-    <div className="space-y-3 rounded-lg border border-border bg-muted/20 p-4">
+    <div className="space-y-3 rounded-[24px] border border-border/70 bg-background/55 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="font-semibold">{title}</p>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onClear}>
+        <Button type="button" variant="ghost" size="sm" className="rounded-full" onClick={onClear}>
           <Trash2 className="h-4 w-4" />
           Clear
         </Button>
@@ -1172,7 +1831,7 @@ function ReviewFilterButton({ active, label, count, onClick }: { active: boolean
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-lg border p-3 text-left transition-colors ${active ? "border-primary/40 bg-primary/15 text-primary" : "border-border bg-card text-muted-foreground"}`}
+      className={`rounded-[22px] border p-4 text-left transition active:scale-[0.99] ${active ? "border-primary/40 bg-primary/15 text-primary" : "border-border/70 bg-card/70 text-muted-foreground"}`}
     >
       <span className="text-xs font-medium">{label}</span>
       <p className="mt-1 font-mono text-xl font-bold">{count}</p>

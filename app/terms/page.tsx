@@ -7,7 +7,7 @@ export default function TermsPage() {
         <div>
           <Link href="/" className="text-sm text-primary hover:underline">Dayza</Link>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight">Terms of Service</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 26, 2026</p>
+          <p className="mt-2 text-sm text-muted-foreground">Last updated: June 25, 2026</p>
         </div>
 
         <TermsSection title="Acceptance of Terms">
@@ -27,7 +27,7 @@ export default function TermsPage() {
         </TermsSection>
 
         <TermsSection title="Google and YouTube Access">
-          If you connect Google, you authorize Dayza to use the permissions you grant for the features you request. YouTube read-only access is used to show subscriptions, list recent videos from selected channels, and summarize selected videos. Gmail read-only access is used only for receipt import when you start that import. You may revoke access from your Google Account at any time.
+          If you connect Google, you authorize Dayza to use the permissions you grant for the features you request. YouTube read-only access is used to show subscriptions, list recent videos from selected channels, and summarize selected videos. Gmail read-only access is used only for user-started Gmail features, including receipt import, statement PDF transaction import, and Gmail Tracker grouping. You may revoke access from your Google Account at any time.
         </TermsSection>
 
         <TermsSection title="Health and Fitness Disclaimer">

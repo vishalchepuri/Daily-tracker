@@ -4,6 +4,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-storage";
 import { getBlockedEmailMessage, isBlockedEmailDomain } from "@/lib/email-domain-guard";
 import { prisma } from "@/lib/db";
+import { rateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
 const SESSION_COOKIE_NAME = "dayza_firebase_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
@@ -22,6 +23,13 @@ function normalizeEmail(email?: string | null) {
 
 export async function POST(req: Request) {
   try {
+    const limited = await rateLimit(req, "firebase-session", { limit: 40, windowMs: 10 * 60 * 1000 });
+    if (!limited.ok) {
+      return NextResponse.json(
+        { error: "Too many sign-in attempts. Please try again later." },
+        { status: 429, headers: rateLimitHeaders(limited) }
+      );
+    }
     const { idToken } = await req.json();
     if (!idToken) return NextResponse.json({ error: "Firebase ID token is required" }, { status: 400 });
 
@@ -88,7 +96,11 @@ export async function POST(req: Request) {
         { status: 500 }
       );
     }
-    return NextResponse.json({ error: error?.message ?? "Could not create Firebase session" }, { status: 401 });
+    const message =
+      process.env.NODE_ENV === "production"
+        ? "Could not create Firebase session"
+        : error?.message ?? "Could not create Firebase session";
+    return NextResponse.json({ error: message }, { status: 401 });
   }
 }
 

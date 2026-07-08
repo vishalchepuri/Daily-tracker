@@ -13,8 +13,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FadeIn } from "@/components/ui/animate";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { connectGoogleFeature } from "@/lib/google-feature-client";
+import { completeGoogleFeatureRedirect, connectGoogleFeature } from "@/lib/google-feature-client";
 import { getBankThemeStyle } from "@/lib/bank-colors";
+import { dateTimeInputToIso, formatAppDate, formatLocalDateInput, getZonedDateParts } from "@/lib/local-dates";
 
 const blankForm = {
   id: "",
@@ -22,7 +23,7 @@ const blankForm = {
   amount: "",
   currency: "INR",
   category: "",
-  date: new Date().toISOString().slice(0, 10),
+  date: formatLocalDateInput(new Date()),
   notes: "",
   bankAccountId: "none",
   creditCardId: "none",
@@ -54,7 +55,7 @@ const blankMoneyLinkForm = {
   currency: "INR",
   bankAccountId: "none",
   toBankAccountId: "none",
-  date: new Date().toISOString().slice(0, 10),
+  date: formatLocalDateInput(new Date()),
   purpose: "",
   notes: "",
 };
@@ -65,6 +66,11 @@ const blankFriendSpendForm = {
 };
 
 const spendCategories = ["Food", "Groceries", "Travel", "Shopping", "Health", "Fitness", "Bills", "Subscriptions", "Entertainment", "Other"];
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const SPEND_CARD_CLASS = "rounded-[28px] border-border/70 bg-card/85 shadow-sm shadow-black/10";
+const SPEND_PANEL_CLASS = "rounded-[24px] border border-border/70 bg-background/55";
+const SPEND_INPUT_CLASS = "mt-1 h-11 rounded-2xl border-border/70 bg-background/80 px-3 text-sm";
+const SPEND_DATE_INPUT_CLASS = `${SPEND_INPUT_CLASS} w-full min-w-0 max-w-full [color-scheme:dark] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left`;
 
 function formatInr(value: number) {
   return `INR ${Number(value || 0).toFixed(2)}`;
@@ -79,28 +85,43 @@ function normalizePersonName(value: unknown) {
 }
 
 function dateKey(date: Date) {
+  return formatLocalDateInput(date);
+}
+
+function dateFromKey(key: string, time = "00:00") {
+  return new Date(dateTimeInputToIso(key, time));
+}
+
+function addDaysToDateKey(key: string, days: number) {
+  const date = new Date(`${key}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
 
+function currentMonthStartKey() {
+  const zoned = getZonedDateParts(new Date());
+  return `${zoned.year}-${zoned.month}-01`;
+}
+
 function weekKey(date: Date) {
-  const start = new Date(date);
-  start.setDate(date.getDate() - date.getDay());
-  start.setHours(0, 0, 0, 0);
-  return dateKey(start);
+  const zoned = getZonedDateParts(date);
+  const weekdayIndex = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(zoned.weekday);
+  return addDaysToDateKey(zoned.dateKey, -Math.max(0, weekdayIndex));
 }
 
 function monthKey(date: Date) {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const zoned = getZonedDateParts(date);
+  return `${zoned.year}-${zoned.month}`;
 }
 
 function formatPeriodLabel(key: string, mode: "daily" | "weekly" | "monthly") {
   if (mode === "monthly") {
     const [year, month] = key.split("-").map(Number);
-    return new Date(year, month - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+    return formatAppDate(dateFromKey(`${year}-${String(month).padStart(2, "0")}-01`), { month: "short", year: "numeric" });
   }
-  const date = new Date(`${key}T00:00:00`);
-  if (mode === "weekly") return `Week of ${date.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const date = dateFromKey(key);
+  if (mode === "weekly") return `Week of ${formatAppDate(date, { month: "short", day: "numeric" })}`;
+  return formatAppDate(date, { month: "short", day: "numeric" });
 }
 
 export default function SpendsPage() {
@@ -110,6 +131,7 @@ export default function SpendsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [clearingGmailImports, setClearingGmailImports] = useState(false);
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [targetMonthlySpend, setTargetMonthlySpend] = useState("");
   const [targetSaving, setTargetSaving] = useState(false);
@@ -118,8 +140,8 @@ export default function SpendsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [paymentFilter, setPaymentFilter] = useState("all");
-  const [customStart, setCustomStart] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
-  const [customEnd, setCustomEnd] = useState(() => new Date().toISOString().slice(0, 10));
+  const [customStart, setCustomStart] = useState(() => currentMonthStartKey());
+  const [customEnd, setCustomEnd] = useState(() => formatLocalDateInput(new Date()));
   const [form, setForm] = useState(blankForm);
   const [financeProfile, setFinanceProfile] = useState<any>(null);
   const [bankAccounts, setBankAccounts] = useState<any[]>([]);
@@ -219,6 +241,30 @@ export default function SpendsPage() {
       .then(setImportHealth)
       .catch(() => setImportHealth(null));
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+
+    const completeRedirect = async () => {
+      try {
+        const result = await completeGoogleFeatureRedirect(GMAIL_SCOPE);
+        if (!result || cancelled) return;
+        if (result.scope === GMAIL_SCOPE) {
+          toast.success("Gmail connected");
+          await loadData();
+          fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
+        }
+      } catch (error: any) {
+        if (!cancelled) toast.error(error?.message ?? "Could not connect Gmail");
+      } finally {
+        if (!cancelled) setConnectingGmail(false);
+      }
+    };
+
+    void completeRedirect();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadMoreSpends = async () => {
     try {
@@ -254,7 +300,8 @@ export default function SpendsPage() {
 
   const totals = useMemo(() => {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const zonedNow = getZonedDateParts(now);
+    const monthStart = dateFromKey(`${zonedNow.year}-${zonedNow.month}-01`);
     const monthSpends = spends.filter((spend) => new Date(spend.date) >= monthStart);
     const total = monthSpends.reduce((sum, spend) => sum + (spend.amount ?? 0), 0);
     const gmail = monthSpends.filter((spend) => spend.source === "gmail").length;
@@ -263,9 +310,9 @@ export default function SpendsPage() {
     const target = Number(targetMonthlySpend) || 0;
     const remaining = target > 0 ? Math.max(0, target - total) : 0;
     const progress = target > 0 ? Math.min(100, Math.round((total / target) * 100)) : 0;
-    const daysPassed = Math.max(1, now.getDate());
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const daysRemaining = Math.max(1, daysInMonth - now.getDate() + 1);
+    const daysPassed = Math.max(1, Number(zonedNow.day));
+    const daysInMonth = new Date(Date.UTC(Number(zonedNow.year), Number(zonedNow.month), 0)).getUTCDate();
+    const daysRemaining = Math.max(1, daysInMonth - Number(zonedNow.day) + 1);
     const dailyAverage = total / daysPassed;
     const projected = dailyAverage * daysInMonth;
     const safeDailySpend = target > 0 ? remaining / daysRemaining : 0;
@@ -291,14 +338,15 @@ export default function SpendsPage() {
   }, [bankAccounts, creditCards, financeProfile, moneyLinks]);
 
   const cardDueAlerts = useMemo(() => {
-    const today = new Date();
-    const todayDay = today.getDate();
+    const zonedToday = getZonedDateParts(new Date());
+    const todayDay = Number(zonedToday.day);
+    const daysInMonth = new Date(Date.UTC(Number(zonedToday.year), Number(zonedToday.month), 0)).getUTCDate();
     return creditCards
       .filter((card) => card.dueDay && (card.currentDue ?? 0) > 0)
       .map((card) => {
         const daysUntilDue = card.dueDay >= todayDay
           ? card.dueDay - todayDay
-          : new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate() - todayDay + card.dueDay;
+          : daysInMonth - todayDay + card.dueDay;
         return { ...card, daysUntilDue };
       })
       .sort((a, b) => a.daysUntilDue - b.daysUntilDue)
@@ -307,7 +355,8 @@ export default function SpendsPage() {
 
   const categoryTotals = useMemo(() => {
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const zonedNow = getZonedDateParts(now);
+    const monthStart = dateFromKey(`${zonedNow.year}-${zonedNow.month}-01`);
     const grouped = spends
       .filter((spend) => new Date(spend.date) >= monthStart)
       .reduce((acc: Record<string, number>, spend) => {
@@ -323,21 +372,19 @@ export default function SpendsPage() {
 
   const filterStartDate = useMemo(() => {
     const now = new Date();
+    const zonedNow = getZonedDateParts(now);
     if (periodFilter === "week") {
-      const start = new Date(now);
-      start.setDate(now.getDate() - now.getDay());
-      start.setHours(0, 0, 0, 0);
-      return start;
+      return dateFromKey(weekKey(now));
     }
-    if (periodFilter === "month") return new Date(now.getFullYear(), now.getMonth(), 1);
-    if (periodFilter === "year") return new Date(now.getFullYear(), 0, 1);
-    if (periodFilter === "custom") return customStart ? new Date(`${customStart}T00:00:00`) : null;
+    if (periodFilter === "month") return dateFromKey(`${zonedNow.year}-${zonedNow.month}-01`);
+    if (periodFilter === "year") return dateFromKey(`${zonedNow.year}-01-01`);
+    if (periodFilter === "custom") return customStart ? dateFromKey(customStart) : null;
     return null;
   }, [customStart, periodFilter]);
 
   const filterEndDate = useMemo(() => {
     if (periodFilter !== "custom" || !customEnd) return null;
-    const end = new Date(`${customEnd}T23:59:59`);
+    const end = dateFromKey(customEnd, "23:59");
     return Number.isNaN(end.getTime()) ? null : end;
   }, [customEnd, periodFilter]);
 
@@ -565,7 +612,7 @@ export default function SpendsPage() {
       amount: String(spend.amount ?? ""),
       currency: spend.currency ?? "INR",
       category: spend.category ?? "",
-      date: new Date(spend.date ?? Date.now()).toISOString().slice(0, 10),
+      date: formatLocalDateInput(new Date(spend.date ?? Date.now())),
       notes: spend.notes ?? "",
       bankAccountId: spend.bankAccountId ?? "none",
       creditCardId: spend.creditCardId ?? "none",
@@ -628,7 +675,7 @@ export default function SpendsPage() {
           type: "lend",
           amount: pendingFriendSpend.amount,
           currency: pendingFriendSpend.currency || "INR",
-          date: new Date(pendingFriendSpend.date ?? Date.now()).toISOString().slice(0, 10),
+          date: formatLocalDateInput(new Date(pendingFriendSpend.date ?? Date.now())),
           notes,
         }),
       });
@@ -670,6 +717,7 @@ export default function SpendsPage() {
   };
 
   const deleteSpend = async (id: string) => {
+    if (!window.confirm("Delete this spend? Any linked lend/borrow entries for it may also be removed. This cannot be undone.")) return;
     try {
       const res = await fetch(`/api/spends?id=${id}`, { method: "DELETE" });
       const data = await res.json();
@@ -709,7 +757,7 @@ export default function SpendsPage() {
     }
     const headers = ["Date", "Merchant", "Amount", "Currency", "Category", "Source", "Credit Card", "Notes"];
     const rows = filteredSpends.map((spend) => [
-      new Date(spend.date).toISOString().slice(0, 10),
+      formatLocalDateInput(new Date(spend.date)),
       spend.merchant ?? "",
       Number(spend.amount ?? 0).toFixed(2),
       spend.currency ?? "INR",
@@ -725,7 +773,7 @@ export default function SpendsPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `dayza-spends-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.download = `dayza-spends-${formatLocalDateInput(new Date())}.csv`;
     anchor.click();
     URL.revokeObjectURL(url);
     toast.success("Spend CSV exported");
@@ -737,8 +785,8 @@ export default function SpendsPage() {
     setCategoryFilter("all");
     setSourceFilter("all");
     setPaymentFilter("all");
-    setCustomStart(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10));
-    setCustomEnd(new Date().toISOString().slice(0, 10));
+    setCustomStart(currentMonthStartKey());
+    setCustomEnd(formatLocalDateInput(new Date()));
   };
 
   const saveFinance = async () => {
@@ -803,6 +851,7 @@ export default function SpendsPage() {
   };
 
   const deleteBank = async (id: string) => {
+    if (!window.confirm("Delete this bank account? This cannot be undone.")) return;
     try {
       await fetch(`/api/bank-accounts?id=${id}`, { method: "DELETE" });
       toast.success("Bank account removed");
@@ -854,6 +903,7 @@ export default function SpendsPage() {
   };
 
   const deleteCard = async (id: string) => {
+    if (!window.confirm("Delete this credit card? This cannot be undone.")) return;
     try {
       await fetch(`/api/credit-cards?id=${id}`, { method: "DELETE" });
       toast.success("Card removed");
@@ -1003,6 +1053,7 @@ export default function SpendsPage() {
   };
 
   const deleteMoneyLink = async (id: string) => {
+    if (!window.confirm("Delete this lend/borrow entry? This cannot be undone.")) return;
     try {
       await fetch(`/api/money-links?id=${id}`, { method: "DELETE" });
       toast.success("Entry removed");
@@ -1066,7 +1117,12 @@ export default function SpendsPage() {
         return;
       }
       const reviewed = data.summary.filteredOut ?? 0;
-      toast.success(`Imported ${data.summary.imported} spends. ${reviewed ? `${reviewed} skipped or sent to Review. ` : ""}Scanned ${data.summary.scanned} emails.`);
+      const statementText = data.summary.statementTransactions
+        ? ` ${data.summary.statementTransactions} from statements.`
+        : data.summary.statementPdfs
+          ? ` Checked ${data.summary.statementPdfs} statement PDFs.`
+          : "";
+      toast.success(`Imported ${data.summary.imported} spends.${statementText} ${reviewed ? `${reviewed} skipped or sent to Review. ` : ""}Scanned ${data.summary.scanned} emails.`);
       loadData();
       fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
     } catch {
@@ -1076,10 +1132,31 @@ export default function SpendsPage() {
     }
   };
 
+  const clearGmailImports = async () => {
+    if (!window.confirm("Remove Gmail-imported spends only? Manual spends, cards, banks, and lent/borrow records will stay.")) return;
+    setClearingGmailImports(true);
+    try {
+      const res = await fetch("/api/spends/gmail-import", { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data?.error ?? "Could not clear Gmail-imported spends");
+        return;
+      }
+      toast.success(`Cleared ${data.deleted ?? 0} Gmail-imported spends`);
+      loadData();
+      fetch("/api/import-health").then((res) => res.ok ? res.json() : null).then(setImportHealth).catch(() => {});
+    } catch {
+      toast.error("Could not clear Gmail-imported spends");
+    } finally {
+      setClearingGmailImports(false);
+    }
+  };
+
   const connectGmail = async () => {
     setConnectingGmail(true);
     try {
-      await connectGoogleFeature("https://www.googleapis.com/auth/gmail.readonly");
+      const result = await connectGoogleFeature(GMAIL_SCOPE);
+      if ((result as any)?.redirected) return;
       toast.success("Gmail connected");
       await loadData();
     } catch (error: any) {
@@ -1090,10 +1167,10 @@ export default function SpendsPage() {
   };
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+          <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Spends</h2>
             <p className="text-muted-foreground text-sm mt-1">Track purchases manually or import receipt-like emails from Gmail</p>
           </div>
@@ -1103,26 +1180,35 @@ export default function SpendsPage() {
               onClick={connectGmail}
               loading={connectingGmail}
               disabled={connectingGmail}
-              className="px-3"
+              className="h-11 rounded-2xl px-3"
             >
               <Mail className="w-4 h-4 mr-2" />Connect Gmail
             </Button>
-            <Button variant="outline" onClick={importGmail} disabled={importing} className="px-3">
+            <Button variant="outline" onClick={importGmail} disabled={importing} className="h-11 rounded-2xl px-3">
               <RefreshCw className={`w-4 h-4 mr-2 ${importing ? "animate-spin" : ""}`} />Import Gmail
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={clearGmailImports}
+              loading={clearingGmailImports}
+              className="h-11 rounded-2xl px-3"
+            >
+              <Trash2 className="w-4 h-4 mr-2" />Clear imports
             </Button>
             <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
-                <Button onClick={openAdd} className="col-span-2 px-3 sm:col-span-1"><Plus className="w-4 h-4 mr-2" />Add Spend</Button>
+                <Button onClick={openAdd} className="col-span-2 h-11 rounded-2xl px-3 sm:col-span-1"><Plus className="w-4 h-4 mr-2" />Add Spend</Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
+              <DialogContent className="max-h-[92svh] max-w-md overflow-y-auto rounded-t-[28px] sm:rounded-2xl">
                 <DialogHeader><DialogTitle>{form.id ? "Edit Spend" : "Add Spend"}</DialogTitle></DialogHeader>
                 <div className="space-y-4">
-                  <div><Label>Merchant</Label><Input value={form.merchant} onChange={(e) => setForm({ ...form, merchant: e.target.value })} className="mt-1" /></div>
+                  <div><Label>Merchant</Label><Input value={form.merchant} onChange={(e) => setForm({ ...form, merchant: e.target.value })} className={SPEND_INPUT_CLASS} /></div>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div><Label>Amount</Label><Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="mt-1" /></div>
-                    <div><Label>Currency</Label><Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} className="mt-1" /></div>
-                    <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="mt-1" placeholder="Food, travel, shopping" /></div>
-                    <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className="mt-1" /></div>
+                    <div><Label>Amount</Label><Input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className={SPEND_INPUT_CLASS} /></div>
+                    <div><Label>Currency</Label><Input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} className={SPEND_INPUT_CLASS} /></div>
+                    <div><Label>Category</Label><Input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className={SPEND_INPUT_CLASS} placeholder="Food, travel, shopping" /></div>
+                    <div><Label>Date</Label><Input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} className={SPEND_DATE_INPUT_CLASS} /></div>
                   </div>
                   <div>
                     <Label>Payment Source</Label>
@@ -1159,8 +1245,8 @@ export default function SpendsPage() {
                       </Button>
                     ))}
                   </div>
-                  <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1" /></div>
-                  <Button onClick={saveSpend} className="w-full">{form.id ? "Update Spend" : "Save Spend"}</Button>
+                  <div><Label>Notes</Label><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={SPEND_INPUT_CLASS} /></div>
+                  <Button onClick={saveSpend} className="h-12 w-full rounded-2xl">{form.id ? "Update Spend" : "Save Spend"}</Button>
                 </div>
               </DialogContent>
             </Dialog>
@@ -1313,17 +1399,17 @@ export default function SpendsPage() {
         </div>
       )}
 
-      <Card className="overflow-hidden border-primary/30">
+      <Card className={`${SPEND_CARD_CLASS} overflow-hidden`}>
         <CardHeader>
           <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-            <CardTitle className="flex items-center gap-2">
+            <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
               <Sparkles className="h-5 w-5 text-primary" />
               Smart Spend Capture
             </CardTitle>
             <div className="grid grid-cols-2 gap-2 sm:flex">
               <Dialog open={bankDialogOpen} onOpenChange={setBankDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button onClick={openAddBank} size="sm" variant="outline"><Plus className="mr-2 h-4 w-4" />Add Bank</Button>
+                  <Button onClick={openAddBank} size="sm" variant="outline" className="h-10 rounded-2xl"><Plus className="mr-2 h-4 w-4" />Add Bank</Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-md">
                   <DialogHeader><DialogTitle>{bankForm.id ? "Edit Bank Account" : "Add Bank Account"}</DialogTitle></DialogHeader>
@@ -1353,7 +1439,7 @@ export default function SpendsPage() {
               </Dialog>
               <Dialog open={cardDialogOpen} onOpenChange={setCardDialogOpen}>
                 <DialogTrigger asChild>
-                  <Button onClick={openAddCard} size="sm"><Plus className="mr-2 h-4 w-4" />Add Credit Card</Button>
+                  <Button onClick={openAddCard} size="sm" className="h-10 rounded-2xl"><Plus className="mr-2 h-4 w-4" />Add Credit Card</Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-md">
                   <DialogHeader><DialogTitle>{cardForm.id ? "Edit Credit Card" : "Add Credit Card"}</DialogTitle></DialogHeader>
@@ -1374,14 +1460,14 @@ export default function SpendsPage() {
         </CardHeader>
         <CardContent className="space-y-5">
           <div className="grid gap-3 xl:grid-cols-[1.15fr_1fr]">
-            <div className={`rounded-xl border p-4 sm:p-5 ${financeTotals.netBalance < 0 ? "border-destructive/40 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
+            <div className={`rounded-[26px] border p-4 sm:p-5 ${financeTotals.netBalance < 0 ? "border-destructive/40 bg-destructive/5" : "border-primary/30 bg-primary/5"}`}>
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-muted-foreground">Net Position</p>
                   <p className="mt-2 font-display text-3xl font-bold tracking-tight sm:text-4xl">{formatInr(financeTotals.netBalance)}</p>
                   <p className="mt-2 text-sm text-muted-foreground">bank balance + lent money - borrowed money - card due</p>
                 </div>
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/15">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-primary/15">
                   <WalletCards className="h-6 w-6 text-primary" />
                 </div>
               </div>
@@ -1406,14 +1492,14 @@ export default function SpendsPage() {
           </div>
 
           {cardDueAlerts.length > 0 && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+            <div className="rounded-[24px] border border-amber-500/30 bg-amber-500/10 p-3">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold">
                 <AlertCircle className="h-4 w-4 text-amber-400" />
                 Upcoming Card Dues
               </div>
               <div className="grid gap-2 md:grid-cols-3">
                 {cardDueAlerts.map((card) => (
-                  <div key={card.id} className="rounded-md bg-background/60 px-3 py-2 text-sm">
+                  <div key={card.id} className="rounded-2xl bg-background/60 px-3 py-2 text-sm">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-medium">{card.name}</span>
                       <span className="font-mono">{formatInr(card.currentDue ?? 0)}</span>
@@ -1427,26 +1513,26 @@ export default function SpendsPage() {
             </div>
           )}
 
-          <div className="rounded-xl border bg-muted/20 p-3">
+          <div className={`${SPEND_PANEL_CLASS} p-3`}>
             <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-end">
               <div>
                 <Label>Total Amount</Label>
                 <p className="mb-2 text-xs text-muted-foreground">Optional manual total for cash or assets you do not want to add as bank accounts.</p>
-                <Input type="number" value={financeForm.totalAmount} onChange={(e) => setFinanceForm({ ...financeForm, totalAmount: e.target.value })} />
+                <Input type="number" value={financeForm.totalAmount} onChange={(e) => setFinanceForm({ ...financeForm, totalAmount: e.target.value })} className={SPEND_INPUT_CLASS} />
               </div>
-              <Button onClick={saveFinance}>Save Total</Button>
+              <Button onClick={saveFinance} className="h-11 rounded-2xl">Save Total</Button>
             </div>
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[1fr_1fr]">
-            <div className="space-y-3 rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4">
+            <div className={`${SPEND_PANEL_CLASS} space-y-3 p-3 sm:p-4`}>
               <div className="flex items-center justify-between gap-2">
                 <h3 className="font-semibold">Bank Accounts</h3>
                 <div className="flex items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={openAddBank}><Plus className="mr-2 h-4 w-4" />Add</Button>
+                  <Button type="button" variant="outline" size="sm" className="rounded-2xl" onClick={openAddBank}><Plus className="mr-2 h-4 w-4" />Add</Button>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-muted/30 p-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Total balance</p>
                   <p className="font-mono text-lg font-semibold">{formatInr(financeTotals.totalBankBalance)}</p>
@@ -1455,7 +1541,7 @@ export default function SpendsPage() {
                 <div className="flex flex-wrap gap-2">
                   <Dialog open={bankAccountsDialogOpen} onOpenChange={setBankAccountsDialogOpen}>
                     <DialogTrigger asChild>
-                      <Button type="button" size="sm" variant="outline"><Landmark className="mr-2 h-4 w-4" />Accounts</Button>
+                      <Button type="button" size="sm" variant="outline" className="rounded-2xl"><Landmark className="mr-2 h-4 w-4" />Accounts</Button>
                     </DialogTrigger>
                     <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
                       <DialogHeader><DialogTitle>Bank Accounts</DialogTitle></DialogHeader>
@@ -1502,7 +1588,7 @@ export default function SpendsPage() {
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="truncate font-medium">{transfer.fromAccount?.name ?? "From account"} to {transfer.toAccount?.name ?? "To account"}</p>
-                                <p className="text-xs text-muted-foreground">{new Date(transfer.date).toLocaleDateString()} {transfer.notes ? `- ${transfer.notes}` : ""}</p>
+                                <p className="text-xs text-muted-foreground">{formatAppDate(transfer.date, { day: "2-digit", month: "short", year: "numeric" })} {transfer.notes ? `- ${transfer.notes}` : ""}</p>
                               </div>
                               <p className="shrink-0 font-mono text-sm">{formatInr(transfer.amount ?? 0)}</p>
                             </div>
@@ -1515,14 +1601,14 @@ export default function SpendsPage() {
               </div>
             </div>
 
-            <div className="space-y-3 rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4">
+            <div className={`${SPEND_PANEL_CLASS} space-y-3 p-3 sm:p-4`}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Credit Cards</h3>
                 <div className="flex items-center gap-2">
                   <Button type="button" variant="outline" size="sm" onClick={openAddCard}><Plus className="mr-2 h-4 w-4" />Add</Button>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-muted/30 p-3">
                 <div>
                   <p className="text-xs text-muted-foreground">Current due</p>
                   <p className="font-mono text-lg font-semibold">{formatInr(financeTotals.currentCardDue)}</p>
@@ -1530,7 +1616,7 @@ export default function SpendsPage() {
                 </div>
                 <Dialog open={creditCardsDialogOpen} onOpenChange={setCreditCardsDialogOpen}>
                   <DialogTrigger asChild>
-                    <Button type="button" size="sm" variant="outline"><CreditCard className="mr-2 h-4 w-4" />Cards</Button>
+                    <Button type="button" size="sm" variant="outline" className="rounded-2xl"><CreditCard className="mr-2 h-4 w-4" />Cards</Button>
                   </DialogTrigger>
                   <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
                     <DialogHeader><DialogTitle>Credit Cards</DialogTitle></DialogHeader>
@@ -1577,8 +1663,8 @@ export default function SpendsPage() {
               </div>
             </div>
 
-            <div className="space-y-4 rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4 lg:col-span-2 2xl:col-span-2">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/80 bg-background/30 p-3 sm:p-4">
+            <div className={`${SPEND_PANEL_CLASS} space-y-4 p-3 sm:p-4 lg:col-span-2 2xl:col-span-2`}>
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-border/70 bg-background/30 p-3 sm:p-4">
                 <div className="min-w-0">
                   <p className="text-sm font-medium">Money Entry</p>
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -1635,7 +1721,7 @@ export default function SpendsPage() {
                             </SelectContent>
                           </Select>
                         )}
-                        <Input type="date" value={moneyLinkForm.date} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, date: e.target.value })} />
+                        <Input type="date" value={moneyLinkForm.date} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, date: e.target.value })} className={SPEND_DATE_INPUT_CLASS} />
                         <Input className="md:col-span-2" placeholder={moneyLinkForm.type === "transfer" ? "Purpose (optional)" : moneyLinkForm.type === "spend" ? "Spent on" : moneyLinkForm.type === "borrow" ? "Spent for / borrowed for" : "Reason / spent for"} value={moneyLinkForm.purpose} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, purpose: e.target.value })} />
                         <Input className="md:col-span-2" placeholder="Notes" value={moneyLinkForm.notes} onChange={(e) => setMoneyLinkForm({ ...moneyLinkForm, notes: e.target.value })} />
                         <Button className="md:col-span-2" onClick={saveMoneyLink}><Plus className="mr-2 h-4 w-4" />{moneyLinkForm.type === "transfer" ? "Record Transfer" : moneyLinkForm.type === "spend" ? "Add Spend" : "Add Entry"}</Button>
@@ -1697,7 +1783,7 @@ export default function SpendsPage() {
                                 <Badge variant={link.type === "lend" ? "secondary" : "outline"}>{link.type === "lend" ? "Lent" : "Borrowed"}</Badge>
                                 {link.settled && <Badge variant="outline">Settled</Badge>}
                               </div>
-                              <p className="text-xs text-muted-foreground">{new Date(link.date).toLocaleDateString()} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
+                              <p className="text-xs text-muted-foreground">{formatAppDate(link.date, { day: "2-digit", month: "short", year: "numeric" })} {link.bankAccount?.name ? `- ${link.bankAccount.name}` : ""} {link.notes ? `- ${link.notes}` : ""}</p>
                               {(link.settledAmount ?? 0) > 0 && <p className="text-xs text-muted-foreground">Settled {formatInr(link.settledAmount)} / {formatInr(link.amount ?? 0)}</p>}
                             </div>
                             <div className="flex items-center justify-between gap-1 sm:justify-end">
@@ -1721,7 +1807,7 @@ export default function SpendsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-primary/30 bg-primary/5">
+      <Card className={`${SPEND_CARD_CLASS} border-primary/30 bg-primary/5`}>
         <CardContent className="space-y-3 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
@@ -1751,7 +1837,7 @@ export default function SpendsPage() {
                   </div>
                   <div>
                     <Label>Monthly target</Label>
-                    <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" className="mt-1" />
+                    <Input type="number" value={targetMonthlySpend} onChange={(e) => setTargetMonthlySpend(e.target.value)} placeholder="Monthly target" className={SPEND_INPUT_CLASS} />
                   </div>
                   <Button onClick={async () => { await saveTarget(); setTargetDialogOpen(false); }} disabled={targetSaving} className="w-full">{targetSaving ? "Saving" : "Save Target"}</Button>
                 </div>
@@ -1770,7 +1856,7 @@ export default function SpendsPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-3 rounded-xl border border-border/80 bg-muted/10 p-3 text-sm sm:grid-cols-4">
+      <div className={`${SPEND_PANEL_CLASS} grid gap-3 p-3 text-sm sm:grid-cols-4`}>
         <div><span className="text-muted-foreground">This month</span><p className="font-mono font-semibold">{formatInr(totals.total)}</p></div>
         <div><span className="text-muted-foreground">Remaining</span><p className="font-mono font-semibold">{totals.target ? formatInr(totals.remaining) : "Set"}</p></div>
         <div><span className="text-muted-foreground">Imported</span><p className="font-mono font-semibold">{totals.gmail}</p></div>
@@ -1821,7 +1907,7 @@ export default function SpendsPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-primary/30">
+      <Card className={SPEND_CARD_CLASS}>
         <CardContent className="space-y-4 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
@@ -1846,11 +1932,11 @@ export default function SpendsPage() {
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_160px_160px_220px]">
                   <div>
                     <Label>From</Label>
-                    <Input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
+                    <Input type="date" value={customStart} onChange={(e) => { setCustomStart(e.target.value); setPeriodFilter("custom"); }} className={SPEND_DATE_INPUT_CLASS} />
                   </div>
                   <div>
                     <Label>To</Label>
-                    <Input type="date" value={customEnd} onChange={(e) => { setCustomEnd(e.target.value); setPeriodFilter("custom"); }} className="mt-1" />
+                    <Input type="date" value={customEnd} onChange={(e) => { setCustomEnd(e.target.value); setPeriodFilter("custom"); }} className={SPEND_DATE_INPUT_CLASS} />
                   </div>
                   <div>
                     <Label>Category</Label>
@@ -1903,7 +1989,7 @@ export default function SpendsPage() {
           </Dialog>
           </div>
           {categoryTotals.length > 0 && (
-            <div className="grid gap-4 rounded-xl bg-muted/20 p-3 lg:grid-cols-[240px_1fr] lg:items-center">
+            <div className="grid gap-4 rounded-[24px] bg-muted/20 p-3 lg:grid-cols-[240px_1fr] lg:items-center">
               <div className="mx-auto h-[180px] w-[180px] shrink-0 sm:h-[220px] sm:w-[220px] lg:mx-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -1979,7 +2065,7 @@ export default function SpendsPage() {
           <p className="text-sm text-muted-foreground">{filteredSpends.length} matching spends, totaling <span className="font-mono text-foreground">{formatInr(filteredTotal)}</span></p>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="rounded-xl border border-border/80 bg-muted/10 p-3 sm:p-4">
+          <div className={`${SPEND_PANEL_CLASS} p-3 sm:p-4`}>
             <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:gap-3">
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -2015,11 +2101,11 @@ export default function SpendsPage() {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
                           <Label>From</Label>
-                          <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="mt-1" />
+                          <Input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className={SPEND_DATE_INPUT_CLASS} />
                         </div>
                         <div>
                           <Label>To</Label>
-                          <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="mt-1" />
+                          <Input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className={SPEND_DATE_INPUT_CLASS} />
                         </div>
                       </div>
                     )}
@@ -2074,7 +2160,7 @@ export default function SpendsPage() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/30 px-3 py-3 text-sm sm:px-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] bg-muted/30 px-3 py-3 text-sm sm:px-4">
             <span className="text-muted-foreground">{filteredSpends.length} matching spends</span>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={clearFilters}>Clear</Button>
@@ -2091,13 +2177,13 @@ export default function SpendsPage() {
           ) : filteredSpends.length === 0 ? (
             <div className="text-center py-10 text-sm text-muted-foreground">No spends match these filters.</div>
           ) : (
-            <div className="grid max-h-[32rem] gap-3 overflow-y-auto pr-1 sm:max-h-none sm:overflow-visible sm:pr-0">
+            <div className="grid gap-3">
               {filteredSpends.map((spend) => (
-                <div key={spend.id} className="grid min-w-0 gap-3 rounded-xl bg-muted/40 p-3 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4 sm:p-4">
+                <div key={spend.id} className="grid min-w-0 gap-3 rounded-[22px] border border-border/60 bg-muted/35 p-3 transition active:scale-[0.99] sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4 sm:p-4">
                   <div className="min-w-0 space-y-1">
                     <p className="font-medium truncate">{spend.merchant}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {new Date(spend.date).toLocaleDateString()} {spend.emailSubject ? `- ${spend.emailSubject}` : ""}
+                      {formatAppDate(spend.date, { day: "2-digit", month: "short", year: "numeric" })} {spend.emailSubject ? `- ${spend.emailSubject}` : ""}
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Badge variant={spend.source === "gmail" ? "secondary" : "outline"}>{spend.source}</Badge>
@@ -2134,10 +2220,10 @@ export default function SpendsPage() {
 
 function SummaryCard({ title, value, detail, icon: Icon }: any) {
   return (
-    <Card>
+    <Card className={SPEND_CARD_CLASS}>
       <CardContent className="min-h-[7.5rem] p-4 sm:p-5">
         <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary/10">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] bg-primary/10">
             <Icon className="w-5 h-5 text-primary" />
           </div>
           <span className="min-w-0 text-sm font-medium leading-snug">{title}</span>
@@ -2151,7 +2237,7 @@ function SummaryCard({ title, value, detail, icon: Icon }: any) {
 
 function InsightCard({ title, value, detail, warning }: any) {
   return (
-    <Card className={warning ? "border-destructive/40 bg-destructive/5" : ""}>
+    <Card className={warning ? `${SPEND_CARD_CLASS} border-destructive/40 bg-destructive/5` : SPEND_CARD_CLASS}>
       <CardContent className="p-4 sm:p-5">
         <p className="text-sm font-medium text-muted-foreground">{title}</p>
         <p className="mt-2 text-xl font-semibold">{value}</p>
@@ -2163,10 +2249,10 @@ function InsightCard({ title, value, detail, warning }: any) {
 
 function MoneyMetric({ label, value, detail, icon: Icon, featured }: any) {
   return (
-    <div className={`rounded-lg border border-border/80 bg-background/55 p-3 ${featured ? "min-h-28" : ""}`}>
+    <div className={`rounded-[22px] border border-border/70 bg-background/55 p-3 ${featured ? "min-h-28" : ""}`}>
       <div className="flex items-start gap-3">
         {Icon && (
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10">
             <Icon className="h-5 w-5 text-primary" />
           </div>
         )}

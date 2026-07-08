@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { deleteFoodMicronutrientLog, getAgentUndoAction, markAgentUndoActionUsed } from "@/lib/firestore-app-data";
+import { deleteFoodMicronutrientLog, getAgentUndoAction, listAgentUndoActions, markAgentUndoActionUsed } from "@/lib/firestore-app-data";
 
 function undoError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -16,6 +16,21 @@ function isExpired(value: unknown) {
 async function deleteOwnedRecord(model: any, userId: string, id: string) {
   const result = await model.deleteMany({ where: { id, userId } });
   return result.count > 0;
+}
+
+export async function GET(req: Request) {
+  try {
+    const user = await requireCurrentUser();
+    if (!user?.id) return undoError("Unauthorized", 401);
+
+    const url = new URL(req.url);
+    const limit = Math.max(1, Math.min(25, Number(url.searchParams.get("limit") ?? 10)));
+    const actions = await listAgentUndoActions(user.id, limit);
+    return NextResponse.json({ actions });
+  } catch (error: any) {
+    console.error("Agent undo list failed", error);
+    return undoError(error?.message ?? "Could not load undo actions", 500);
+  }
 }
 
 export async function POST(req: Request) {
@@ -40,6 +55,17 @@ export async function POST(req: Request) {
     if (targetType === "foodLog") {
       undone = await deleteOwnedRecord(prisma.foodLog, user.id, targetId);
       if (undone) await deleteFoodMicronutrientLog(user.id, targetId);
+    } else if (targetType === "reminder") {
+      undone = await deleteOwnedRecord(prisma.reminder, user.id, targetId);
+    } else if (targetType === "reminderCompletion") {
+      const result = await prisma.reminder.updateMany({
+        where: { id: targetId, userId: user.id },
+        data: {
+          completed: Boolean(undo.payload?.previousCompleted),
+          completedAt: undo.payload?.previousCompletedAt ? new Date(String(undo.payload.previousCompletedAt)) : null,
+        },
+      });
+      undone = result.count > 0;
     } else if (targetType === "progressEntry") {
       undone = await deleteOwnedRecord(prisma.progressEntry, user.id, targetId);
     } else if (targetType === "spend") {
@@ -78,6 +104,22 @@ export async function POST(req: Request) {
       });
       if (row?.workoutTemplate?.userId === user.id) {
         await prisma.workoutExercise.delete({ where: { id: targetId } });
+        undone = true;
+      }
+    } else if (targetType === "workoutExerciseUpdate") {
+      const row = await prisma.workoutExercise.findUnique({
+        where: { id: targetId },
+        include: { workoutTemplate: { select: { userId: true } } },
+      });
+      if (row?.workoutTemplate?.userId === user.id) {
+        await prisma.workoutExercise.update({
+          where: { id: targetId },
+          data: {
+            sets: Math.max(1, Math.round(Number(undo.payload?.sets ?? row.sets))),
+            reps: String(undo.payload?.reps ?? row.reps),
+            restSeconds: Math.max(15, Math.round(Number(undo.payload?.restSeconds ?? row.restSeconds))),
+          },
+        });
         undone = true;
       }
     } else if (targetType === "workoutExerciseRemoval") {

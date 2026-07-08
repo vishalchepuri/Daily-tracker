@@ -1,12 +1,14 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards, XCircle } from "lucide-react";
+import { AlertCircle, Banknote, CalendarClock, CheckCircle2, Database, Dumbbell, HeartPulse, Mail, MessageSquare, Shield, Users, WalletCards } from "lucide-react";
 import { requireAdminUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { pruneFirestoreChatRetention } from "@/lib/firestore-chat";
 import { listRecentIssueReports } from "@/lib/firestore-app-data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ExerciseReviewActions } from "./exercise-review-actions";
+import { AdminRecentSpends, AdminRecentWorkouts, AdminReviewQueue } from "./admin-lazy-panels";
 import {
   Table,
   TableBody,
@@ -34,40 +36,6 @@ function formatInr(value?: number | null) {
   return `INR ${Number(value ?? 0).toFixed(0)}`;
 }
 
-async function approveExerciseSubmission(formData: FormData) {
-  "use server";
-  const admin = await requireAdminUser();
-  if (!admin) return;
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  await prisma.exercise.update({
-    where: { id },
-    data: {
-      status: "approved",
-      reviewedById: admin.id,
-      reviewedAt: new Date(),
-    },
-  });
-  revalidatePath("/admin");
-}
-
-async function rejectExerciseSubmission(formData: FormData) {
-  "use server";
-  const admin = await requireAdminUser();
-  if (!admin) return;
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
-  await prisma.exercise.update({
-    where: { id },
-    data: {
-      status: "rejected",
-      reviewedById: admin.id,
-      reviewedAt: new Date(),
-    },
-  });
-  revalidatePath("/admin");
-}
-
 async function runRetentionCleanup() {
   "use server";
   const admin = await requireAdminUser();
@@ -85,7 +53,7 @@ export default async function AdminPage() {
   const admin = await requireAdminUser();
   if (!admin) redirect("/dashboard");
 
-  const [users, totals, spendTotals, moneyLinkTotals, issueReports, recentSpends, recentWorkoutLogs, pendingExercises] = await Promise.all([
+  const [users, totals, spendTotals, moneyLinkTotals, issueReports, pendingExercises] = await Promise.all([
     prisma.user.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -132,16 +100,6 @@ export default async function AdminPage() {
       _sum: { amount: true },
     }),
     listRecentIssueReports(8),
-    prisma.spend.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 8,
-      select: { id: true, merchant: true, amount: true, currency: true, source: true, createdAt: true, user: { select: { name: true, email: true } } },
-    }),
-    prisma.workoutLog.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 6,
-      select: { id: true, templateName: true, duration: true, date: true, user: { select: { name: true, email: true } } },
-    }),
     prisma.exercise.findMany({
       where: { status: "pending" },
       orderBy: { createdAt: "asc" },
@@ -163,34 +121,31 @@ export default async function AdminPage() {
     user._count.medications +
     user._count.progressEntries
   ), 0);
-  const reviewQueue = [
-    ...pendingExercises.map((exercise) => ({
-      id: exercise.id,
-      type: "Exercise",
-      title: exercise.name,
-      detail: `${exercise.muscleGroup}${exercise.equipment ? ` - ${exercise.equipment}` : ""}`,
-      user: exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user",
-      createdAt: exercise.createdAt,
-      kind: "exercise" as const,
-    })),
-    ...issueReports
-      .filter((issue) => issue.status === "open")
-      .map((issue) => ({
-        id: issue.id,
-        type: "Issue",
-        title: issue.category,
-        detail: issue.message,
-        user: issue.name || issue.email || "Anonymous",
-        createdAt: new Date(issue.createdAt ?? Date.now()),
-        kind: "issue" as const,
-      })),
-  ]
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, 12);
-
+  const adminFocusItems = [
+    {
+      label: "Exercise approvals",
+      detail: pendingExercises.length > 0 ? `${pendingExercises.length} pending exercise submissions` : "No pending exercise submissions",
+      healthy: pendingExercises.length === 0,
+    },
+    {
+      label: "Issue queue",
+      detail: openIssues > 0 ? `${openIssues} open issue reports need review` : "No open issue reports",
+      healthy: openIssues === 0,
+    },
+    {
+      label: "Profile readiness",
+      detail: `${profileUsers} of ${users.length} users have complete basic profiles`,
+      healthy: users.length === 0 || profileUsers / Math.max(1, users.length) >= 0.8,
+    },
+    {
+      label: "Notification readiness",
+      detail: `${telegramUsers} users have Telegram enabled`,
+      healthy: telegramUsers > 0 || users.length === 0,
+    },
+  ];
   return (
     <div className="space-y-5">
-      <div>
+      <div className="hidden sm:block">
         <div className="flex items-center gap-2 text-primary">
           <Shield className="h-5 w-5" />
           <span className="text-sm font-semibold uppercase tracking-wide">Admin</span>
@@ -215,50 +170,32 @@ export default async function AdminPage() {
         <AdminMetric title="Exercise approvals" value={formatNumber(pendingExercises.length)} detail="waiting for review" icon={Dumbbell} compact />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><Shield className="h-5 w-5 text-primary" />Smart Review Queue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {reviewQueue.length === 0 ? (
-              <EmptyState label="Nothing needs review right now." />
-            ) : (
-              <div className="grid gap-2">
-                {reviewQueue.map((item) => (
-                  <div key={`${item.kind}-${item.id}`} className="grid gap-3 rounded-lg bg-muted/40 p-3 md:grid-cols-[1fr_auto] md:items-center">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant={item.kind === "exercise" ? "default" : "secondary"}>{item.type}</Badge>
-                        <p className="truncate font-semibold">{item.title}</p>
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{item.detail}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{item.user} - {formatDate(item.createdAt)}</p>
-                    </div>
-                    {item.kind === "exercise" ? (
-                      <div className="flex flex-wrap gap-2">
-                        <form action={approveExerciseSubmission}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                            <CheckCircle2 className="h-4 w-4" /> Approve
-                          </button>
-                        </form>
-                        <form action={rejectExerciseSubmission}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">
-                            <XCircle className="h-4 w-4" /> Reject
-                          </button>
-                        </form>
-                      </div>
-                    ) : (
-                      <Badge variant="outline">Open</Badge>
-                    )}
-                  </div>
-                ))}
+      <Card className="rounded-[28px] border-primary/20 bg-primary/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-primary" />
+            Production Focus
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {adminFocusItems.map((item) => (
+            <div key={item.label} className="rounded-[22px] border border-border/70 bg-background/60 p-3">
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 rounded-2xl p-2 ${item.healthy ? "bg-primary/10 text-primary" : "bg-amber-500/10 text-amber-400"}`}>
+                  {item.healthy ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-[1fr_22rem]">
+        <AdminReviewQueue />
 
         <Card>
           <CardHeader>
@@ -280,6 +217,9 @@ export default async function AdminPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" />Exercise Approval Queue</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            AI-created exercises stay pending here until an admin checks equipment, muscle target, availability, and safety notes.
+          </p>
         </CardHeader>
         <CardContent>
           {pendingExercises.length === 0 ? (
@@ -297,23 +237,17 @@ export default async function AdminPage() {
                     </div>
                     {exercise.description && <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{exercise.description}</p>}
                     {exercise.formTips && <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">Tips: {exercise.formTips}</p>}
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-1">Check common availability</span>
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-1">Verify target muscle</span>
+                      <span className="rounded-full border border-border/70 bg-background/60 px-2 py-1">Review safety tips</span>
+                    </div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Submitted by {exercise.submittedBy?.name || exercise.submittedBy?.email || "Unknown user"} on {formatDate(exercise.createdAt)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <form action={approveExerciseSubmission}>
-                      <input type="hidden" name="id" value={exercise.id} />
-                      <button className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90">
-                        <CheckCircle2 className="h-4 w-4" /> Approve
-                      </button>
-                    </form>
-                    <form action={rejectExerciseSubmission}>
-                      <input type="hidden" name="id" value={exercise.id} />
-                      <button className="inline-flex h-9 items-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10">
-                        <XCircle className="h-4 w-4" /> Reject
-                      </button>
-                    </form>
+                    <ExerciseReviewActions id={exercise.id} name={exercise.name} />
                   </div>
                 </div>
               ))}
@@ -332,37 +266,9 @@ export default async function AdminPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><WalletCards className="h-5 w-5 text-primary" />Recent Spends</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {recentSpends.length === 0 ? (
-              <EmptyState label="No spends recorded yet." />
-            ) : recentSpends.map((spend) => (
-              <AdminListRow
-                key={spend.id}
-                title={spend.merchant}
-                detail={`${spend.user.name || spend.user.email} - ${spend.source}`}
-                value={`${spend.currency} ${Number(spend.amount ?? 0).toFixed(0)}`}
-              />
-            ))}
-          </CardContent>
-        </Card>
+        <AdminRecentSpends />
 
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Dumbbell className="h-5 w-5 text-primary" />Recent Workouts</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {recentWorkoutLogs.length === 0 ? (
-              <EmptyState label="No workout logs yet." />
-            ) : recentWorkoutLogs.map((log) => (
-              <AdminListRow
-                key={log.id}
-                title={log.templateName || "Workout"}
-                detail={`${log.user.name || log.user.email} - ${formatDate(log.date)}`}
-                value={log.duration ? `${log.duration} min` : "Logged"}
-              />
-            ))}
-          </CardContent>
-        </Card>
+        <AdminRecentWorkouts />
       </div>
 
       <Card>
@@ -479,18 +385,6 @@ function AdminMetric({ title, value, detail, icon: Icon, compact }: any) {
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function AdminListRow({ title, detail, value }: { title: string; detail: string; value: string }) {
-  return (
-    <div className="grid grid-cols-[1fr_auto] gap-3 rounded-lg bg-muted/40 px-3 py-2">
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium">{title}</p>
-        <p className="truncate text-xs text-muted-foreground">{detail}</p>
-      </div>
-      <span className="whitespace-nowrap font-mono text-sm">{value}</span>
-    </div>
   );
 }
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,24 +10,40 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck, Sparkles } from "lucide-react";
+import { Plus, Trash2, Utensils, Flame, Target, Zap, Apple, Pencil, Droplets, Wheat, TrendingUp, CalendarCheck, Sparkles, Filter, Leaf, Eye, EyeOff } from "lucide-react";
 import { FadeIn } from "@/components/ui/animate";
 import { toast } from "sonner";
 import { MICRONUTRIENTS, mergeWithDefaultMicronutrientTargets, parseMicronutrientMap, sumMicronutrients } from "@/lib/micronutrients";
+import { dateTimeInputToIso, formatAppDate, formatLocalDateInput } from "@/lib/local-dates";
 
 const mealSuggestions = [
-  { name: "Grilled Chicken Breast", calories: 165, protein: 31, carbs: 0, fat: 3.6, serving: "100g" },
-  { name: "Brown Rice", calories: 216, protein: 5, carbs: 45, fat: 1.8, serving: "1 cup" },
-  { name: "Salmon Fillet", calories: 208, protein: 20, carbs: 0, fat: 13, serving: "100g" },
-  { name: "Sweet Potato", calories: 103, protein: 2.3, carbs: 24, fat: 0.1, serving: "1 medium" },
-  { name: "Greek Yogurt", calories: 100, protein: 17, carbs: 6, fat: 0.7, serving: "170g" },
-  { name: "Eggs (2 whole)", calories: 143, protein: 13, carbs: 1, fat: 10, serving: "2 large" },
-  { name: "Oatmeal", calories: 154, protein: 5, carbs: 27, fat: 2.6, serving: "1 cup" },
-  { name: "Banana", calories: 105, protein: 1.3, carbs: 27, fat: 0.4, serving: "1 medium" },
-  { name: "Whey Protein Shake", calories: 120, protein: 24, carbs: 3, fat: 1.5, serving: "1 scoop" },
-  { name: "Quinoa", calories: 222, protein: 8, carbs: 39, fat: 3.5, serving: "1 cup" },
-  { name: "Cottage Cheese", calories: 163, protein: 28, carbs: 6, fat: 2.3, serving: "1 cup" },
-  { name: "Lean Ground Turkey", calories: 170, protein: 21, carbs: 0, fat: 9, serving: "100g" },
+  { name: "Chicken Breast", category: "protein", calories: 165, protein: 31, carbs: 0, fat: 3.6, fiber: 0, serving: "100 g", micronutrients: { vitaminB12: 0.3, potassium: 256, magnesium: 29, zinc: 1 } },
+  { name: "Paneer", category: "protein", calories: 265, protein: 18, carbs: 3, fat: 20, fiber: 0, serving: "100 g", micronutrients: { calcium: 480, vitaminB12: 0.8, magnesium: 20, zinc: 2.6 } },
+  { name: "Greek Yogurt", category: "protein", calories: 100, protein: 17, carbs: 6, fat: 0.7, fiber: 0, serving: "170 g", micronutrients: { calcium: 180, vitaminB12: 0.9, potassium: 240 } },
+  { name: "Eggs", category: "protein", calories: 143, protein: 13, carbs: 1, fat: 10, fiber: 0, serving: "100 g", micronutrients: { vitaminD: 2, vitaminB12: 1.1, vitaminA: 160, iron: 1.8, zinc: 1.3 } },
+  { name: "Fish", category: "protein", calories: 208, protein: 22, carbs: 0, fat: 13, fiber: 0, serving: "100 g", micronutrients: { vitaminD: 10, vitaminB12: 3, potassium: 360, magnesium: 30 } },
+  { name: "Moong Dal", category: "protein", calories: 105, protein: 7, carbs: 19, fat: 0.4, fiber: 7, serving: "100 g cooked", micronutrients: { folate: 90, iron: 1.4, magnesium: 36, potassium: 266 } },
+  { name: "Chana / Chickpeas", category: "protein", calories: 164, protein: 9, carbs: 27, fat: 2.6, fiber: 7.6, serving: "100 g cooked", micronutrients: { folate: 170, iron: 2.9, magnesium: 48, zinc: 1.5 } },
+  { name: "Oats", category: "carbs", calories: 228, protein: 8, carbs: 39, fat: 4, fiber: 6, serving: "60 g dry", micronutrients: { magnesium: 106, iron: 2.8, zinc: 2.4, folate: 34 } },
+  { name: "Cooked Rice", category: "carbs", calories: 234, protein: 4.8, carbs: 51, fat: 0.5, fiber: 0.7, serving: "180 g cooked", micronutrients: { magnesium: 18, potassium: 46, iron: 0.4 } },
+  { name: "Chapati / Roti", category: "carbs", calories: 180, protein: 6, carbs: 32, fat: 3, fiber: 5, serving: "80 g", micronutrients: { magnesium: 66, iron: 2.9, zinc: 2.1, folate: 35 } },
+  { name: "Sweet Potato", category: "carbs", calories: 155, protein: 3, carbs: 36, fat: 0.2, fiber: 4.5, serving: "150 g", micronutrients: { vitaminA: 1064, vitaminC: 3.6, potassium: 506, magnesium: 38 } },
+  { name: "Banana", category: "fruit", calories: 89, protein: 1.1, carbs: 23, fat: 0.3, fiber: 2.6, serving: "100 g", micronutrients: { vitaminC: 9, potassium: 358, magnesium: 27 } },
+  { name: "Orange", category: "fruit", calories: 62, protein: 1.2, carbs: 15, fat: 0.2, fiber: 3.1, serving: "130 g", micronutrients: { vitaminC: 70, potassium: 237, folate: 40, calcium: 52 } },
+  { name: "Mango", category: "fruit", calories: 90, protein: 1.2, carbs: 23, fat: 0.6, fiber: 2.4, serving: "150 g", micronutrients: { vitaminC: 54, vitaminA: 81, folate: 65, potassium: 252 } },
+  { name: "Palak / Spinach", category: "micros", calories: 23, protein: 2.9, carbs: 3.6, fat: 0.4, fiber: 2.2, serving: "100 g", micronutrients: { vitaminK: 483, vitaminA: 469, folate: 194, iron: 2.7, magnesium: 79, vitaminC: 28 } },
+  { name: "Carrot", category: "micros", calories: 41, protein: 0.9, carbs: 10, fat: 0.2, fiber: 2.8, serving: "100 g", micronutrients: { vitaminA: 835, vitaminK: 13, potassium: 320, vitaminC: 6 } },
+  { name: "Almonds", category: "healthy_fats", calories: 174, protein: 6.4, carbs: 6.5, fat: 15, fiber: 3.8, serving: "30 g", micronutrients: { vitaminE: 7.7, magnesium: 80, calcium: 81, zinc: 0.9, iron: 1.1 } },
+  { name: "Peanuts", category: "healthy_fats", calories: 170, protein: 7.7, carbs: 4.8, fat: 14, fiber: 2.6, serving: "30 g", micronutrients: { vitaminE: 2.5, magnesium: 50, zinc: 1, folate: 72 } },
+];
+
+const foodIdeaCategories = [
+  { value: "all", label: "All ideas" },
+  { value: "protein", label: "Protein" },
+  { value: "carbs", label: "Carbs" },
+  { value: "fruit", label: "Fruit" },
+  { value: "micros", label: "Vitamins" },
+  { value: "healthy_fats", label: "Healthy fats" },
 ];
 
 function numericMicronutrientPayload(values: Record<string, string>) {
@@ -38,21 +54,43 @@ function numericMicronutrientPayload(values: Record<string, string>) {
   );
 }
 
+function addDaysToDateKey(dateKey: string, days: number) {
+  const date = new Date(dateTimeInputToIso(dateKey, "12:00"));
+  date.setDate(date.getDate() + days);
+  return formatLocalDateInput(date);
+}
+
+function dateKeyFromValue(value?: string | Date | null) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  return formatLocalDateInput(date);
+}
+
+function roundAmount(value: number, digits = 0) {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
+}
+
 export default function NutritionPage() {
   const [foodLogs, setFoodLogs] = useState<any[]>([]);
+  const [weeklyFoodLogs, setWeeklyFoodLogs] = useState<any[]>([]);
+  const [monthlyFoodLogs, setMonthlyFoodLogs] = useState<any[]>([]);
   const [dietPlans, setDietPlans] = useState<any[]>([]);
   const [dietNextOffset, setDietNextOffset] = useState(0);
   const [dietHasMore, setDietHasMore] = useState(false);
   const [loadingMoreDietPlans, setLoadingMoreDietPlans] = useState(false);
   const [waterLogs, setWaterLogs] = useState<any[]>([]);
+  const [trackingWaterLogs, setTrackingWaterLogs] = useState<any[]>([]);
   const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [savingFood, setSavingFood] = useState(false);
+  const [savingDiet, setSavingDiet] = useState(false);
+  const [savingWater, setSavingWater] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [targetsDialogOpen, setTargetsDialogOpen] = useState(false);
   const [dietDialogOpen, setDietDialogOpen] = useState(false);
   const [editingFoodId, setEditingFoodId] = useState<string | null>(null);
   const [editingDietId, setEditingDietId] = useState<string | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [selectedDate, setSelectedDate] = useState(() => formatLocalDateInput(new Date()));
   const [waterAmount, setWaterAmount] = useState("250");
   const [form, setForm] = useState({
     foodName: "", mealType: "breakfast", calories: "", protein: "", carbs: "", fat: "", fiber: "", servingSize: "",
@@ -68,6 +106,9 @@ export default function NutritionPage() {
     micronutrients: {} as Record<string, string>,
   });
   const [searchTerm, setSearchTerm] = useState("");
+  const [foodIdeaFilter, setFoodIdeaFilter] = useState("all");
+  const [trackingRange, setTrackingRange] = useState<"week" | "month">("week");
+  const [showFoodIdeas, setShowFoodIdeas] = useState(true);
   const [dietForm, setDietForm] = useState({
     name: "",
     goal: "muscle_gain",
@@ -81,13 +122,30 @@ export default function NutritionPage() {
     ],
   });
 
+  useEffect(() => {
+    const saved = window.localStorage.getItem("dayza-show-food-ideas");
+    if (saved === "false") setShowFoodIdeas(false);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("dayza-show-food-ideas", showFoodIdeas ? "true" : "false");
+  }, [showFoodIdeas]);
+
   const loadData = useCallback(async () => {
-    setLoading(true);
     fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}`)
       .then((res) => res.ok ? res.json() : { logs: [] })
       .then((data) => setFoodLogs(data?.logs ?? []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
+      .catch(console.error);
+
+    fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}&rangeDays=7`)
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setWeeklyFoodLogs(data?.logs ?? []))
+      .catch(console.error);
+
+    fetch(`/api/food-logs?date=${encodeURIComponent(selectedDate)}&rangeDays=30`)
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setMonthlyFoodLogs(data?.logs ?? []))
+      .catch(console.error);
 
     fetch("/api/profile")
       .then((res) => res.ok ? res.json() : { profile: null })
@@ -101,15 +159,20 @@ export default function NutritionPage() {
           targetFiber: String(profileData?.profile?.targetFiber ?? 30),
           targetWaterMl: String(profileData?.profile?.targetWaterMl ?? 3000),
           micronutrients: Object.fromEntries(
-            Object.entries(mergeWithDefaultMicronutrientTargets(profileData?.profile?.micronutrientTargetsJson)).map(([key, value]) => [key, String(value ?? "")])
+            Object.entries(mergeWithDefaultMicronutrientTargets(profileData?.profile?.micronutrientTargetsJson, profileData?.profile)).map(([key, value]) => [key, String(value ?? "")])
           ),
         });
       })
       .catch(console.error);
 
-    fetch("/api/water-logs")
+    fetch(`/api/water-logs?date=${encodeURIComponent(selectedDate)}`)
       .then((res) => res.ok ? res.json() : { logs: [] })
       .then((data) => setWaterLogs(data?.logs ?? []))
+      .catch(console.error);
+
+    fetch(`/api/water-logs?date=${encodeURIComponent(selectedDate)}&rangeDays=30`)
+      .then((res) => res.ok ? res.json() : { logs: [] })
+      .then((data) => setTrackingWaterLogs(data?.logs ?? []))
       .catch(console.error);
 
     fetch("/api/diet-plans?offset=0&limit=10")
@@ -190,6 +253,8 @@ export default function NutritionPage() {
 
   const handleSaveFood = async () => {
     if (!form.foodName) { toast.error("Enter a food name"); return; }
+    if (savingFood) return;
+    setSavingFood(true);
     try {
       const res = await fetch("/api/food-logs", {
         method: editingFoodId ? "PATCH" : "POST",
@@ -213,8 +278,12 @@ export default function NutritionPage() {
         resetFoodForm();
         setDialogOpen(false);
         loadData();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data?.error ?? "Failed to log food");
       }
     } catch { toast.error("Failed to log food"); }
+    finally { setSavingFood(false); }
   };
 
   const openDietDialog = (plan?: any) => {
@@ -270,6 +339,8 @@ export default function NutritionPage() {
       toast.error("Diet name is required");
       return;
     }
+    if (savingDiet) return;
+    setSavingDiet(true);
     const meals = dietForm.meals
       .filter((meal) => meal.mealType || meal.title || meal.foods)
       .map((meal) => ({
@@ -304,6 +375,8 @@ export default function NutritionPage() {
       loadData();
     } catch {
       toast.error("Failed to save diet");
+    } finally {
+      setSavingDiet(false);
     }
   };
 
@@ -373,7 +446,8 @@ export default function NutritionPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: string, foodName?: string) => {
+    if (!window.confirm(`Delete ${foodName ? `"${foodName}"` : "this food log"}? This cannot be undone.`)) return;
     try {
       await fetch(`/api/food-logs?id=${id}`, { method: "DELETE" });
       toast.success("Removed");
@@ -387,11 +461,13 @@ export default function NutritionPage() {
       toast.error("Enter water amount");
       return;
     }
+    if (savingWater) return;
+    setSavingWater(true);
     try {
       const res = await fetch("/api/water-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amountMl }),
+        body: JSON.stringify({ amountMl, date: selectedDate }),
       });
       if (!res.ok) {
         toast.error("Failed to log water");
@@ -401,10 +477,13 @@ export default function NutritionPage() {
       loadData();
     } catch {
       toast.error("Failed to log water");
+    } finally {
+      setSavingWater(false);
     }
   };
 
   const handleDeleteWater = async (id: string) => {
+    if (!window.confirm("Delete this water log? This cannot be undone.")) return;
     try {
       await fetch(`/api/water-logs?id=${id}`, { method: "DELETE" });
       toast.success("Water removed");
@@ -475,8 +554,150 @@ export default function NutritionPage() {
   const waterTotal = (waterLogs ?? []).reduce((sum: number, log: any) => sum + (log?.amountMl ?? 0), 0);
   const targetWater = profile?.targetWaterMl ?? 3000;
   const micronutrientTrackingEnabled = Boolean(profile?.micronutrientTrackingEnabled);
-  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson);
+  const micronutrientTargets = mergeWithDefaultMicronutrientTargets(profile?.micronutrientTargetsJson, profile);
   const micronutrientTotals = sumMicronutrients((foodLogs ?? []).map((log: any) => log?.micronutrients));
+  const weeklyMicronutrientTotals = sumMicronutrients((weeklyFoodLogs ?? []).map((log: any) => log?.micronutrients));
+  const micronutrientWindowDays = 7;
+  const weeklyMicronutrientTargets = Object.fromEntries(
+    Object.entries(micronutrientTargets).map(([key, value]) => [key, Number(value ?? 0) * micronutrientWindowDays])
+  );
+  const micronutrientProgress = MICRONUTRIENTS
+    .map((item) => {
+      const target = micronutrientTargets[item.key] ?? item.target;
+      const value = micronutrientTotals[item.key] ?? 0;
+      const weeklyValue = weeklyMicronutrientTotals[item.key] ?? 0;
+      const weeklyTarget = Number(weeklyMicronutrientTargets[item.key] ?? target * micronutrientWindowDays);
+      const weeklyAverage = weeklyValue / micronutrientWindowDays;
+      return {
+        ...item,
+        value,
+        target,
+        weeklyValue,
+        weeklyTarget,
+        weeklyAverage,
+        left: Math.max(0, target - value),
+        averageLeft: Math.max(0, target - weeklyAverage),
+        pct: target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0,
+        averagePct: target > 0 ? Math.min(100, Math.round((weeklyAverage / target) * 100)) : 0,
+        weeklyPct: weeklyTarget > 0 ? Math.min(100, Math.round((weeklyValue / weeklyTarget) * 100)) : 0,
+      };
+    })
+    .sort((a, b) => a.averagePct - b.averagePct);
+  const dailyFocusMicronutrients = micronutrientProgress
+    .filter((item) => item.cadence === "daily_focus")
+    .sort((a, b) => a.pct - b.pct);
+  const weeklyAverageMicronutrients = micronutrientProgress
+    .filter((item) => item.cadence === "weekly_average")
+    .sort((a, b) => a.averagePct - b.averagePct);
+  const trackingDayCount = trackingRange === "week" ? 7 : 30;
+  const trackingFoodLogs = trackingRange === "week" ? weeklyFoodLogs : monthlyFoodLogs;
+  const trackingSummary = useMemo(() => {
+    const dayMap: Record<string, { dateKey: string; label: string; calories: number; protein: number; carbs: number; fat: number; fiber: number; water: number; meals: number }> = {};
+    for (let i = trackingDayCount - 1; i >= 0; i -= 1) {
+      const dateKey = addDaysToDateKey(selectedDate, -i);
+      dayMap[dateKey] = {
+        dateKey,
+        label: formatAppDate(new Date(dateTimeInputToIso(dateKey, "12:00")), trackingRange === "week" ? { weekday: "short" } : { month: "short", day: "numeric" }),
+        calories: 0,
+        protein: 0,
+        carbs: 0,
+        fat: 0,
+        fiber: 0,
+        water: 0,
+        meals: 0,
+      };
+    }
+
+    for (const log of trackingFoodLogs ?? []) {
+      const key = dateKeyFromValue(log?.date);
+      if (!dayMap[key]) continue;
+      dayMap[key].calories += log?.calories ?? 0;
+      dayMap[key].protein += log?.protein ?? 0;
+      dayMap[key].carbs += log?.carbs ?? 0;
+      dayMap[key].fat += log?.fat ?? 0;
+      dayMap[key].fiber += log?.fiber ?? 0;
+      dayMap[key].meals += 1;
+    }
+
+    for (const log of trackingWaterLogs ?? []) {
+      const key = dateKeyFromValue(log?.date);
+      if (!dayMap[key]) continue;
+      dayMap[key].water += log?.amountMl ?? 0;
+    }
+
+    const days = Object.values(dayMap);
+    const totals = days.reduce(
+      (acc, day) => ({
+        calories: acc.calories + day.calories,
+        protein: acc.protein + day.protein,
+        carbs: acc.carbs + day.carbs,
+        fat: acc.fat + day.fat,
+        fiber: acc.fiber + day.fiber,
+        water: acc.water + day.water,
+        meals: acc.meals + day.meals,
+      }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, water: 0, meals: 0 }
+    );
+    const averages = {
+      calories: totals.calories / trackingDayCount,
+      protein: totals.protein / trackingDayCount,
+      carbs: totals.carbs / trackingDayCount,
+      fat: totals.fat / trackingDayCount,
+      fiber: totals.fiber / trackingDayCount,
+      water: totals.water / trackingDayCount,
+    };
+    const targetTotals = {
+      calories: targetCal * trackingDayCount,
+      protein: targetProtein * trackingDayCount,
+      carbs: targetCarbs * trackingDayCount,
+      fat: targetFat * trackingDayCount,
+      fiber: targetFiber * trackingDayCount,
+      water: targetWater * trackingDayCount,
+    };
+    const targetDays = {
+      calories: days.filter((day) => day.calories >= targetCal * 0.9 && day.calories <= targetCal * 1.1).length,
+      protein: days.filter((day) => day.protein >= targetProtein * 0.9).length,
+      fiber: days.filter((day) => day.fiber >= targetFiber * 0.9).length,
+      water: days.filter((day) => day.water >= targetWater * 0.9).length,
+    };
+    const micronutrientRangeTotals = sumMicronutrients((trackingFoodLogs ?? []).map((log: any) => log?.micronutrients));
+    const micronutrients = MICRONUTRIENTS
+      .map((item) => {
+        const target = micronutrientTargets[item.key] ?? item.target;
+        const average = (micronutrientRangeTotals[item.key] ?? 0) / trackingDayCount;
+        return {
+          ...item,
+          average,
+          target,
+          percent: target > 0 ? Math.min(100, Math.round((average / target) * 100)) : 0,
+          missingAverage: Math.max(0, target - average),
+        };
+      })
+      .sort((a, b) => a.percent - b.percent);
+    return {
+      days,
+      totals,
+      averages,
+      targetTotals,
+      targetDays,
+      micronutrients,
+      weakMicronutrients: micronutrients.filter((item) => item.percent < 80).slice(0, 4),
+      maxDayCalories: Math.max(targetCal, ...days.map((day) => day.calories), 1),
+    };
+  }, [
+    trackingDayCount,
+    trackingFoodLogs,
+    trackingRange,
+    trackingWaterLogs,
+    selectedDate,
+    targetCal,
+    targetProtein,
+    targetCarbs,
+    targetFat,
+    targetFiber,
+    targetWater,
+    micronutrientTargets,
+  ]);
   const remaining = {
     calories: Math.max(0, targetCal - totals.calories),
     protein: Math.max(0, targetProtein - totals.protein),
@@ -491,13 +712,21 @@ export default function NutritionPage() {
     const protein = meals.reduce((sum: number, meal: any) => sum + (meal?.protein ?? 0), 0);
     return { mealType, count: meals.length, calories, protein };
   });
-  const targetDateLabel = selectedDate === new Date().toISOString().slice(0, 10)
+  const targetDateLabel = selectedDate === formatLocalDateInput(new Date())
     ? "Today"
-    : new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    : formatAppDate(new Date(dateTimeInputToIso(selectedDate, "00:00")), { month: "short", day: "numeric", year: "numeric" });
 
   const filteredSuggestions = (allMealSuggestions ?? []).filter((s: any) =>
     s?.name?.toLowerCase?.()?.includes?.(searchTerm?.toLowerCase?.() ?? "") ?? false
   );
+  const filteredFoodIdeas = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return mealSuggestions.filter((item) => {
+      const matchesCategory = foodIdeaFilter === "all" || item.category === foodIdeaFilter;
+      const matchesSearch = !query || item.name.toLowerCase().includes(query);
+      return matchesCategory && matchesSearch;
+    });
+  }, [foodIdeaFilter, searchTerm]);
 
   const parseDietMeals = (plan: any) => {
     try {
@@ -508,28 +737,28 @@ export default function NutritionPage() {
   };
 
   return (
-    <div className="space-y-5 sm:space-y-6">
+    <div className="w-full max-w-full space-y-5 overflow-x-hidden sm:space-y-6">
       <FadeIn>
-        <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
-          <div className="min-w-0">
+        <div className="grid gap-2 sm:flex sm:items-center sm:justify-between sm:gap-3">
+          <div className="hidden min-w-0 sm:block">
             <h2 className="font-display text-2xl font-bold leading-tight tracking-tight">Nutrition Tracker</h2>
             <p className="mt-1 max-w-[18rem] text-sm text-muted-foreground sm:max-w-none">Log meals and track daily macros for muscle gain</p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center sm:justify-end">
-          <div className="col-span-2 sm:col-span-1">
+          <div className="col-span-2 min-w-0 sm:col-span-1">
             <Input
               type="date"
               aria-label="Nutrition date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="h-10 min-w-0 sm:w-44"
+              className="h-11 w-full min-w-0 max-w-full rounded-2xl border-border/70 bg-card/80 px-3 text-sm [color-scheme:dark] [&::-webkit-date-and-time-value]:min-w-0 [&::-webkit-date-and-time-value]:text-left sm:w-44"
             />
           </div>
           <Dialog open={targetsDialogOpen} onOpenChange={setTargetsDialogOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" className="w-full px-3 sm:w-auto sm:px-4"><Pencil className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">Edit </span>Targets</Button>
+              <Button variant="outline" className="h-11 w-full rounded-2xl px-3 sm:w-auto sm:px-4"><Pencil className="w-4 h-4 sm:mr-2" /><span className="hidden sm:inline">Edit </span>Targets</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md rounded-t-[28px] sm:rounded-2xl">
               <DialogHeader>
                 <DialogTitle>Edit Nutrition Targets</DialogTitle>
               </DialogHeader>
@@ -545,7 +774,7 @@ export default function NutritionPage() {
                 <div className="mt-4 space-y-3">
                   <div>
                     <p className="text-sm font-medium">Vitamin & mineral targets</p>
-                    <p className="text-xs text-muted-foreground">These detailed targets are used for daily remaining amounts and agent food-photo estimates.</p>
+                    <p className="text-xs text-muted-foreground">Most targets are tracked as weekly averages. Daily focus is reserved for nutrients that are worth watching more closely.</p>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     {MICRONUTRIENTS.map((item) => (
@@ -565,14 +794,14 @@ export default function NutritionPage() {
                   </div>
                 </div>
               )}
-              <Button onClick={handleSaveTargets} className="w-full mt-4">Save Targets</Button>
+              <Button onClick={handleSaveTargets} className="mt-4 h-12 w-full rounded-2xl">Save Targets</Button>
             </DialogContent>
           </Dialog>
           <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) resetFoodForm(); }}>
             <DialogTrigger asChild>
-              <Button onClick={openAddDialog} className="w-full px-3 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" />Log Meal</Button>
+              <Button onClick={openAddDialog} className="h-11 w-full rounded-2xl px-3 sm:w-auto sm:px-4"><Plus className="w-4 h-4 sm:mr-2" />Log Meal</Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+            <DialogContent className="max-h-[92svh] max-w-md rounded-t-[28px] sm:rounded-2xl">
               <DialogHeader>
                 <DialogTitle>{editingFoodId ? "Edit Food" : "Log Food"}</DialogTitle>
               </DialogHeader>
@@ -640,7 +869,7 @@ export default function NutritionPage() {
                 </div>
                 <div>
                   <Label>Serving Size</Label>
-                  <Input value={form.servingSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, servingSize: e.target.value })} placeholder="e.g., 1 cup, 100g" className="mt-1" />
+                  <Input value={form.servingSize} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, servingSize: e.target.value })} placeholder="e.g., 150 g cooked rice" className="mt-1" />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div><Label>Calories</Label><Input type="number" value={form.calories} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, calories: e.target.value })} className="mt-1" /></div>
@@ -673,7 +902,7 @@ export default function NutritionPage() {
                     </div>
                   </div>
                 )}
-                <Button onClick={handleSaveFood} className="w-full">{editingFoodId ? "Update Food" : "Add Food"}</Button>
+                <Button onClick={handleSaveFood} className="h-12 w-full rounded-2xl" loading={savingFood} disabled={savingFood}>{editingFoodId ? "Update Food" : "Add Food"}</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -681,16 +910,16 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
-      <Tabs defaultValue="tracker" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="tracker">Tracker</TabsTrigger>
-          <TabsTrigger value="diet">Diet</TabsTrigger>
+      <Tabs defaultValue="tracker" className="min-w-0 space-y-4 overflow-x-hidden">
+        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-muted/30 p-1 sm:inline-grid sm:w-auto">
+          <TabsTrigger value="tracker" className="h-11 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Tracker</TabsTrigger>
+          <TabsTrigger value="diet" className="h-11 rounded-xl data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Diet</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="tracker" className="space-y-6">
-      <FadeIn delay={0.05}>
+        <TabsContent value="tracker" className="flex flex-col gap-6">
+      <FadeIn delay={0.05} className="order-1">
         <div className="grid gap-3 lg:grid-cols-[1.1fr_0.9fr]">
-          <Card className="border-primary/30 bg-primary/5">
+          <Card className="rounded-[26px] border-primary/30 bg-primary/5">
             <CardContent className="p-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -712,7 +941,7 @@ export default function NutritionPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="rounded-[26px]">
             <CardHeader className="pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
                 <TrendingUp className="h-5 w-5 text-primary" />
@@ -723,10 +952,10 @@ export default function NutritionPage() {
               {mealBreakdown.map((meal) => {
                 const pct = totals.calories > 0 ? Math.round((meal.calories / totals.calories) * 100) : 0;
                 return (
-                  <div key={meal.mealType} className="rounded-lg bg-muted/35 p-2">
+                  <div key={meal.mealType} className="rounded-2xl bg-muted/35 p-3">
                     <div className="mb-1 flex items-center justify-between gap-2 text-sm">
                       <span className="capitalize">{meal.mealType}</span>
-                      <span className="font-mono text-xs text-muted-foreground">{Math.round(meal.calories)} kcal • P {Math.round(meal.protein)}g</span>
+                      <span className="font-mono text-xs text-muted-foreground">{Math.round(meal.calories)} kcal | P {Math.round(meal.protein)}g</span>
                     </div>
                     <Progress value={pct} className="h-1.5" />
                   </div>
@@ -737,7 +966,7 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
-      <FadeIn delay={0.1}>
+      <FadeIn delay={0.1} className="order-2">
         <div className="grid grid-cols-1 gap-3 min-[390px]:grid-cols-2 lg:grid-cols-6 lg:gap-4">
           {[
             { label: "Calories", value: Math.round(totals.calories), target: targetCal, unit: "kcal", icon: Flame, color: "text-orange-500", bg: "bg-orange-500/10" },
@@ -749,10 +978,10 @@ export default function NutritionPage() {
           ].map((m: any) => {
             const pct = m?.target > 0 ? Math.min(100, Math.round((m?.value / m?.target) * 100)) : 0;
             return (
-              <Card key={m?.label}>
+              <Card key={m?.label} className="rounded-[22px]">
                 <CardContent className="space-y-2 p-3 sm:p-4">
                   <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 shrink-0 rounded-md ${m?.bg} flex items-center justify-center`}>
+                    <div className={`w-8 h-8 shrink-0 rounded-xl ${m?.bg} flex items-center justify-center`}>
                       <m.icon className={`w-4 h-4 ${m?.color}`} />
                     </div>
                     <span className="min-w-0 truncate text-sm font-medium">{m?.label}</span>
@@ -768,43 +997,211 @@ export default function NutritionPage() {
         </div>
       </FadeIn>
 
-      {micronutrientTrackingEnabled && (
-        <FadeIn delay={0.12}>
-          <Card className="border-orange-500/20 bg-orange-500/5">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Sparkles className="h-5 w-5 text-orange-400" />
-                Vitamins & Minerals
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {MICRONUTRIENTS.map((item) => {
-                  const value = micronutrientTotals[item.key] ?? 0;
-                  const target = micronutrientTargets[item.key] ?? item.target;
-                  const pct = target > 0 ? Math.min(100, Math.round((value / target) * 100)) : 0;
-                  const left = Math.max(0, target - value);
-                  return (
-                    <div key={item.key} className="rounded-lg bg-background/70 p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="text-sm font-medium">{item.label}</span>
-                        <span className="font-mono text-xs text-muted-foreground">{Math.round(left * 10) / 10} {item.unit} left</span>
-                      </div>
+      <FadeIn delay={0.14} className="order-4">
+        <Card className="max-w-full overflow-hidden rounded-[26px]">
+          <CardHeader className="pb-3">
+            <div className="grid gap-3 sm:flex sm:items-start sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                  Nutrition Trends
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">Track consistency by weekly or monthly averages.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-1 rounded-2xl bg-muted/40 p-1">
+                {[
+                  { value: "week", label: "Week" },
+                  { value: "month", label: "Month" },
+                ].map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => setTrackingRange(item.value as "week" | "month")}
+                    className={`h-10 rounded-xl px-4 text-sm font-semibold transition active:scale-[0.97] ${
+                      trackingRange === item.value ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-background/70"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {[
+                { label: "Avg calories", value: `${roundAmount(trackingSummary.averages.calories)} kcal`, target: targetCal, total: trackingSummary.totals.calories, targetTotal: trackingSummary.targetTotals.calories, color: "text-orange-400" },
+                { label: "Avg protein", value: `${roundAmount(trackingSummary.averages.protein)} g`, target: targetProtein, total: trackingSummary.totals.protein, targetTotal: trackingSummary.targetTotals.protein, color: "text-blue-400" },
+                { label: "Avg fiber", value: `${roundAmount(trackingSummary.averages.fiber)} g`, target: targetFiber, total: trackingSummary.totals.fiber, targetTotal: trackingSummary.targetTotals.fiber, color: "text-amber-400" },
+                { label: "Avg water", value: `${roundAmount(trackingSummary.averages.water)} ml`, target: targetWater, total: trackingSummary.totals.water, targetTotal: trackingSummary.targetTotals.water, color: "text-cyan-400" },
+              ].map((item) => {
+                const pct = item.targetTotal > 0 ? Math.min(100, Math.round((item.total / item.targetTotal) * 100)) : 0;
+                return (
+                  <div key={item.label} className="min-w-0 rounded-[20px] bg-muted/35 p-3">
+                    <p className="text-xs font-medium text-muted-foreground">{item.label}</p>
+                    <p className={`mt-1 break-words font-mono text-lg font-bold ${item.color}`}>{item.value}</p>
+                    <div className="mt-3 space-y-1.5">
                       <Progress value={pct} className="h-2" />
-                      <p className="mt-2 font-mono text-xs text-muted-foreground">
-                        {Math.round(value * 10) / 10} / {target} {item.unit}
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {pct}% of {trackingRange === "week" ? "weekly" : "monthly"} target
                       </p>
                     </div>
-                  );
-                })}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
+              <div className="rounded-[22px] border border-border/70 bg-background/45 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Target hit days</p>
+                    <p className="text-xs text-muted-foreground">Out of {trackingDayCount} days</p>
+                  </div>
+                  <Badge variant="secondary">{trackingSummary.totals.meals} meals</Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: "Calories", value: trackingSummary.targetDays.calories },
+                    { label: "Protein", value: trackingSummary.targetDays.protein },
+                    { label: "Fiber", value: trackingSummary.targetDays.fiber },
+                    { label: "Water", value: trackingSummary.targetDays.water },
+                  ].map((item) => (
+                    <div key={item.label} className="rounded-2xl bg-muted/35 p-3">
+                      <p className="text-xs text-muted-foreground">{item.label}</p>
+                      <p className="mt-1 font-mono text-xl font-bold">{item.value}/{trackingDayCount}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-[22px] border border-border/70 bg-background/45 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Daily calorie pattern</p>
+                    <p className="text-xs text-muted-foreground">{trackingRange === "week" ? "Last 7 days" : "Last 30 days"} ending {targetDateLabel}</p>
+                  </div>
+                  <Badge variant="outline">Target {Math.round(targetCal)}</Badge>
+                </div>
+                <div className={`grid gap-1.5 ${trackingRange === "week" ? "grid-cols-7" : "grid-cols-10"}`}>
+                  {trackingSummary.days.map((day) => {
+                    const height = Math.max(8, Math.min(72, (day.calories / trackingSummary.maxDayCalories) * 72));
+                    const closeToTarget = day.calories >= targetCal * 0.9 && day.calories <= targetCal * 1.1;
+                    return (
+                      <div key={day.dateKey} className="min-w-0">
+                        <div className="flex h-20 items-end justify-center rounded-xl bg-muted/35 px-1 py-1.5">
+                          <div
+                            className={`w-full rounded-full ${closeToTarget ? "bg-primary" : "bg-primary/45"}`}
+                            style={{ height: `${height}px` }}
+                            title={`${day.label}: ${Math.round(day.calories)} kcal`}
+                          />
+                        </div>
+                        <p className="mt-1 truncate text-center text-[10px] text-muted-foreground">{day.label}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {micronutrientTrackingEnabled && (
+              <div className="rounded-[22px] border border-orange-500/20 bg-orange-500/5 p-4">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold">Vitamin & mineral gaps</p>
+                    <p className="text-xs text-muted-foreground">Average per day across this {trackingRange === "week" ? "week" : "month"}</p>
+                  </div>
+                  <Badge variant="secondary">{trackingRange === "week" ? "7-day" : "30-day"}</Badge>
+                </div>
+                {trackingSummary.weakMicronutrients.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {trackingSummary.weakMicronutrients.map((item) => (
+                      <div key={item.key} className="rounded-2xl bg-background/60 p-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="truncate text-sm font-medium">{item.label}</p>
+                          <span className="font-mono text-xs text-orange-300">{item.percent}%</span>
+                        </div>
+                        <Progress value={item.percent} className="mt-2 h-2" />
+                        <p className="mt-2 font-mono text-xs text-muted-foreground">
+                          Avg {roundAmount(item.average, 1)} / {item.target} {item.unit}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="rounded-2xl bg-primary/10 p-3 text-sm text-primary">Vitamin and mineral averages look healthy for this range.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </FadeIn>
+
+      {micronutrientTrackingEnabled && (
+        <FadeIn delay={0.12} className="order-3">
+          <Card className="max-w-full overflow-hidden rounded-[26px] border-orange-500/20 bg-orange-500/5">
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Sparkles className="h-5 w-5 text-orange-400" />
+                    Vitamins & Minerals
+                  </CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">Use weekly averages for most nutrients. Daily focus is only for the ones worth watching more consistently.</p>
+                </div>
+                <Badge variant="secondary" className="shrink-0">7-day avg</Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">Daily focus</p>
+                  <span className="text-xs text-muted-foreground">Today vs target</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {dailyFocusMicronutrients.map((item) => (
+                    <div key={item.key} className="min-w-0 rounded-[20px] bg-background/70 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium">{item.label}</span>
+                        <span className="shrink-0 rounded-full bg-orange-500/10 px-2 py-0.5 font-mono text-xs text-orange-200">{item.pct}%</span>
+                      </div>
+                      <Progress value={item.pct} className="h-2" />
+                      <div className="mt-2 flex min-w-0 items-center justify-between gap-2 font-mono text-xs text-muted-foreground">
+                        <span className="min-w-0 truncate">{Math.round(item.value * 10) / 10} / {item.target} {item.unit}</span>
+                        <span className="shrink-0">{Math.round(item.left * 10) / 10} left</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">Weekly average target</p>
+                  <span className="text-xs text-muted-foreground">Avg/day over 7 days</span>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {weeklyAverageMicronutrients.map((item) => (
+                    <div key={item.key} className="min-w-0 rounded-[20px] bg-background/70 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="min-w-0 truncate text-sm font-medium">{item.label}</span>
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">{item.averagePct}%</span>
+                      </div>
+                      <Progress value={item.averagePct} className="h-2" />
+                      <div className="mt-2 flex min-w-0 items-center justify-between gap-2 font-mono text-xs text-muted-foreground">
+                        <span className="min-w-0 truncate">Avg {Math.round(item.weeklyAverage * 10) / 10} / {item.target} {item.unit}</span>
+                        <span className="shrink-0">Week {item.weeklyPct}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </CardContent>
           </Card>
         </FadeIn>
       )}
 
-      <FadeIn delay={0.15}>
-        <Card>
+      <FadeIn delay={0.16} className="order-5">
+        <Card className="rounded-[26px]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Droplets className="w-5 h-5 text-cyan-500" />
@@ -817,13 +1214,13 @@ export default function NutritionPage() {
                 <Label>Amount (ml)</Label>
                 <Input type="number" value={waterAmount} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setWaterAmount(e.target.value)} className="mt-1" />
               </div>
-              <Button onClick={() => handleAddWater()}>
+              <Button onClick={() => handleAddWater()} className="h-11 rounded-2xl" loading={savingWater} disabled={savingWater}>
                 <Plus className="w-4 h-4 mr-2" />Log Water
               </Button>
             </div>
             <div className="flex flex-wrap gap-2">
               {[250, 500, 750, 1000].map((amount) => (
-                <Button key={amount} type="button" variant="outline" size="sm" onClick={() => handleAddWater(amount)}>
+                <Button key={amount} type="button" variant="outline" size="sm" onClick={() => handleAddWater(amount)} disabled={savingWater} className="rounded-full">
                   +{amount} ml
                 </Button>
               ))}
@@ -831,7 +1228,7 @@ export default function NutritionPage() {
             {(waterLogs ?? []).length > 0 && (
               <div className="space-y-2">
                 {(waterLogs ?? []).map((log: any) => (
-                  <div key={log?.id} className="flex items-center justify-between rounded-lg bg-muted/40 px-3 py-2 text-sm">
+                  <div key={log?.id} className="flex items-center justify-between rounded-2xl bg-muted/40 px-3 py-2 text-sm">
                     <span>{Math.round(log?.amountMl ?? 0)} ml</span>
                     <button onClick={() => handleDeleteWater(log?.id)} className="text-destructive">
                       <Trash2 className="w-4 h-4" />
@@ -845,8 +1242,8 @@ export default function NutritionPage() {
       </FadeIn>
 
       {/* Food Logs */}
-      <FadeIn delay={0.2}>
-        <Card>
+      <FadeIn delay={0.2} className="order-6">
+        <Card className="rounded-[26px]">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Utensils className="w-5 h-5 text-primary" />
@@ -873,7 +1270,7 @@ export default function NutritionPage() {
                         </span>
                       </h4>
                       {meals.map((log: any) => (
-                        <div key={log?.id} className="group rounded-lg bg-muted/30 p-3 hover:bg-muted/50">
+                        <div key={log?.id} className="group rounded-[22px] bg-muted/30 p-3 transition active:scale-[0.995] hover:bg-muted/50">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="break-words text-sm font-medium">{log?.foodName}</p>
@@ -883,17 +1280,17 @@ export default function NutritionPage() {
                               <button onClick={() => openEditDialog(log)} className="rounded-md p-1 text-primary hover:bg-background" aria-label="Edit food">
                                 <Pencil className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleDelete(log?.id)} className="rounded-md p-1 text-destructive hover:bg-background" aria-label="Delete food">
+                              <button onClick={() => handleDelete(log?.id, log?.foodName)} className="rounded-md p-1 text-destructive hover:bg-background" aria-label="Delete food">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </div>
                           <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-mono text-muted-foreground min-[390px]:grid-cols-5">
-                            <span className="rounded-md bg-background/70 px-2 py-1">{Math.round(log?.calories ?? 0)} kcal</span>
-                            <span className="rounded-md bg-background/70 px-2 py-1">P {Math.round(log?.protein ?? 0)}g</span>
-                            <span className="rounded-md bg-background/70 px-2 py-1">C {Math.round(log?.carbs ?? 0)}g</span>
-                            <span className="rounded-md bg-background/70 px-2 py-1">F {Math.round(log?.fat ?? 0)}g</span>
-                            <span className="rounded-md bg-background/70 px-2 py-1">Fi {Math.round(log?.fiber ?? 0)}g</span>
+                            <span className="rounded-xl bg-background/70 px-2 py-1">{Math.round(log?.calories ?? 0)} kcal</span>
+                            <span className="rounded-xl bg-background/70 px-2 py-1">P {Math.round(log?.protein ?? 0)}g</span>
+                            <span className="rounded-xl bg-background/70 px-2 py-1">C {Math.round(log?.carbs ?? 0)}g</span>
+                            <span className="rounded-xl bg-background/70 px-2 py-1">F {Math.round(log?.fat ?? 0)}g</span>
+                            <span className="rounded-xl bg-background/70 px-2 py-1">Fi {Math.round(log?.fiber ?? 0)}g</span>
                           </div>
                           {micronutrientTrackingEnabled && Object.keys(parseMicronutrientMap(log?.micronutrients)).length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -916,52 +1313,97 @@ export default function NutritionPage() {
       </FadeIn>
 
       {/* Muscle Building Meal Ideas */}
-      <FadeIn delay={0.3}>
-        <Card>
+      <FadeIn delay={0.3} className="order-7">
+        <Card className="rounded-[26px]">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Apple className="w-5 h-5 text-primary" />
-              Muscle-Building Food Ideas
-            </CardTitle>
+            <div className="grid gap-3 sm:flex sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Apple className="w-5 h-5 text-primary" />
+                  Muscle-Building Food Ideas
+                </CardTitle>
+                <p className="mt-1 text-sm text-muted-foreground">All portions are grams-based so your logs stay consistent.</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 rounded-2xl"
+                  onClick={() => setShowFoodIdeas((value) => !value)}
+                >
+                  {showFoodIdeas ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
+                  {showFoodIdeas ? "Hide" : "Show"}
+                </Button>
+                {showFoodIdeas && (
+                  <Select value={foodIdeaFilter} onValueChange={setFoodIdeaFilter}>
+                    <SelectTrigger className="h-11 rounded-2xl sm:w-44">
+                      <Filter className="mr-2 h-4 w-4" />
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {foodIdeaCategories.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            </div>
           </CardHeader>
+          {showFoodIdeas && (
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {mealSuggestions.map((s: any) => (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredFoodIdeas.map((s: any) => (
                 <button
                   key={s?.name}
                   onClick={() => {
                     selectSuggestion(s);
                     setDialogOpen(true);
                   }}
-                  className="p-3 rounded-lg border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-left"
+                  className="rounded-[22px] border border-border bg-background/45 p-4 text-left transition active:scale-[0.99] hover:border-primary/50 hover:bg-primary/5"
                 >
-                  <p className="font-medium text-sm">{s?.name}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{s?.serving}</p>
-                  <div className="flex gap-3 mt-2 text-xs font-mono">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold">{s?.name}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{s?.serving}</p>
+                    </div>
+                    <Badge variant="secondary" className="capitalize">{String(s?.category ?? "").replace(/_/g, " ")}</Badge>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-mono">
                     <span className="text-orange-500">{s?.calories} kcal</span>
                     <span className="text-blue-500">P: {s?.protein}g</span>
                     <span className="text-green-500">C: {s?.carbs}g</span>
+                    <span className="text-purple-500">F: {s?.fat}g</span>
                   </div>
+                  {micronutrientTrackingEnabled && (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                      <Leaf className="h-3.5 w-3.5 text-orange-400" />
+                      <span className="truncate">
+                        {Object.keys(parseMicronutrientMap(s?.micronutrients)).slice(0, 3).map((key) => MICRONUTRIENTS.find((item) => item.key === key)?.label ?? key).join(", ")}
+                      </span>
+                    </div>
+                  )}
                 </button>
               ))}
             </div>
           </CardContent>
+          )}
         </Card>
       </FadeIn>
         </TabsContent>
 
         <TabsContent value="diet" className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="grid min-w-0 gap-3 sm:flex sm:items-center sm:justify-between">
+            <div className="min-w-0">
               <h3 className="text-lg font-semibold">Diet Plans</h3>
               <p className="text-sm text-muted-foreground">Create meal plans for breakfast, snacks, lunch, and dinner.</p>
             </div>
-            <Button onClick={() => openDietDialog()}>
+            <Button onClick={() => openDietDialog()} className="h-11 w-full rounded-2xl sm:w-auto">
               <Plus className="w-4 h-4 mr-2" />Add Diet
             </Button>
           </div>
           {(dietPlans ?? []).length === 0 ? (
-            <Card>
+            <Card className="rounded-[26px]">
               <CardContent className="py-12 text-center">
                 <Apple className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
                 <p className="text-muted-foreground">No diet plans yet. Ask Dayza Agent to create one or add it manually.</p>
@@ -973,15 +1415,15 @@ export default function NutritionPage() {
                 {dietPlans.map((plan) => {
                   const meals = parseDietMeals(plan);
                   return (
-                    <Card key={plan.id}>
+                    <Card key={plan.id} className="max-w-full overflow-hidden rounded-[26px]">
                     <CardHeader>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
+                      <div className="grid min-w-0 gap-3 sm:flex sm:items-start sm:justify-between">
+                        <div className="min-w-0">
                           <CardTitle className="text-lg">{plan.name}</CardTitle>
                           {plan.goal && <p className="text-sm text-muted-foreground capitalize">{plan.goal.replace(/_/g, " ")}</p>}
                         </div>
-                        <div className="flex gap-1">
-                          <Button variant="outline" size="sm" onClick={() => handleApplyDiet(plan)} className="gap-1 text-xs">
+                        <div className="flex flex-wrap gap-1">
+                          <Button variant="outline" size="sm" onClick={() => handleApplyDiet(plan)} className="gap-1 rounded-full text-xs">
                             <CalendarCheck className="w-3.5 h-3.5" />
                             Apply Today
                           </Button>
@@ -997,7 +1439,7 @@ export default function NutritionPage() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       {meals.map((meal: any, index: number) => (
-                        <div key={`${meal.mealType}-${index}`} className="rounded-lg bg-muted/40 p-3">
+                        <div key={`${meal.mealType}-${index}`} className="rounded-[20px] bg-muted/40 p-3">
                           <div className="flex items-center justify-between gap-2">
                             <p className="font-medium">{meal.mealType}</p>
                             <Badge variant="outline">{Math.round(meal.calories ?? 0)} kcal</Badge>
@@ -1023,7 +1465,7 @@ export default function NutritionPage() {
       </Tabs>
 
       <Dialog open={dietDialogOpen} onOpenChange={(open) => { setDietDialogOpen(open); if (!open) resetDietForm(); }}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[92svh] max-w-3xl rounded-t-[28px] sm:rounded-2xl">
           <DialogHeader>
             <DialogTitle>{editingDietId ? "Edit Diet" : "Add Diet"}</DialogTitle>
           </DialogHeader>
@@ -1036,13 +1478,13 @@ export default function NutritionPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Meals</Label>
-                <Button type="button" size="sm" variant="outline" onClick={addDietMeal}><Plus className="w-4 h-4 mr-2" />Add Meal</Button>
+                <Button type="button" size="sm" variant="outline" onClick={addDietMeal} className="rounded-full"><Plus className="w-4 h-4 mr-2" />Add Meal</Button>
               </div>
               {dietForm.meals.map((meal, index) => (
-                <div key={index} className="grid gap-2 rounded-lg bg-muted/40 p-3 md:grid-cols-[130px_1fr_1fr_80px_80px_80px_80px_36px] md:items-end">
+                <div key={index} className="grid gap-2 rounded-[22px] bg-muted/40 p-3 md:grid-cols-[130px_1fr_1fr_80px_80px_80px_80px_36px] md:items-end">
                   <div><Label className="text-xs">Meal</Label><Input value={meal.mealType} onChange={(e) => updateDietMeal(index, "mealType", e.target.value)} className="mt-1" /></div>
                   <div><Label className="text-xs">Title</Label><Input value={meal.title} onChange={(e) => updateDietMeal(index, "title", e.target.value)} className="mt-1" /></div>
-                  <div><Label className="text-xs">Foods</Label><Input value={meal.foods} onChange={(e) => updateDietMeal(index, "foods", e.target.value)} className="mt-1" placeholder="comma separated" /></div>
+                  <div><Label className="text-xs">Foods</Label><Input value={meal.foods} onChange={(e) => updateDietMeal(index, "foods", e.target.value)} className="mt-1" placeholder="Oats 60 g, eggs 100 g" /></div>
                   <div><Label className="text-xs">Kcal</Label><Input type="number" value={meal.calories} onChange={(e) => updateDietMeal(index, "calories", e.target.value)} className="mt-1" /></div>
                   <div><Label className="text-xs">Protein</Label><Input type="number" value={meal.protein} onChange={(e) => updateDietMeal(index, "protein", e.target.value)} className="mt-1" /></div>
                   <div><Label className="text-xs">Carbs</Label><Input type="number" value={meal.carbs} onChange={(e) => updateDietMeal(index, "carbs", e.target.value)} className="mt-1" /></div>
@@ -1053,7 +1495,7 @@ export default function NutritionPage() {
                 </div>
               ))}
             </div>
-            <Button onClick={handleSaveDiet} className="w-full">{editingDietId ? "Update Diet" : "Create Diet"}</Button>
+            <Button onClick={handleSaveDiet} className="h-12 w-full rounded-2xl" loading={savingDiet} disabled={savingDiet}>{editingDietId ? "Update Diet" : "Create Diet"}</Button>
           </div>
         </DialogContent>
       </Dialog>

@@ -7,7 +7,7 @@ export default function PrivacyPage() {
         <div>
           <Link href="/" className="text-sm text-primary hover:underline">Dayza</Link>
           <h1 className="mt-3 font-display text-3xl font-bold tracking-tight">Privacy Policy</h1>
-          <p className="mt-2 text-sm text-muted-foreground">Last updated: May 29, 2026</p>
+          <p className="mt-2 text-sm text-muted-foreground">Last updated: June 25, 2026</p>
         </div>
 
         <PolicySection title="Overview">
@@ -27,7 +27,7 @@ export default function PrivacyPage() {
         </PolicySection>
 
         <PolicySection title="Gmail Data">
-          If you grant Gmail read-only access, Dayza uses it only when you explicitly run the Gmail receipt import feature in Spends. The app scans receipt-like messages to extract merchant, amount, date, sender, subject, and related receipt metadata for personal expense tracking. Dayza does not send, delete, modify, archive, label, or forward Gmail messages.
+          If you grant Gmail read-only access, Dayza uses it only when you explicitly run Gmail-powered features. Gmail receipt import in Spends scans receipt-like messages and statement PDFs to extract merchant, amount, date, transaction reference, card/account match, sender, subject, and related receipt or statement metadata for personal expense tracking. Gmail Tracker reads recent message headers, snippets, label identifiers, sender, subject, and date so Dayza can group updates such as bills, finance, travel, health, work, orders, security, and subscriptions. Dayza does not send, delete, modify, archive, label, or forward Gmail messages, and Gmail Tracker does not store full email bodies or raw PDF text.
         </PolicySection>
 
         <PolicySection title="How Dayza Uses Data">

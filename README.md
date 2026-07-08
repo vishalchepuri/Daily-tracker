@@ -69,7 +69,8 @@ Required values:
 DATABASE_URL="postgresql://USER:PASSWORD@HOST/DATABASE?sslmode=require"
 APP_SECRET="replace-with-a-long-random-secret"
 APP_URL="http://localhost:3000"
-ABACUSAI_API_KEY="your-key"
+GEMINI_API_KEY="your-key"
+DAYZA_GEMINI_MODEL="gemini-3.5-flash"
 ```
 
 Gmail spend import and YouTube summaries require the Gmail and YouTube Data APIs enabled in the same Google/Firebase project.
@@ -116,7 +117,7 @@ This app cannot be fully hosted on GitHub Pages / `github.io` because it uses:
 - Next.js API routes
 - Firebase Auth server-side session verification
 - Prisma database access
-- private environment variables such as `DATABASE_URL`, `APP_SECRET`, `ABACUSAI_API_KEY`, and `TELEGRAM_BOT_TOKEN`
+- private environment variables such as `DATABASE_URL`, `APP_SECRET`, `GEMINI_API_KEY`, and `TELEGRAM_BOT_TOKEN`
 
 GitHub Pages only serves static files and does not provide a secure server runtime for those secrets.
 
@@ -128,6 +129,7 @@ Recommended hosting:
 - Fly.io
 
 Set environment variables in the hosting provider's dashboard. Do not put secrets in source code or commit them to GitHub.
+For Hobby Vercel projects, use an external scheduler such as cron-job.org for frequent reminder push dispatches.
 
 ## Features
 

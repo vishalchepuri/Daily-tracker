@@ -49,7 +49,13 @@ export function TaskCard({
             <Button variant="ghost" size="icon" onClick={() => onEdit(id)}>
               <Pencil className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="icon" onClick={() => onDelete(id)}>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => {
+                if (window.confirm(`Delete "${title}"? This cannot be undone.`)) onDelete(id)
+              }}
+            >
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
